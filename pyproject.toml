@@ -1,7 +1,46 @@
 [project]
 name = "evio"
 version = "0.1.0"
-description = "I/O tool for standardized reading of event camera data, live or prerecorded."
+description = "Minimal library for standardized handling of event camera data."
 readme = "README.md"
-requires-python = ">=3.9"
-dependencies = []
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Ahti Helminen" }]
+keywords = ["event-camera", "DVS", "neuromorphic", "stream", "asyncio"]
+classifiers = [
+"Programming Language :: Python :: 3",
+"License :: OSI Approved :: MIT License",
+"Topic :: Scientific/Engineering :: Image Processing",
+]
+
+dependencies = [
+"numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = [
+"pytest>=8",
+"ruff>=0.6",
+"mypy>=1.10",
+"types-setuptools",
+]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+default-groups = []
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+mypy_path = "src"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["src"]
+select = ["E", "F", "I", "UP", "B"]
