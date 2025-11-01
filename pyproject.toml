@@ -1,6 +1,6 @@
 [project]
 name = "evio"
-version = "0.0.0"
+version = "0.1.0"
 description = "Minimal library for standardized handling of event camera data."
 readme = "README.md"
 requires-python = ">=3.10"
