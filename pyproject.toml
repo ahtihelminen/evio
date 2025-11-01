@@ -1,0 +1,7 @@
+[project]
+name = "evio"
+version = "0.1.0"
+description = "I/O tool for standardized reading of event camera data, live or prerecorded."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
