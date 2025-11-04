@@ -14,7 +14,8 @@ classifiers = [
 ]
 
 dependencies = [
-"numpy>=1.24",
+    "expelliarmus>=1.1.12",
+    "numpy>=1.24",
 ]
 
 [project.optional-dependencies]
