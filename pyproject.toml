@@ -14,7 +14,8 @@ classifiers = [
 ]
 
 dependencies = [
-"numpy>=1.24",
+    "expelliarmus>=1.1.12",
+    "numpy>=1.24",
 ]
 
 [project.optional-dependencies]
@@ -40,7 +41,43 @@ warn_redundant_casts = true
 mypy_path = "src"
 
 [tool.ruff]
-target-version = "py310"
-line-length = 100
-src = ["src"]
-select = ["E", "F", "I", "UP", "B"]
+line-length = 80
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+	"A",    # builtins
+	"ANN",  # type annotations
+	"B",    # bugbear
+	"BLE",  # blind exception
+	"C4",   # comprehensions
+	"COM",  # commas
+	"D",    # pydocstyle
+	"E",    # pycodestyle
+	"EM",   # errormessage
+	"EXE",  # executable
+	"F",    # pyflakes
+	"FURB", # refurb
+	"I",    # isort
+	"ICN",  # import-conventions
+	"INP",  # implicit-namespace-package
+	"NPY",  # numpy
+	"PERF", # perflint
+	"PIE",  # misc dict stuff
+	"PTH",  # pathlib
+	"RET",  # return
+	"RUF",  # ruff
+	"SIM",  # simplify
+	"T10",  # debugger
+	"TRY",  # tryceratops
+	"UP",   # pyupgrade
+]
+ignore = [
+	# Optional function, module, and package docstrings
+	"D100",
+	"D101",
+	"D102",
+	"D103",
+	"D104",
+	"COM812",
+]
