@@ -21,8 +21,8 @@ def open_dat(
     data_offset: int | None = None,
     time_unit: str = "auto",
 ) -> Recording:
-    """
-    Minimal loader: memmap [(t32,u4),(w32,u4)], build stable time order.
+    """Minimal loader: memmap [(t32,u4),(w32,u4)], build stable time order.
+
     If data_offset is None, tries to auto-scan header lines starting with '%'.
     """
     path = Path(path)
