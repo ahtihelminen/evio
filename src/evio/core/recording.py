@@ -8,8 +8,9 @@ import numpy as np
 class Recording:
     width: int
     height: int
-    t_us: np.ndarray  # int64, sorted monotonic
-    w32: np.ndarray  # uint32 memmap view of packed XY+polarity
+    timestamps: np.ndarray  # int64, sorted monotonic, [microseconds]
+    event_words: np.ndarray  # each word is uint32 memmap view of
+    # packed XY+polarity
     order: np.ndarray  # int32 permutation mapping sort order
 
 
@@ -19,7 +20,6 @@ def open_dat(
     width: int,
     height: int,
     data_offset: int | None = None,
-    time_unit: str = "auto",
 ) -> Recording:
     """Minimal loader: memmap [(t32,u4),(w32,u4)], build stable time order.
 
@@ -54,30 +54,20 @@ def open_dat(
         off = int(data_offset)
 
     DT8 = np.dtype([("t32", "<u4"), ("w32", "<u4")])
-    m = np.memmap(path, dtype=DT8, mode="r", offset=off)
+    events = np.memmap(path, dtype=DT8, mode="r", offset=off)
 
-    t_raw = m["t32"].astype(np.int64, copy=False)
-    if t_raw.size == 0:
+    timestamps = events["t32"].astype(np.int64, copy=False)
+    if timestamps.size == 0:
         msg = "No events"
         raise RuntimeError(msg)
-    if time_unit == "auto":
-        span = int(t_raw[-1] - t_raw[0]) if t_raw.size > 1 else 0
-        unit = (
-            "ns" if span > 1_000_000_000 else ("us" if span > 100_000 else "ms")
-        )
-    else:
-        unit = time_unit
-    if unit == "ns":
-        t_us = (t_raw // 1_000).astype(np.int64, copy=False)
-    elif unit == "ms":
-        t_us = (t_raw * 1_000).astype(np.int64, copy=False)
-    else:
-        t_us = t_raw
-
-    order = np.argsort(t_us, kind="stable").astype(np.int32, copy=False)
-    t_us_sorted = t_us[order]
-    w32 = m["w32"]  # keep as memmap; we'll index with order on demand
+    order = np.argsort(timestamps, kind="stable").astype(np.int32, copy=False)
+    timestamps_sorted = timestamps[order]
+    event_words = events["w32"]
 
     return Recording(
-        width=width, height=height, t_us=t_us_sorted, w32=w32, order=order
+        width=width,
+        height=height,
+        timestamps=timestamps_sorted,
+        event_words=event_words,
+        order=order,
     )
