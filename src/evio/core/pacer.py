@@ -1,92 +1,102 @@
-# evio/pacing/pacer.py
-from __future__ import annotations
-
 import time
-from collections.abc import Callable, Iterable, Iterator
-from typing import Optional
+from collections.abc import Iterable, Iterator
 
 from evio.source.dat_file import BatchRange
 
 
 class Pacer:
-    """
-    'display' -> speed-based pacing tied to event timestamps (1.0 = realtime).
-                 Drops overdue batches; if early, blocks until target time.
-    'asap'    -> no pacing, no dropping.
-    """
-
-    __slots__ = ("mode", "speed", "drop_tolerance_s", "_t0", "_e0", "_pump_cb")
+    __slots__ = (
+        "_dropped_batches",
+        "_e_start",
+        "_emitted_batches",
+        "_t_start",
+        "drop_tolerance_s",
+        "speed",
+    )
 
     def __init__(
         self,
-        mode: str = "display",
         speed: float = 1.0,
         drop_tolerance_s: float = 0.0,
-        pump_cb: Optional[
-            Callable[[], None]
-        ] = None,  # e.g. lambda: cv2.waitKey(1)
     ) -> None:
-        assert mode in ("display", "asap")
-        self.mode = mode
         self.speed = max(float(speed), 1e-9)
         self.drop_tolerance_s = max(0.0, float(drop_tolerance_s))
-        self._t0: float | None = None  # wall-clock anchor
-        self._e0: int | None = None  # event-time anchor (µs)
-        self._pump_cb = pump_cb
+        self._t_start: float | None = None  # wall-clock anchor
+        self._e_start: int | None = None  # event-time anchor (µs)
 
+        # --- new counters ---
+        self._dropped_batches: int = 0
+        self._emitted_batches: int = 0
+
+    # --- new helper API (optional but handy) ---
+    @property
+    def dropped_batches(self) -> int:
+        """Number of batches skipped because they were overdue."""
+        return self._dropped_batches
+
+    @property
+    def emitted_batches(self) -> int:
+        """Number of batches actually yielded downstream."""
+        return self._emitted_batches
+
+    def reset_stats(self) -> None:
+        """Zero the counters (useful when starting a new clip/loop)."""
+        self._dropped_batches = 0
+        self._emitted_batches = 0
+
+    # --- existing internals ---
     def _target_wall_s(self, end_ts_us: int) -> float:
         # event elapsed (s) scaled by speed factor
-        return max(0.0, (end_ts_us - (self._e0 or 0)) / 1e6) / self.speed
+        return max(0.0, (end_ts_us - (self._e_start or 0)) / 1e6) / self.speed
 
     def _sleep_until(self, target_rel_s: float) -> None:
         # Sleep in chunks so UI can be pumped and OS timers stay accurate
         while True:
-            now_s = time.perf_counter() - (self._t0 or time.perf_counter())
+            now_s = time.perf_counter() - (self._t_start or time.perf_counter())
             dt = target_rel_s - now_s
             if dt <= 0:
                 break
-            time.sleep(dt if dt < 0.05 else 0.05)
-            if self._pump_cb is not None:
-                self._pump_cb()
+            time.sleep(min(0.05, dt))
 
     def pace(self, batches: Iterable[BatchRange]) -> Iterator[BatchRange]:
-        if self.mode == "asap":
-            yield from batches
-            return
-
-        it = iter(batches)
+        iterator = iter(batches)
         try:
-            b = next(it)
+            batch_range = next(iterator)
         except StopIteration:
             return
 
-        if self._t0 is None:
-            self._t0 = time.perf_counter()
-            self._e0 = b.start_ts_us
+        if self._t_start is None:
+            self._t_start = time.perf_counter()
+            self._e_start = batch_range.start_ts_us
 
         while True:
             # Missing timestamps? just yield (no pacing)
-            if b.end_ts_us == 0 or self._e0 is None:
-                yield b
+            if batch_range.end_ts_us == 0 or self._e_start is None:
+                self._emitted_batches += 1
+                yield batch_range
             else:
-                target_s = self._target_wall_s(b.end_ts_us)
-                now_s = time.perf_counter() - self._t0
+                target_s = self._target_wall_s(batch_range.end_ts_us)
+                now_s = time.perf_counter() - self._t_start
                 lag_s = now_s - target_s
                 if lag_s > self.drop_tolerance_s:
                     # Drop overdue batch and continue catching up
+                    self._dropped_batches += 1  # <-- increment here
                     try:
-                        b = next(it)
+                        batch_range = next(iterator)
                         continue
                     except StopIteration:
-                        yield b
+                        # nothing more to drop; yield the last one we had
+                        self._emitted_batches += 1
+                        yield batch_range
                         return
                 else:
                     # We're early: block until target_s (handles long windows)
                     if target_s > now_s:
                         self._sleep_until(target_s)
-                    yield b
+                    self._emitted_batches += 1
+                    yield batch_range
 
             try:
-                b = next(it)
+                batch_range = next(iterator)
             except StopIteration:
                 return
