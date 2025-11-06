@@ -26,29 +26,27 @@ Minimal Python library for standardized handling of event camera data.
 ├─ src/
 │  └─ evio/
 │     ├─ __init__.py
-│     ├─ core/
-│     │  ├─ __init__.py
-│     │  ├─ types.py        # EventArray/EventPacket Protocols
-│     │  ├─ packet.py       # NumPy-backed Packet
-│     │  ├─ clock.py        # pacing utilities
-│     │  └─ mmap.py         # minimal .dat memmap reader
-│     ├─ sources/
-│     │  ├─ __init__.py
-│     │  ├─ base.py         # Source protocol
-│     │  ├─ file_dat.py     # FileSource (with pacing)
-│     │  ├─ usb_base.py     # USBSource protocol
-│     │  └─ synthetic.py    # SyntheticSource for tests
-│     ├─ io/
-│     │  ├─ __init__.py
-│     │  └─ dat_spec.py     # .dat header parser
-│     └─ util/
-│        ├─ __init__.py
-│        └─ blocking.py     # run_async_iter_sync()
+│     ├── core/
+│     │   ├── __init__.py
+│     │   ├── recording.py
+│     │   ├── policy.py
+│     │   └── index_scheduler.py
+│     ├── source/
+│     │   ├── __init__.py
+│     │   ├── dat_file.py
+│     │   └── live_stub.py
+│     ├── pacing/
+│     │   ├── __init__.py
+│     │   └── pacer.py
+│     ├── render/
+│     │   ├── __init__.py
+│     │   └── last.py
+│     └── transforms/
+│         ├── __init__.py
+│         └── basic.py
 ├─ scripts/
-│  ├─ play_dat.py           # playback example
-│  ├─ dump_stats.py         # print event rate stats
-│  ├─ to_npz.py             # export .dat to npz
-│  └─ live_stub.py          # template for live adapters
+│  ├─ play_dat.py           
+│  └─ convert_raw_to_dat.py
 └─ tests/
    ├─ test_file_source.py
    ├─ test_timing.py
