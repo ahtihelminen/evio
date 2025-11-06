@@ -53,7 +53,6 @@ select = [
 	"BLE",  # blind exception
 	"C4",   # comprehensions
 	"COM",  # commas
-	"D",    # pydocstyle
 	"E",    # pycodestyle
 	"EM",   # errormessage
 	"EXE",  # executable
@@ -74,12 +73,5 @@ select = [
 	"UP",   # pyupgrade
 ]
 ignore = [
-	# Optional function, module, and package docstrings
-	"D100",
-	"D101",
-	"D102",
-	"D103",
-	"D104",
-	"D105",
 	"COM812",
 ]
