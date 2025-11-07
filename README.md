@@ -30,17 +30,13 @@ Minimal Python library for standardized handling of event camera data.
 │     │   ├── __init__.py
 │     │   ├── recording.py
 │     │   ├── policy.py
-│     │   └── index_scheduler.py
+│     │   ├── index_scheduler.py
+│     │   ├── pacer.py
+│     │   └── render.py
 │     ├── source/
 │     │   ├── __init__.py
 │     │   ├── dat_file.py
 │     │   └── live_stub.py
-│     ├── pacing/
-│     │   ├── __init__.py
-│     │   └── pacer.py
-│     ├── render/
-│     │   ├── __init__.py
-│     │   └── last.py
 │     └── transforms/
 │         ├── __init__.py
 │         └── basic.py
