@@ -2,7 +2,7 @@
 
 Minimal Python library for standardized handling of event camera data.
 
-**evio** provides a single abstraction for event streams. Each source yields standardized event packets containing `(x, y, t, p)` arrays. This makes algorithms and filters source-agnostic.
+**evio** provides a single abstraction for event streams. Each source yields standardized event packets containing `x_coords, y_coords, timestamps, polarities` arrays. This makes algorithms and filters source-agnostic.
 
 ---
 
@@ -44,17 +44,15 @@ Minimal Python library for standardized handling of event camera data.
 Clone the repo and in the repo root run
 
 ```bash
-# install in editable mode (using uv or pip)
+# create venv and install dependencies.
 uv sync
 
-# play back a .dat file in real time
+# play a .dat file in real time
 uv run scripts/play_dat.py path/to/dat/file.dat
 ```
 
+Adjust window duration in ms using `--window` argument and playback speed factor with `--speed` argument. When event data is constructed to frames we take all events between t and t + window and display them in the frame. With very short windows the rendering of the frames can take longer than the actual window duration and the player falls behind (depends on the playback speed), you can see this by comparing the wall clock to the recording clock in the GUI. In such cases you can force the playback speed with a `--force-speed` argument. This drops enough frames to make the recording play according to the set speed.
 ---
-
-## Istalling openeb on macOS
-
 
 ## License
 MIT
