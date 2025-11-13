@@ -9,7 +9,7 @@ Minimal Python library for standardized handling of event camera data.
 ## Features
 - Unified async interface for event streams
 - Read `.dat` recordings with optional real-time pacing
-- Extensible to live cameras via adapter classes (e.g., libcaer, Metavision)
+- Extensible to live cameras via adapter classes (requires Metavision SDK)
 
 ---
 
@@ -28,10 +28,10 @@ Minimal Python library for standardized handling of event camera data.
       ├─ __init__.py
       ├── core/
       │   ├── __init__.py
-      │   ├── recording.py
-      │   ├── policy.py
       │   ├── index_scheduler.py
-      │   └── pacer.py
+      │   ├── mmap.py
+      │   ├── pacer.py
+      │   └── recording.py
       └─── source/
           ├── __init__.py
           └── dat_file.py
@@ -52,6 +52,9 @@ uv run scripts/play_dat.py path/to/dat/file.dat
 ```
 
 ---
+
+## Istalling openeb on macOS
+
 
 ## License
 MIT
