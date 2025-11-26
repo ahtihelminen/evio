@@ -65,7 +65,7 @@ def get_frame(
 
 def draw_hud(
     frame: np.ndarray,
-    pacer: Pacer | StreamingPacer,
+    pacer: Pacer,
     batch_range: BatchRange,
     *,
     color: tuple[int, int, int] = (0, 0, 0),  # black by default
@@ -81,14 +81,16 @@ def draw_hud(
     actual_speed = rec_time_s / wall_time_s if wall_time_s > 0 else 0.0
 
     if pacer.force_speed:
-        # Forced-speed mode: show target speed and drop statistics
+        # Forced-speed mode: show target speed, instantaneous speed, and drop
+        # statistics
         first_row_str = (
             f"speed={pacer.speed:.2f}x"
             f"  drops/ms={pacer.instantaneous_drop_rate:.2f}"
             f"  avg(drops/ms)={pacer.average_drop_rate:.2f}"
         )
     else:
-        # Free-running mode: show target vs actual effective speed
+        # Free-running mode: show target vs actual effective speed plus
+        # instantaneous speed
         first_row_str = (
             f"target speed={pacer.speed:.2f}x  actual speed={actual_speed:.2f}x"
         )
@@ -131,28 +133,26 @@ def draw_hud_stream(
     if pacer.hud_wall_start_s is None or pacer.hud_event_start_us is None:
         return
 
-    wall_time_s = time.perf_counter() - pacer.hud_wall_start_s
-    rec_time_s = max(
-        0.0, (batch_range.end_ts_us - pacer.hud_event_start_us) / 1e6
-    )
-
-    # Effective speed factor based on total elapsed times
-    actual_speed = rec_time_s / wall_time_s if wall_time_s > 0 else 0.0
+    wall_time_s = pacer.hud_wall_elapsed_s()
+    rec_time_s = pacer.hud_recording_elapsed_s(batch_range.end_ts_us)
+    actual_speed = pacer.hud_actual_speed(batch_range.end_ts_us) or 0.0
+    inst_speed = pacer.instantaneous_speed
 
     if pacer.force_speed:
-        # Forced-speed mode: show target speed and drop statistics
+        # Forced-speed mode: show target/instant speeds and drop statistics
         first_row_str = (
             f"speed={pacer.speed:.2f}x"
+            f"  inst={inst_speed:.2f}x"
             f"  drops/ms={pacer.instantaneous_drop_rate:.2f}"
-            f"  avg(drops/ms)={pacer.average_drop_rate:.2f}"
+            f"  avg={pacer.average_drop_rate:.2f}"
         )
     else:
-        # Free-running mode: show target vs actual effective speed
-        first_row_str = (
-            f"target speed={pacer.speed:.2f}x  actual speed={actual_speed:.2f}x"
-        )
+        # Free-running mode: show target vs actual and instantaneous speed
+        first_row_str = f"target={pacer.speed:.2f}x  actual={actual_speed:.2f}x"
+        f"  inst={inst_speed:.2f}x"
 
     second_row_str = f"wall={wall_time_s:7.3f}s  rec={rec_time_s:7.3f}s"
+    f"  long-term={actual_speed:4.2f}x"
 
     # first row
     cv2.putText(
