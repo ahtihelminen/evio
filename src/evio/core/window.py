@@ -1,19 +1,7 @@
-from typing import NamedTuple
-
 import numpy as np
 from numba import njit
 from numba.typed import List
 from numpy.typing import NDArray
-
-from evio.core.batch_range import BatchRange
-
-
-class StreamingBatch(NamedTuple):
-    range: BatchRange
-    t: NDArray[np.int64]
-    x: NDArray[np.int16]
-    y: NDArray[np.int16]
-    p: NDArray[np.int8]
 
 
 @njit
