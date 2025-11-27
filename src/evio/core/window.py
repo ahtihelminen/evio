@@ -25,8 +25,6 @@ def window_events(
     List[NDArray[np.int16]],  # type: ignore
     List[NDArray[np.int16]],  # type: ignore
     List[NDArray[np.int8]],  # type: ignore
-    List[int],  # type: ignore
-    List[int],  # type: ignore
     int,
     int,
     int,
@@ -36,8 +34,6 @@ def window_events(
     x_coords_jit = List()  # type: ignore
     y_coords_jit = List()  # type: ignore
     polarities_jit = List()  # type: ignore
-    start_idxs_jit = List()  # type: ignore
-    stop_idxs_jit = List()  # type: ignore
 
     n_timestamps = timestamps.shape[0]
 
@@ -71,8 +67,6 @@ def window_events(
             x_coords_jit.append(x_coords_buffer_np)
             y_coords_jit.append(y_coords_buffer_np)
             polarities_jit.append(polarities_buffer_np)
-            start_idxs_jit.append(window_start_idx)
-            stop_idxs_jit.append(window_start_idx + n_timestamps_buffer)
 
             timestamps_buffer_jit.clear()
             x_coords_buffer_jit.clear()
@@ -94,8 +88,6 @@ def window_events(
         x_coords_jit,
         y_coords_jit,
         polarities_jit,
-        start_idxs_jit,
-        stop_idxs_jit,
         window_start_ts,
         window_start_idx,
         global_idx,
@@ -116,16 +108,12 @@ def flush_tail(
     List[NDArray[np.int16]],  # type: ignore
     List[NDArray[np.int16]],  # type: ignore
     List[NDArray[np.int8]],  # type: ignore
-    List[int],  # type: ignore
-    List[int],  # type: ignore
 ]:
     # Pylance cries about calling a module with numba lists, hence the ignores
     timestampts_jit = List()  # type: ignore
     timestamps_jit = List()  # type: ignore
     y_coords_jit = List()  # type: ignore
     polarities_jit = List()  # type: ignore
-    start_idxs_jit = List()  # type: ignore
-    stop_idxs_jit = List()  # type: ignore
 
     if len(timestamps_buffer_jit) > 0:
         n_timestamps_buffer = len(timestamps_buffer_jit)
@@ -146,8 +134,6 @@ def flush_tail(
         timestamps_jit.append(x_coords_buffer_np)
         y_coords_jit.append(y_coords_buffer_np)
         polarities_jit.append(polarities_buffer_np)
-        start_idxs_jit.append(start_idx)
-        stop_idxs_jit.append(start_idx + n_timestamps_buffer)
 
         timestamps_buffer_jit.clear()
         x_coords_buffer_jit.clear()
@@ -159,6 +145,4 @@ def flush_tail(
         timestamps_jit,
         y_coords_jit,
         polarities_jit,
-        start_idxs_jit,
-        stop_idxs_jit,
     )

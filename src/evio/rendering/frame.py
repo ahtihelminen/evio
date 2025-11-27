@@ -125,7 +125,7 @@ def draw_hud(
 def draw_hud_stream(
     frame: np.ndarray,
     pacer: StreamingPacer,
-    batch_range: BatchRange,
+    end_ts_us: int,
     *,
     color: tuple[int, int, int] = (0, 0, 0),  # black by default
 ) -> None:
@@ -134,8 +134,8 @@ def draw_hud_stream(
         return
 
     wall_time_s = pacer.hud_wall_elapsed_s()
-    rec_time_s = pacer.hud_recording_elapsed_s(batch_range.end_ts_us)
-    actual_speed = pacer.hud_actual_speed(batch_range.end_ts_us) or 0.0
+    rec_time_s = pacer.hud_recording_elapsed_s(end_ts_us)
+    actual_speed = pacer.hud_actual_speed(end_ts_us) or 0.0
     inst_speed = pacer.instantaneous_speed
 
     if pacer.force_speed:

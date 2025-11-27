@@ -93,11 +93,11 @@ class StreamingPacer:
 
     @staticmethod
     def _start_ts(batch: StreamingBatch) -> int:
-        return batch.batch_range.start_ts_us
+        return batch.timestamps[0]
 
     @staticmethod
     def _end_ts(batch: StreamingBatch) -> int:
-        return batch.batch_range.end_ts_us
+        return batch.timestamps[-1]
 
     # --- timing internals ---
 
