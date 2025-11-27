@@ -1,163 +1,184 @@
+from __future__ import annotations
+
 import time
 from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
 
 from evio.core.events import EventsBatch
 
 
+@dataclass(frozen=True)
+class PacerConfig:
+    """Immutable configuration for the streaming pacer.
+
+    All time-related config is stored in microseconds.
+    """
+
+    speed: float  # playback speed factor
+    force_speed: bool  # drop when behind
+    drop_tolerance: int = 0  # allowed lag in µs before dropping
+
+
+@dataclass
+class PacerState:
+    """
+    Pacer state. All time values are in microseconds.
+    """
+
+    # Anchors (set when first batch arrives)
+    wall_start: int | None = None  # wall-clock start (perf_counter domain, µs)
+    batch_start: int | None = None  # first event timestamp (µs)
+
+    # HUD anchors (set once, never re-anchored)
+    hud_wall_start: int | None = None  # wall start for HUD (µs)
+    hud_rec_start: int | None = None  # recording start for HUD (µs)
+
+    # Stats / runtime
+    dropped_batches: int = 0
+    emitted_batches: int = 0
+    drops_since_last_emit: int = 0
+    last_emit_event_time: int = 0  # last emitted event timestamp (µs)
+    last_emit_wall_time: int = 0  # last emit wall time (µs)
+    inst_drop_rate: float = 0.0  # drops / ms since last emit
+    avg_drop_rate: float = 0.0  # running average drops / ms
+    inst_speed: float = 0.0  # recent event-time / wall-time
+
+
 class StreamingPacer:
-    __slots__ = (
-        "_avg_drop_rate",
-        "_dropped_batches",
-        "_dropped_pending",
-        "_e_start",  # pacing event anchor (mutable)
-        "_emitted_batches",
-        "_hud_e_start",  # HUD event anchor (immutable)
-        "_hud_t_start",  # HUD wall anchor (immutable)
-        "_inst_drop_rate",
-        "_inst_speed",
-        "_last_emit_ts_us",
-        "_last_wall_emit_s",
-        "_t_start",  # pacing wall anchor (mutable)
-        "drop_tolerance_s",
-        "force_speed",
-        "speed",
-    )
+    """Real-time pacer for an iterable of EventsBatch."""
+
+    __slots__ = ("config", "state")
 
     def __init__(
         self,
         speed: float,
         force_speed: bool,
-        drop_tolerance_s: float = 0.0,
+        drop_tolerance_ms: float = 0.0,
     ) -> None:
-        self.speed = max(float(speed), 1e-9)
-        self.force_speed = force_speed
-        self.drop_tolerance_s = max(0.0, float(drop_tolerance_s))
+        drop_tolerance = int(drop_tolerance_ms * 1e3)
+        self.config = PacerConfig(
+            speed=speed,
+            force_speed=force_speed,
+            drop_tolerance=drop_tolerance,
+        )
+        self.state = PacerState()
 
-        # pacing anchors (can be reset)
-        self._t_start: float | None = None
-        self._e_start: int | None = None
+    # --- HUD API (returns seconds) --------------------------------------
 
-        # HUD anchors (set once, never changed)
-        self._hud_t_start: float | None = None
-        self._hud_e_start: int | None = None
+    def wall_elapsed(self) -> float:
+        """Wall-clock time since first batch was seen (seconds)."""
+        if self.state.hud_wall_start is None:
+            msg = "HUD wall clock not initialized"
+            raise ValueError(msg)
+        now_us = int(time.perf_counter() * 1e6)
+        return (now_us - self.state.hud_wall_start) / 1e6
 
-        # stats
-        self._dropped_batches = 0
-        self._emitted_batches = 0
-        self._dropped_pending = 0
-        self._last_emit_ts_us: int | None = None
-        self._last_wall_emit_s: float | None = None
-        self._inst_drop_rate = 0.0
-        self._avg_drop_rate = 0.0
-        self._inst_speed = 0.0
+    def recording_elapsed(self, end_time_us: int) -> float:
+        """Recording time since first batch (seconds)."""
+        if self.state.hud_rec_start is None:
+            msg = "HUD recording clock not initialized"
+            raise ValueError(msg)
+        return (end_time_us - self.state.hud_rec_start) / 1e6
 
-    @property
-    def hud_wall_start_s(self) -> float | None:
-        """Wall-clock anchor for HUD (perf_counter domain)."""
-        return self._hud_t_start
-
-    @property
-    def hud_event_start_us(self) -> int | None:
-        """Event-time anchor for HUD (µs)."""
-        return self._hud_e_start
-
-    # HUD helpers that never re-anchor (useful for long-term drift display)
-    def hud_wall_elapsed_s(self) -> float | None:
-        """Elapsed wall-clock time since first batch was seen."""
-        if self._hud_t_start is None:
-            return None
-        return time.perf_counter() - self._hud_t_start
-
-    def hud_recording_elapsed_s(
-        self, end_ts_us: int | None = None
-    ) -> float | None:
-        """Elapsed recording time (event domain) since first batch was seen."""
-        if self._hud_e_start is None:
-            return None
-
-        ts_us = end_ts_us if end_ts_us is not None else self._last_emit_ts_us
-        if ts_us is None:
-            return None
-
-        return max(0.0, (ts_us - self._hud_e_start) / 1e6)
-
-    def hud_actual_speed(self, end_ts_us: int | None = None) -> float | None:
-        """Long-term effective speed (recording elapsed / wall elapsed)."""
-        wall = self.hud_wall_elapsed_s()
-        rec = self.hud_recording_elapsed_s(end_ts_us)
-        if wall is None or wall <= 0 or rec is None:
-            return None
+    def actual_playback_speed(self, end_time_us: int) -> float:
+        """Long-term playback speed (event-time / wall-time)."""
+        wall = self.wall_elapsed()
+        rec = self.recording_elapsed(end_time_us)
         return rec / wall
 
-    # --- small helpers for StreamingBatch timestamps ---
+    # --- basic timestamp helpers (event domain, µs) ----------------------
 
     @staticmethod
-    def _start_ts(batch: EventsBatch) -> int:
-        return batch.timestamps[0]
+    def _batch_start(batch: EventsBatch) -> int:
+        return int(batch.timestamps[0])
 
     @staticmethod
-    def _end_ts(batch: EventsBatch) -> int:
-        return batch.timestamps[-1]
+    def _batch_end(batch: EventsBatch) -> int:
+        return int(batch.timestamps[-1])
 
-    # --- timing internals ---
+    # --- internal helpers -----------------------------------------------
 
-    def _target_wall_s(self, end_ts_us: int) -> float:
-        # event elapsed (s) scaled by speed factor
-        return max(0.0, (end_ts_us - (self._e_start or 0)) / 1e6) / self.speed
+    def _initialize_pacer_state(self, first_batch: EventsBatch) -> None:
+        """Initialize pacing and HUD anchors from the first batch."""
+        if self.state.wall_start is not None:
+            return
 
-    def _sleep_until(self, target_rel_s: float) -> None:
-        # Sleep in chunks so UI can be pumped and OS timers stay accurate
+        now = int(time.perf_counter() * 1e6)
+        recording_start_timestamp = self._batch_start(first_batch)
+
+        # Pacing anchors
+        self.state.wall_start = now
+        self.state.batch_start = recording_start_timestamp
+
+        # Last emit (event + wall) start from first batch
+        self.state.last_emit_event_time = recording_start_timestamp
+        self.state.last_emit_wall_time = now
+
+        # HUD anchors set once
+        if self.state.hud_wall_start is None:
+            self.state.hud_wall_start = now
+        if self.state.hud_rec_start is None:
+            self.state.hud_rec_start = recording_start_timestamp
+
+    def _reanchor(self, batch: EventsBatch) -> None:
+        """Reset pacing anchors to this batch (used for resync)."""
+        now = int(time.perf_counter() * 1e6)
+        batch_start_timestamp = self._batch_start(batch)
+
+        self.state.wall_start = now
+        self.state.batch_start = batch_start_timestamp
+        self.state.last_emit_event_time = batch_start_timestamp
+        self.state.last_emit_wall_time = now
+
+    def _target_wall_us(self, end_time: int) -> float:
+        """Desired wall-clock elapsed time for this batch (µs)."""
+        assert self.state.batch_start is not None
+        event_elapsed = end_time - self.state.batch_start
+        # Scale by playback speed; keep units in µs
+        return event_elapsed / self.config.speed
+
+    def _sleep_until(self, relative_targe_time: float) -> None:
+        """Sleep until relative wall time reaches relative_target_time (µs)."""
+        assert self.state.wall_start is not None
         while True:
-            now_s = time.perf_counter() - (self._t_start or time.perf_counter())
-            dt = target_rel_s - now_s
-            if dt <= 0:
+            now = int(time.perf_counter() * 1e6) - self.state.wall_start
+            time_diff = relative_targe_time - now
+            if time_diff <= 0:
                 break
-            time.sleep(min(0.05, dt))
+            time.sleep(time_diff / 1e6)
 
     def _snapshot_and_yield(self, batch: EventsBatch) -> Iterator[EventsBatch]:
-        """Emit batch and compute instantaneous + average drop rates."""
-        self._emitted_batches += 1
+        """Emit batch and update instantaneous/average stats."""
+        state = self.state
+        end_time = self._batch_end(batch)
 
-        # Compute drop rate (drops per second of event time)
-        if self._last_emit_ts_us is not None:
-            dt_ms = max(
-                (self._end_ts(batch) - self._last_emit_ts_us) / 1e3, 1e-9
-            )
-            self._inst_drop_rate = self._dropped_pending / dt_ms
-        else:
-            self._inst_drop_rate = 0.0
+        state.emitted_batches += 1
 
-        # Compute instantaneous playback speed (event-time / wall-time)
-        now_wall = time.perf_counter()
-        last_ts = (
-            self._last_emit_ts_us
-            if self._last_emit_ts_us is not None
-            else self._start_ts(batch)
+        # Drop rate over event time since previous emit
+        last_emit_event_time_diff = end_time - state.last_emit_event_time
+        state.inst_drop_rate = (
+            state.drops_since_last_emit * 1e3 / last_emit_event_time_diff
         )
-        dt_event_s = max((self._end_ts(batch) - last_ts) / 1e6, 0.0)
-        dt_wall_s = max(
-            now_wall
-            - (
-                self._last_wall_emit_s
-                if self._last_wall_emit_s is not None
-                else self._t_start or now_wall
-            ),
-            1e-9,
-        )
-        self._inst_speed = dt_event_s / dt_wall_s
 
-        # Update running average
-        n = self._emitted_batches
-        self._avg_drop_rate += (self._inst_drop_rate - self._avg_drop_rate) / n
+        # Instantaneous playback speed (event-time / wall-time)
+        now = int(time.perf_counter() * 1e6)
+        last_emit_wall_time_diff = now - state.last_emit_wall_time
 
-        # Reset per-window accumulator and update last timestamp
-        self._dropped_pending = 0
-        self._last_emit_ts_us = self._end_ts(batch)
-        self._last_wall_emit_s = now_wall
+        state.inst_speed = last_emit_event_time_diff / last_emit_wall_time_diff
+
+        # Running average drop rate
+        state.avg_drop_rate += (
+            state.inst_drop_rate - state.avg_drop_rate
+        ) / state.emitted_batches
+
+        # Reset per-window accumulator and update last timestamps
+        state.drops_since_last_emit = 0
+        state.last_emit_event_time = end_time
+        state.last_emit_wall_time = now
 
         yield batch
 
-    # --- public pacing API ---
+    # --- main pacing API -------------------------------------------------
 
     def pace(self, batches: Iterable[EventsBatch]) -> Iterator[EventsBatch]:
         iterator = iter(batches)
@@ -166,83 +187,62 @@ class StreamingPacer:
         except StopIteration:
             return
 
-        if self._t_start is None:
-            now = time.perf_counter()
-            first_ts = self._start_ts(batch)
-
-            # pacing anchors
-            self._t_start = now
-            self._e_start = first_ts
-            self._last_emit_ts_us = first_ts
-
-            # HUD anchors: set once, never touched again
-            if self._hud_t_start is None:
-                self._hud_t_start = now
-            if self._hud_e_start is None:
-                self._hud_e_start = first_ts
+        self._initialize_pacer_state(batch)
 
         while True:
-            target_s = self._target_wall_s(self._end_ts(batch))
-            now_s = time.perf_counter() - self._t_start
-            lag_s = now_s - target_s
+            end_time = self._batch_end(batch)
+            target_time = self._target_wall_us(end_time)
 
-            if self.force_speed and lag_s > 0:
-                if self._emitted_batches == 0:
-                    # One-time resync at startup so we don't drop everything
-                    # that arrived before playback began.
-                    now = time.perf_counter()
-                    start_ts = self._start_ts(batch)
-                    self._t_start = now
-                    self._e_start = start_ts
-                    self._last_emit_ts_us = start_ts
+            assert self.state.wall_start is not None
+            now = int(time.perf_counter() * 1e6) - self.state.wall_start
+            lag = now - target_time
 
-                    target_s = 0.0
-                    now_s = 0.0
-                    lag_s = 0.0
+            if self.config.force_speed and lag > 0:
+                if self.state.emitted_batches == 0:
+                    # One-time resync at startup
+                    self._reanchor(batch)
+                    target_time = 0.0
+                    now = 0.0
+                    lag = 0.0
                 else:
-                    # Drop overdue batches until we are back within tolerance,
-                    # but cap the burst to avoid blocking forever when the
-                    # source cannot keep up.
                     max_drop_burst = 4
                     drops = 0
                     while (
-                        lag_s > self.drop_tolerance_s and drops < max_drop_burst
+                        lag > self.config.drop_tolerance
+                        and drops < max_drop_burst
                     ):
-                        self._dropped_batches += 1
-                        self._dropped_pending += 1
+                        self.state.dropped_batches += 1
+                        self.state.drops_since_last_emit += 1
                         drops += 1
 
                         try:
                             batch = next(iterator)
                         except StopIteration:
-                            # Last one: still update stats based on what we
-                            # *would* emit
+                            # Still update stats for what we would emit
                             yield from self._snapshot_and_yield(batch)
                             return
 
-                        target_s = self._target_wall_s(self._end_ts(batch))
-                        now_s = time.perf_counter() - self._t_start
-                        lag_s = now_s - target_s
+                        end_time = self._batch_end(batch)
+                        target_time = self._target_wall_us(end_time)
+                        now = (
+                            int(time.perf_counter() * 1e6)
+                            - self.state.wall_start
+                        )
+                        lag = now - target_time
 
                     if (
-                        lag_s > self.drop_tolerance_s
+                        lag > self.config.drop_tolerance
                         and drops >= max_drop_burst
                     ):
-                        # Still behind after a drop burst: re-anchor pacing so
-                        # playback can resume instead of stalling.
-                        now = time.perf_counter()
-                        start_ts = self._start_ts(batch)
-                        self._t_start = now
-                        self._e_start = start_ts
-                        self._last_emit_ts_us = start_ts
+                        # Still behind after a drop burst: re-anchor
+                        self._reanchor(batch)
+                        target_time = 0.0
+                        now = 0.0
+                        lag = 0.0
 
-                        target_s = 0.0
-                        now_s = 0.0
-                        lag_s = 0.0
+            if target_time > now:
+                self._sleep_until(target_time)
 
-            # We're early or within tolerance: optionally sleep, then emit
-            if target_s > now_s:
-                self._sleep_until(target_s)
             yield from self._snapshot_and_yield(batch)
 
             try:
@@ -250,30 +250,24 @@ class StreamingPacer:
             except StopIteration:
                 return
 
-    # --- helper stats API (optional) ---
+    # --- stats API -------------------------------------------------------
 
     @property
     def dropped_batches(self) -> int:
-        """Number of batches skipped because they were overdue."""
-        return self._dropped_batches
+        return self.state.dropped_batches
 
     @property
     def emitted_batches(self) -> int:
-        """Number of batches actually yielded downstream."""
-        return self._emitted_batches
+        return self.state.emitted_batches
 
     @property
     def instantaneous_drop_rate(self) -> float:
-        """Drop rate for the most recently emitted window (drops / ms)."""
-        return self._inst_drop_rate
+        return self.state.inst_drop_rate
 
     @property
     def instantaneous_speed(self) -> float:
-        """Playback speed for the most recently emitted window
-        (event-time/ wall-time)."""
-        return self._inst_speed
+        return self.state.inst_speed
 
     @property
     def average_drop_rate(self) -> float:
-        """Running average drop rate across all emitted windows (drops / ms)."""
-        return self._avg_drop_rate
+        return self.state.avg_drop_rate
