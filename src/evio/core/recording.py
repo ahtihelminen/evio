@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 
+# .raw
 EVT_ADDR_Y = 0x0
 EVT_ADDR_X = 0x2
 VECT_BASE_X = 0x3
@@ -10,6 +11,9 @@ VECT_12 = 0x4
 VECT_8 = 0x5
 EVT_TIME_LOW = 0x6
 EVT_TIME_HIGH = 0x8
+
+# .dat
+DT8 = np.dtype([("t32", "<u4"), ("w32", "<u4")])
 
 
 @dataclass(frozen=True)
@@ -61,7 +65,6 @@ def open_dat_dt8(
     else:
         off = int(data_offset)
 
-    DT8 = np.dtype([("t32", "<u4"), ("w32", "<u4")])
     events = np.memmap(path, dtype=DT8, mode="r", offset=off)
 
     timestamps = events["t32"].astype(np.int64, copy=False)
