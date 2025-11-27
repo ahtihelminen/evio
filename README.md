@@ -1,68 +1,63 @@
 # evio
 
-Minimal Python library for standardized handling of event camera data.
+Lightweight toolbox for reading, slicing, and replaying event-camera recordings. It handles DAT (DT8) and EVT3 RAW files, builds fixed-duration windows, paces playback to a target speed, and renders frames with an OpenCV HUD.
 
-**evio** provides a single abstraction for event streams, whether coming from a `.dat` file or a live device. Each source yields standardized event packets containing `(x, y, t, p)` arrays. This makes algorithms and filters source-agnostic.
-
----
-
-## Features
-- Unified async interface for event streams
-- Read `.dat` recordings with optional real-time pacing
-- Extensible to live cameras via adapter classes (e.g., libcaer, Metavision)
-- No dependencies beyond `numpy` and `asyncio`
-- Optional blocking wrapper for synchronous scripts
-
----
+## What it can do
+- Load DAT (DT8) files into a `Recording` with stable timestamp order.
+- Decode EVT3 RAW streams (Numba) and optionally stream them via multiprocessing without blocking the main process.
+- Build fixed-duration time windows (`BatchRange` / `StreamingBatch`) for downstream processing or playback.
+- Pace offline or streaming batches to a requested speed, tracking drop rates and effective speed.
+- Render event windows into RGB frames with overlays for wall/recording time and drop statistics.
+- Ship with small scripts: play DAT, play EVT3 RAW (single-process), play EVT3 RAW with multiprocessing, and a RAW decoder helper.
 
 ## Repository Structure
 
 ```
 .
-├─ pyproject.toml
 ├─ README.md
-├─ LICENSE
-├─ .gitignore
-├─ src/
-│  └─ evio/
-│     ├─ __init__.py
-│     ├── core/
-│     │   ├── __init__.py
-│     │   ├── recording.py
-│     │   ├── policy.py
-│     │   ├── index_scheduler.py
-│     │   ├── pacer.py
-│     │   └── render.py
-│     ├── source/
-│     │   ├── __init__.py
-│     │   ├── dat_file.py
-│     │   └── live_stub.py
-│     └── transforms/
-│         ├── __init__.py
-│         └── basic.py
+├─ pyproject.toml
+├─ uv.lock
+├─ data/
+│  └─ fred1.dat
 ├─ scripts/
-│  ├─ play_dat.py           
-│  └─ convert_raw_to_dat.py
-└─ tests/
-   ├─ test_file_source.py
-   ├─ test_timing.py
-   └─ data/
+│  ├─ play_dat.py
+│  ├─ play_raw.py
+│  ├─ play_raw_mp.py
+│  └─ read_raw_evt3.py
+└─ src/
+   └─ evio/
+      ├─ __init__.py
+      ├─ codec/
+      │  ├─ __init__.py
+      │  └─ evt3.py
+      ├─ core/
+      │  ├─ __init__.py
+      │  ├─ index_scheduler.py
+      │  ├─ pacer.py
+      │  ├─ recording.py
+      │  ├─ streaming_pacer.py
+      │  ├─ utils.py
+      │  └─ window.py
+      ├─ rendering/
+      │  ├─ __init__.py
+      │  └─ frame.py
+      └─ source/
+         ├─ __init__.py
+         ├─ dat_file.py
+         ├─ raw_file.py
+         └─ raw_file_mp.py
 ```
-
----
 
 ## Quick start
 
 ```bash
 # install in editable mode (using uv or pip)
-uv pip install -e .
+uv sync
 
-# play back a .dat file in real time
-uv run python scripts/play_dat.py recordings/demo.dat
+# play back the sample DAT recording (real-time by default)
+uv run scripts/play_dat.py path/to/dat --window 10 --speed 1
+
+# play an EVT3 RAW file (single-process or multiprocessing streamer)
+uv run scripts/play_raw.py path/to/file.raw --window 10 --speed 1
+uv run scripts/play_raw_mp.py path/to/file.raw --window 10 --speed 1
 ```
-
----
-
-## License
-MIT
-
