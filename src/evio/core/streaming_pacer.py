@@ -1,7 +1,7 @@
 import time
 from collections.abc import Iterable, Iterator
 
-from evio.core.utils import StreamingBatch
+from evio.core.utils import EventsBatch
 
 
 class StreamingPacer:
@@ -92,11 +92,11 @@ class StreamingPacer:
     # --- small helpers for StreamingBatch timestamps ---
 
     @staticmethod
-    def _start_ts(batch: StreamingBatch) -> int:
+    def _start_ts(batch: EventsBatch) -> int:
         return batch.timestamps[0]
 
     @staticmethod
-    def _end_ts(batch: StreamingBatch) -> int:
+    def _end_ts(batch: EventsBatch) -> int:
         return batch.timestamps[-1]
 
     # --- timing internals ---
@@ -114,9 +114,7 @@ class StreamingPacer:
                 break
             time.sleep(min(0.05, dt))
 
-    def _snapshot_and_yield(
-        self, batch: StreamingBatch
-    ) -> Iterator[StreamingBatch]:
+    def _snapshot_and_yield(self, batch: EventsBatch) -> Iterator[EventsBatch]:
         """Emit batch and compute instantaneous + average drop rates."""
         self._emitted_batches += 1
 
@@ -161,9 +159,7 @@ class StreamingPacer:
 
     # --- public pacing API ---
 
-    def pace(
-        self, batches: Iterable[StreamingBatch]
-    ) -> Iterator[StreamingBatch]:
+    def pace(self, batches: Iterable[EventsBatch]) -> Iterator[EventsBatch]:
         iterator = iter(batches)
         try:
             batch = next(iterator)
