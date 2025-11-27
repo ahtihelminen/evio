@@ -3,9 +3,9 @@ import time
 import cv2
 import numpy as np
 
+from evio.core.events import BatchRange
 from evio.core.pacer import Pacer
 from evio.core.streaming_pacer import StreamingPacer
-from evio.core.utils import BatchRange
 
 
 def get_window_dt8(

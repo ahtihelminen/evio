@@ -1,7 +1,7 @@
 import time
 from collections.abc import Iterable, Iterator
 
-from evio.core.utils import EventsBatch
+from evio.core.events import EventsBatch
 
 
 class StreamingPacer:
