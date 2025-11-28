@@ -1,7 +1,11 @@
+from collections.abc import Iterable
+
 import numpy as np
-from numba import njit
+from numba import njit, types
 from numba.typed import List
 from numpy.typing import NDArray
+
+from evio.core.events import EventsBatch
 
 
 @njit
@@ -146,3 +150,77 @@ def flush_tail(
         y_coords_jit,
         polarities_jit,
     )
+
+
+class WindowBatchProcessor:
+    """Stateful time-windowing for decoded EVT3 batches."""
+
+    def __init__(self, window_length: int) -> None:
+        self.window_length = window_length
+
+        # numba.typed.List buffers
+        self.timestamps_buffer_jit = List.empty_list(types.int64)
+        self.x_coords_buffer_jit = List.empty_list(types.int16)
+        self.y_coords_buffer_jit = List.empty_list(types.int16)
+        self.polarities_buffer_jit = List.empty_list(types.int8)
+
+        self.window_start_ts = -1
+        self.window_start_idx = 0
+        self.global_idx = 0
+
+    def process(
+        self, batches: Iterable[EventsBatch], *, final: bool = False
+    ) -> Iterable[EventsBatch]:
+        for batch in batches:
+            (
+                timestamps_jit,
+                x_coords_jit,
+                y_coords_jit,
+                polarities_jit,
+                self.window_start_ts,
+                self.window_start_idx,
+                self.global_idx,
+            ) = window_events(
+                batch.timestamps,
+                batch.x_coords,
+                batch.y_coords,
+                batch.polarities,
+                self.window_length,
+                self.timestamps_buffer_jit,
+                self.x_coords_buffer_jit,
+                self.y_coords_buffer_jit,
+                self.polarities_buffer_jit,
+                self.window_start_ts,
+                self.window_start_idx,
+                self.global_idx,
+            )
+
+            for i in range(len(timestamps_jit)):
+                yield EventsBatch(
+                    timestamps_jit[i],
+                    x_coords_jit[i],
+                    y_coords_jit[i],
+                    polarities_jit[i],
+                )
+
+        if final:
+            (
+                timestamps_jit,
+                x_coords_jit,
+                y_coords_jit,
+                polarities_jit,
+            ) = flush_tail(
+                self.timestamps_buffer_jit,
+                self.x_coords_buffer_jit,
+                self.y_coords_buffer_jit,
+                self.polarities_buffer_jit,
+                self.window_start_idx,
+            )
+
+            for i in range(len(timestamps_jit)):
+                yield EventsBatch(
+                    timestamps_jit[i],
+                    x_coords_jit[i],
+                    y_coords_jit[i],
+                    polarities_jit[i],
+                )
