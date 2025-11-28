@@ -155,18 +155,20 @@ class Dt8Codec(EventCodec):
             # Should never happen, but guard
             return ()
 
-        t32 = pairs[0::2]
-        w32 = pairs[1::2]
+        timestamps_encoded = pairs[0::2]
+        words_encoded = pairs[1::2]
 
-        ts, xs, ys, ps = decode_dt8_pairs(t32, w32, self.width, self.height)
+        timestamps, x_coords, y_coords, polarities = decode_dt8_pairs(
+            timestamps_encoded, words_encoded, self.width, self.height
+        )
 
-        if ts.size == 0:
+        if timestamps.size == 0:
             return ()
 
         batch = EventsBatch(
-            timestamps=ts,
-            x_coords=xs,
-            y_coords=ys,
-            polarities=ps,
+            timestamps=timestamps,
+            x_coords=x_coords,
+            y_coords=y_coords,
+            polarities=polarities,
         )
         return (batch,)
