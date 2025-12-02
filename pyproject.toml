@@ -1,6 +1,6 @@
 [project]
 name = "evio"
-version = "0.3.1"
+version = "0.3.2"
 description = "Minimal library for standardized handling of event camera data."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,7 +14,6 @@ classifiers = [
 ]
 
 dependencies = [
-    "expelliarmus>=1.1.12",
     "numba>=0.62.1",
     "numpy>=1.24",
     "opencv-python>=4.11.0.86",
@@ -22,8 +21,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-"pytest>=8",
-"pytest-timeout>=2.3.1",
 "ruff>=0.6",
 "types-setuptools",
 ]
@@ -34,13 +31,6 @@ build-backend = "hatchling.build"
 
 [tool.uv]
 default-groups = []
-
-[tool.mypy]
-python_version = "3.10"
-strict = true
-warn_unused_ignores = true
-warn_redundant_casts = true
-mypy_path = "src"
 
 [tool.ruff]
 line-length = 80
