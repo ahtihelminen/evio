@@ -63,34 +63,38 @@ def encode_dt8_pairs(
     This is the exact inverse of decode_dt8_pairs().
     Invalid events (outside width/height) are dropped.
     """
-    n = timestamps.size
+    n_timestamps = timestamps.size
 
-    t_out = np.empty(n, dtype=np.uint32)
-    w_out = np.empty(n, dtype=np.uint32)
+    timestamps_out = np.empty(n_timestamps, dtype=np.uint32)
+    words_out = np.empty(n_timestamps, dtype=np.uint32)
 
     out = 0
-    for i in range(n):
-        x = int(x_coords[i])
-        y = int(y_coords[i])
-        p = int(polarities[i])
+    for i in range(n_timestamps):
+        x_coord = int(x_coords[i])
+        y_coord = int(y_coords[i])
+        polarity = int(polarities[i])
 
         # Drop invalid coordinates to mirror decoder behavior
-        if x < 0 or x >= width:
+        if x_coord < 0 or x_coord >= width:
             continue
-        if y < 0 or y >= height:
+        if y_coord < 0 or y_coord >= height:
             continue
 
-        # t32 = low 32 bits of timestamp
-        t32 = np.uint32(timestamps[i] & 0xFFFFFFFF)
+        # timestamp32 = low 32 bits of timestamp
+        timestamp32 = np.uint32(timestamps[i] & 0xFFFFFFFF)
 
-        # pack DT8 w32 word
-        w32 = np.uint32((x & 0x3FFF) | ((y & 0x3FFF) << 14) | ((p & 0x1) << 28))
+        # pack DT8 word32 word
+        word32 = np.uint32(
+            (x_coord & 0x3FFF)
+            | ((y_coord & 0x3FFF) << 14)
+            | ((polarity & 0x1) << 28)
+        )
 
-        t_out[out] = t32
-        w_out[out] = w32
+        timestamps_out[out] = timestamp32
+        words_out[out] = word32
         out += 1
 
-    return t_out[:out], w_out[:out]
+    return timestamps_out[:out], words_out[:out]
 
 
 @njit
@@ -217,3 +221,30 @@ class Dt8Codec(EventCodec):
             polarities=polarities,
         )
         return (batch,)
+
+    def encode_chunk(
+        self,
+        batch: EventsBatch,
+        *,
+        final: bool = False,
+    ) -> NDArray[np.uint16]:
+        if batch.timestamps.size == 0:
+            return np.empty(0, dtype=np.uint16)
+
+        timestamps, words = encode_dt8_pairs(
+            batch.timestamps,
+            batch.x_coords,
+            batch.y_coords,
+            batch.polarities,
+            self.width,
+            self.height,
+        )
+
+        if timestamps.size == 0:
+            return np.empty(0, dtype=np.uint16)
+
+        pairs = np.empty(timestamps.size * 2, dtype=np.uint32)
+        pairs[0::2] = timestamps
+        pairs[1::2] = words
+
+        return pairs.view(np.uint16)
