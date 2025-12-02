@@ -49,6 +49,51 @@ def find_dat_data_offset(path: Path) -> int:
 
 
 @njit
+def encode_dt8_pairs(
+    timestamps: NDArray[np.int64],
+    x_coords: NDArray[np.int16],
+    y_coords: NDArray[np.int16],
+    polarities: NDArray[np.int8],
+    width: int,
+    height: int,
+) -> tuple[NDArray[np.uint32], NDArray[np.uint32]]:
+    """
+    Encode (t, x, y, p) arrays into DT8 (t32, w32) words.
+
+    This is the exact inverse of decode_dt8_pairs().
+    Invalid events (outside width/height) are dropped.
+    """
+    n = timestamps.size
+
+    t_out = np.empty(n, dtype=np.uint32)
+    w_out = np.empty(n, dtype=np.uint32)
+
+    out = 0
+    for i in range(n):
+        x = int(x_coords[i])
+        y = int(y_coords[i])
+        p = int(polarities[i])
+
+        # Drop invalid coordinates to mirror decoder behavior
+        if x < 0 or x >= width:
+            continue
+        if y < 0 or y >= height:
+            continue
+
+        # t32 = low 32 bits of timestamp
+        t32 = np.uint32(timestamps[i] & 0xFFFFFFFF)
+
+        # pack DT8 w32 word
+        w32 = np.uint32((x & 0x3FFF) | ((y & 0x3FFF) << 14) | ((p & 0x1) << 28))
+
+        t_out[out] = t32
+        w_out[out] = w32
+        out += 1
+
+    return t_out[:out], w_out[:out]
+
+
+@njit
 def decode_dt8_pairs(
     timestamps: NDArray[np.uint32],
     words: NDArray[np.uint32],
