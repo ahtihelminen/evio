@@ -56,6 +56,13 @@ def get_frame(
     off_color: tuple[int, int, int] = (0, 0, 0),  # black
 ) -> np.ndarray:
     x_coords, y_coords, polarities_on = window
+
+    valid = (0 <= x_coords <= width) & (0 <= y_coords <= height)
+
+    x_coords = x_coords[valid]
+    y_coords = y_coords[valid]
+    polarities_on = polarities_on[valid]
+
     frame = np.full((height, width, 3), base_color, np.uint8)
     frame[y_coords[polarities_on], x_coords[polarities_on]] = on_color
     frame[y_coords[~polarities_on], x_coords[~polarities_on]] = off_color
