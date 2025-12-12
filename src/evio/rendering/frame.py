@@ -57,7 +57,12 @@ def get_frame(
 ) -> np.ndarray:
     x_coords, y_coords, polarities_on = window
 
-    valid = (0 <= x_coords <= width) & (0 <= y_coords <= height)
+    valid = (
+        (x_coords >= 0)
+        & (x_coords < width)
+        & (y_coords >= 0)
+        & (y_coords < height)
+    )
 
     x_coords = x_coords[valid]
     y_coords = y_coords[valid]
