@@ -15,7 +15,7 @@ resolution-markers = [
 
 [[package]]
 name = "evio"
-version = "0.3.2"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "numba" },
