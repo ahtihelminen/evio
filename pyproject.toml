@@ -17,6 +17,7 @@ dependencies = [
     "numba>=0.62.1",
     "numpy>=1.24",
     "opencv-python>=4.11.0.86",
+    "pyside6>=6.10.1",
 ]
 
 [project.optional-dependencies]
