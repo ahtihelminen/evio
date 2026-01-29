@@ -7,8 +7,43 @@ from types import TracebackType
 import numpy as np
 from ids_peak import ids_peak, ids_peak_ipl_extension  # type: ignore
 from ids_peak_ipl import ids_peak_ipl  # type: ignore
+from numba import njit
 
 from evio.core.events import EventsBatch
+
+
+@njit(cache=True, fastmath=True)
+def _events_from_frames_numba(
+    prev: np.ndarray,
+    curr: np.ndarray,
+    ts_us: int,
+    threshold: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    h, w = prev.shape
+    count = 0
+    for y in range(h):
+        for x in range(w):
+            d = int(curr[y, x]) - int(prev[y, x])
+            if d >= threshold or d <= -threshold:
+                count += 1
+
+    xs = np.empty(count, dtype=np.int16)
+    ys = np.empty(count, dtype=np.int16)
+    ps = np.empty(count, dtype=np.int8)
+    ts = np.empty(count, dtype=np.int64)
+
+    idx = 0
+    for y in range(h):
+        for x in range(w):
+            d = int(curr[y, x]) - int(prev[y, x])
+            if d >= threshold or d <= -threshold:
+                xs[idx] = x
+                ys[idx] = y
+                ps[idx] = 1 if d > 0 else 0
+                ts[idx] = ts_us
+                idx += 1
+
+    return xs, ys, ts, ps
 
 
 def _frames_to_events(
@@ -18,29 +53,12 @@ def _frames_to_events(
     ts_us: int,
     threshold: int,
 ) -> EventsBatch:
-    # signed difference
-    diff = curr.astype(np.int16) - prev.astype(np.int16)
-
-    mask = np.abs(diff) >= threshold
-    ys, xs = np.nonzero(mask)
-
-    if xs.size == 0:
-        return EventsBatch(
-            x_coords=np.empty(0, dtype=np.int16),
-            y_coords=np.empty(0, dtype=np.int16),
-            timestamps=np.empty(0, dtype=np.int64),
-            polarities=np.empty(0, dtype=np.int8),
-        )
-
-    d = diff[ys, xs]
-    # polarity convention: 1 for increase, 0 for decrease
-    ps = (d > 0).astype(np.int8)
-
-    ts = np.full(xs.shape[0], ts_us, dtype=np.int64)
-
+    xs, ys, ts, ps = _events_from_frames_numba(
+        prev, curr, int(ts_us), int(threshold)
+    )
     return EventsBatch(
-        x_coords=xs.astype(np.int16, copy=False),
-        y_coords=ys.astype(np.int16, copy=False),
+        x_coords=xs,
+        y_coords=ys,
         timestamps=ts,
         polarities=ps,
     )
