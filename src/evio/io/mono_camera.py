@@ -20,10 +20,16 @@ def _events_from_frames_numba(
     threshold: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     h, w = prev.shape
+    total = 0.0
+    for y in range(h):
+        for x in range(w):
+            total += float(curr[y, x]) - float(prev[y, x])
+    mean_delta = total / (h * w)
+
     count = 0
     for y in range(h):
         for x in range(w):
-            d = int(curr[y, x]) - int(prev[y, x])
+            d = (float(curr[y, x]) - float(prev[y, x])) - mean_delta
             if d >= threshold or d <= -threshold:
                 count += 1
 
@@ -35,7 +41,7 @@ def _events_from_frames_numba(
     idx = 0
     for y in range(h):
         for x in range(w):
-            d = int(curr[y, x]) - int(prev[y, x])
+            d = (float(curr[y, x]) - float(prev[y, x])) - mean_delta
             if d >= threshold or d <= -threshold:
                 xs[idx] = x
                 ys[idx] = y
