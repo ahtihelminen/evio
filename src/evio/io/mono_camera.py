@@ -18,6 +18,7 @@ class MonoCameraSource:
     buffer_count: int | None = (
         None  # if None -> use NumBuffersAnnouncedMinRequired()
     )
+    fps: float = 10.0
 
     # runtime handles
     device: ids_peak.Device = field(init=False)
@@ -45,9 +46,7 @@ class MonoCameraSource:
         height_node = self.remote.FindNode("Height")
         self.height = height_node.Value()
 
-        self.remote.FindNode("AcquisitionFrameRate").SetValue(
-            12.0
-        )  # target fps
+        self.remote.FindNode("AcquisitionFrameRate").SetValue(float(self.fps))
 
         self._allocate_buffers()
         self._start_acquisition()
