@@ -45,7 +45,6 @@ class MonoCameraSource:
         height_node = self.remote.FindNode("Height")
         self.height = height_node.Value()
 
-        self.remote.FindNode("AcquisitionFrameRateEnable").SetValue(1)
         self.remote.FindNode("AcquisitionFrameRate").SetValue(
             12.0
         )  # target fps
