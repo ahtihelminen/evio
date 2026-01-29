@@ -21,6 +21,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ids = [
+  "ids-peak; platform_system != 'Darwin'",
+  "ids-peak-ipl; platform_system != 'Darwin'",
+]
+
 dev = [
 "ruff>=0.6",
 "types-setuptools",
