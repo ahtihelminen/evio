@@ -71,10 +71,15 @@ class MonoCameraSource:
             IDS IPL if available, else 0.
         """
         buf = self.datastream.WaitForFinishedBuffer(int(timeout_ms))
-        img = ids_peak_ipl_extension.BufferToImage(buf)
-        img_mono = img.ConvertTo(self.pixel_format)
-        frame = img_mono.get_numpy_2D().copy()
-        return frame, int(img.Timestamp())
+        try:
+            img = ids_peak_ipl_extension.BufferToImage(buf)
+            img_mono = img.ConvertTo(self.pixel_format)
+            frame = img_mono.get_numpy_2D().copy()
+            if with_ts:
+                return frame, int(img.Timestamp())
+            return frame
+        finally:
+            self.datastream.QueueBuffer(buf)
 
     def _select_device(
         self, devices: ids_peak.DeviceList
