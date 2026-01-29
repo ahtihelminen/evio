@@ -55,19 +55,21 @@ class MonoCameraSource:
                 float(self.fps)
             )
 
+        exposure_auto = self.remote.FindNode("ExposureAuto")
         if self.auto_exposure:
-            self.remote.FindNode("ExposureAuto").SetValue("Continuous")
+            exposure_auto.SetCurrentEntry(exposure_auto.FindEntry("Continuous"))
         else:
-            self.remote.FindNode("ExposureAuto").SetValue("Off")
+            exposure_auto.SetCurrentEntry(exposure_auto.FindEntry("Off"))
             if self.exposure_us is not None:
                 self.remote.FindNode("ExposureTime").SetValue(
                     float(self.exposure_us)
                 )
 
+        gain_auto = self.remote.FindNode("GainAuto")
         if self.auto_gain:
-            self.remote.FindNode("GainAuto").SetValue("Continuous")
+            gain_auto.SetCurrentEntry(gain_auto.FindEntry("Continuous"))
         else:
-            self.remote.FindNode("GainAuto").SetValue("Off")
+            gain_auto.SetCurrentEntry(gain_auto.FindEntry("Off"))
             if self.gain is not None:
                 self.remote.FindNode("Gain").SetValue(float(self.gain))
 
