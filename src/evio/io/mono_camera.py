@@ -111,6 +111,12 @@ class MonoCameraSource:
             if self.gain is not None:
                 self.remote.FindNode("Gain").SetValue(float(self.gain))
 
+        print("ExposureTime:", self.remote.FindNode("ExposureTime").Value())
+        print(
+            "AcquisitionFrameRate:",
+            self.remote.FindNode("AcquisitionFrameRate").Value(),
+        )
+
         self._allocate_buffers()
         self._start_acquisition()
         return self
