@@ -1,11 +1,49 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from types import TracebackType
 
 import numpy as np
 from ids_peak import ids_peak, ids_peak_ipl_extension  # type: ignore
 from ids_peak_ipl import ids_peak_ipl  # type: ignore
+
+from evio.core.events import EventsBatch
+
+
+def _frames_to_events(
+    prev: np.ndarray,
+    curr: np.ndarray,
+    *,
+    ts_us: int,
+    threshold: int,
+) -> EventsBatch:
+    # signed difference
+    diff = curr.astype(np.int16) - prev.astype(np.int16)
+
+    mask = np.abs(diff) >= threshold
+    ys, xs = np.nonzero(mask)
+
+    if xs.size == 0:
+        return EventsBatch(
+            x_coords=np.empty(0, dtype=np.int16),
+            y_coords=np.empty(0, dtype=np.int16),
+            timestamps=np.empty(0, dtype=np.int64),
+            polarities=np.empty(0, dtype=np.int8),
+        )
+
+    d = diff[ys, xs]
+    # polarity convention: 1 for increase, 0 for decrease
+    ps = (d > 0).astype(np.int8)
+
+    ts = np.full(xs.shape[0], ts_us, dtype=np.int64)
+
+    return EventsBatch(
+        x_coords=xs.astype(np.int16, copy=False),
+        y_coords=ys.astype(np.int16, copy=False),
+        timestamps=ts,
+        polarities=ps,
+    )
 
 
 @dataclass
@@ -108,6 +146,22 @@ class MonoCameraSource:
             return frame
         finally:
             self.datastream.QueueBuffer(buf)
+
+    def iter_events(
+        self,
+        *,
+        threshold: int = 8,
+        timeout_ms: int = 1000,
+    ) -> Iterator[EventsBatch]:
+        """Yield synthetic CD-like events from consecutive mono frames."""
+        prev, _ = self.read(timeout_ms=timeout_ms, with_ts=True)
+
+        while True:
+            curr, ts_us = self.read(timeout_ms=timeout_ms, with_ts=True)
+            yield _frames_to_events(
+                prev, curr, ts_us=ts_us, threshold=threshold
+            )
+            prev = curr
 
     def _select_device(
         self, devices: ids_peak.DeviceList
