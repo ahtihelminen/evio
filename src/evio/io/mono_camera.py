@@ -17,7 +17,7 @@ def _node(remote: ids_peak.NodeMap, name: str) -> ids_peak.Node:
 
 
 @dataclass
-class IDSMonoSource:
+class MonoCameraSource:
     """Minimal 'CameraSource-like' wrapper for IDS peak monochrome frames.
 
     Usage:
@@ -43,7 +43,7 @@ class IDSMonoSource:
     width: int = field(init=False, default=0)
     height: int = field(init=False, default=0)
 
-    def __enter__(self) -> IDSMonoSource:
+    def __enter__(self) -> MonoCameraSource:
         ids_peak.Library.Initialize()
 
         dm = ids_peak.DeviceManager.Instance()
