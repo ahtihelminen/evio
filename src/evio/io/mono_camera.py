@@ -18,7 +18,11 @@ class MonoCameraSource:
     buffer_count: int | None = (
         None  # if None -> use NumBuffersAnnouncedMinRequired()
     )
-    fps: float = 10.0
+    fps: float | None = None
+    exposure_us: float | None = None
+    gain: float | None = None
+    auto_exposure: bool = True
+    auto_gain: bool = True
 
     # runtime handles
     device: ids_peak.Device = field(init=False)
@@ -46,7 +50,26 @@ class MonoCameraSource:
         height_node = self.remote.FindNode("Height")
         self.height = height_node.Value()
 
-        self.remote.FindNode("AcquisitionFrameRate").SetValue(float(self.fps))
+        if self.fps is not None:
+            self.remote.FindNode("AcquisitionFrameRate").SetValue(
+                float(self.fps)
+            )
+
+        if self.auto_exposure:
+            self.remote.FindNode("ExposureAuto").SetValue("Continuous")
+        else:
+            self.remote.FindNode("ExposureAuto").SetValue("Off")
+            if self.exposure_us is not None:
+                self.remote.FindNode("ExposureTime").SetValue(
+                    float(self.exposure_us)
+                )
+
+        if self.auto_gain:
+            self.remote.FindNode("GainAuto").SetValue("Continuous")
+        else:
+            self.remote.FindNode("GainAuto").SetValue("Off")
+            if self.gain is not None:
+                self.remote.FindNode("Gain").SetValue(float(self.gain))
 
         self._allocate_buffers()
         self._start_acquisition()
