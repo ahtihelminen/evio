@@ -5,69 +5,116 @@ from dataclasses import dataclass, field
 from types import TracebackType
 
 import numpy as np
+
+# not available on mac, hence ignored
 from ids_peak import ids_peak, ids_peak_ipl_extension  # type: ignore
 from ids_peak_ipl import ids_peak_ipl  # type: ignore
-from numba import njit
+from numba import njit, prange
 
 from evio.core.events import EventsBatch
 
 
+@njit(cache=True, fastmath=True, parallel=True)
+def get_mean_change(prev_frame: np.ndarray, curr_frame: np.ndarray) -> float:
+    frame_height, frame_width = prev_frame.shape
+    total_change = 0.0
+    for row in prange(frame_height):
+        row_total_change = 0.0
+        for col in range(frame_width):
+            row_total_change += float(curr_frame[row, col]) - float(
+                prev_frame[row, col]
+            )
+        total_change += row_total_change
+    return total_change / (frame_height * frame_width)
+
+
+@njit(cache=True, fastmath=True, parallel=True)
+def get_event_count(
+    prev_frame: np.ndarray,
+    curr_frame: np.ndarray,
+    mean_change: float,
+    threshold: float,
+) -> int:
+    frame_height, frame_weight = prev_frame.shape
+    event_count = 0
+    for row in prange(frame_height):
+        row_count = 0
+        for col in range(frame_weight):
+            normalized_change = (
+                float(curr_frame[row, col]) - float(prev_frame[row, col])
+            ) - mean_change
+            if (
+                normalized_change >= threshold
+                or normalized_change <= -threshold
+            ):
+                row_count += 1
+        event_count += row_count
+    return event_count
+
+
 @njit(cache=True, fastmath=True)
-def _events_from_frames_numba(
-    prev: np.ndarray,
-    curr: np.ndarray,
-    ts_us: int,
-    threshold: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    h, w = prev.shape
-    total = 0.0
-    for y in range(h):
-        for x in range(w):
-            total += float(curr[y, x]) - float(prev[y, x])
-    mean_delta = total / (h * w)
-
-    count = 0
-    for y in range(h):
-        for x in range(w):
-            d = (float(curr[y, x]) - float(prev[y, x])) - mean_delta
-            if d >= threshold or d <= -threshold:
-                count += 1
-
-    xs = np.empty(count, dtype=np.int16)
-    ys = np.empty(count, dtype=np.int16)
-    ps = np.empty(count, dtype=np.int8)
-    ts = np.empty(count, dtype=np.int64)
-
+def fill_event_arrays(
+    prev_frame: np.ndarray,
+    curr_frame: np.ndarray,
+    mean_change: float,
+    threshold: float,
+    timestamp_us: int,
+    x_coords: np.ndarray,
+    y_coords: np.ndarray,
+    timestamps: np.ndarray,
+    polarities: np.ndarray,
+) -> None:
+    frame_height, frame_width = prev_frame.shape
     idx = 0
-    for y in range(h):
-        for x in range(w):
-            d = (float(curr[y, x]) - float(prev[y, x])) - mean_delta
+    for row in range(frame_height):
+        for col in range(frame_width):
+            d = (
+                float(curr_frame[row, col]) - float(prev_frame[row, col])
+            ) - mean_change
             if d >= threshold or d <= -threshold:
-                xs[idx] = x
-                ys[idx] = y
-                ps[idx] = 1 if d > 0 else 0
-                ts[idx] = ts_us
+                x_coords[idx] = col
+                y_coords[idx] = row
+                polarities[idx] = 1 if d > 0 else 0
+                timestamps[idx] = timestamp_us
                 idx += 1
 
-    return xs, ys, ts, ps
 
-
-def _frames_to_events(
-    prev: np.ndarray,
-    curr: np.ndarray,
-    *,
-    ts_us: int,
-    threshold: int,
+def get_events_from_frames(
+    prev_frame: np.ndarray,
+    curr_frame: np.ndarray,
+    timestamp_us: int,
+    threshold: float,
 ) -> EventsBatch:
-    xs, ys, ts, ps = _events_from_frames_numba(
-        prev, curr, int(ts_us), int(threshold)
+    mean_change = get_mean_change(prev_frame, curr_frame)
+    event_count = get_event_count(
+        prev_frame, curr_frame, mean_change, threshold
+    )
+
+    x_coords = np.empty(event_count, dtype=np.int16)
+    y_coords = np.empty(event_count, dtype=np.int16)
+    polarities = np.empty(event_count, dtype=np.int8)
+    timestamps = np.empty(event_count, dtype=np.int64)
+
+    fill_event_arrays(
+        prev_frame,
+        curr_frame,
+        mean_change,
+        threshold,
+        timestamp_us,
+        x_coords,
+        y_coords,
+        timestamps,
+        polarities,
     )
     return EventsBatch(
-        x_coords=xs,
-        y_coords=ys,
-        timestamps=ts,
-        polarities=ps,
+        timestamps,
+        x_coords,
+        y_coords,
+        polarities,
     )
+
+
+# ---------------- Camera source ----------------
 
 
 @dataclass
@@ -86,7 +133,6 @@ class MonoCameraSource:
     auto_exposure: bool = True
     auto_gain: bool = True
 
-    # runtime handles
     device: ids_peak.Device = field(init=False)
     remote: ids_peak.NodeMap = field(init=False)
     datastream: ids_peak.DataStream = field(init=False)
@@ -143,6 +189,12 @@ class MonoCameraSource:
 
         self._allocate_buffers()
         self._start_acquisition()
+
+        # Warm up JIT once so first iter_events() yield doesn't pay compile cost
+        dummy_prev = np.zeros((self.height, self.width), dtype=np.uint8)
+        dummy_curr = np.zeros((self.height, self.width), dtype=np.uint8)
+        get_events_from_frames(dummy_prev, dummy_curr, 0, 8)
+
         return self
 
     def __exit__(
@@ -159,13 +211,6 @@ class MonoCameraSource:
         *,
         with_ts: bool = False,
     ) -> np.ndarray | tuple[np.ndarray, int]:
-        """Fetch one monochrome frame.
-
-        Returns:
-          - frame: np.ndarray[uint8] shape (H, W)
-          - if with_ts=True: (frame, timestamp_us) where timestamp comes from
-            IDS IPL if available, else 0.
-        """
         buf = self.datastream.WaitForFinishedBuffer(int(timeout_ms))
         try:
             img = ids_peak_ipl_extension.BufferToImage(buf)
@@ -183,13 +228,11 @@ class MonoCameraSource:
         threshold: int = 8,
         timeout_ms: int = 1000,
     ) -> Iterator[EventsBatch]:
-        """Yield synthetic CD-like events from consecutive mono frames."""
         prev, _ = self.read(timeout_ms=timeout_ms, with_ts=True)
-
         while True:
             curr, ts_us = self.read(timeout_ms=timeout_ms, with_ts=True)
-            yield _frames_to_events(
-                prev, curr, ts_us=ts_us, threshold=threshold
+            yield get_events_from_frames(
+                prev, curr, timestamp_us=ts_us, threshold=threshold
             )
             prev = curr
 
@@ -209,10 +252,11 @@ class MonoCameraSource:
         payload_node = self.remote.FindNode("PayloadSize")
         payload = int(payload_node.Value())
         min_buf = int(self.datastream.NumBuffersAnnouncedMinRequired())
-        if self.buffer_count is None:
-            nbuf = min_buf
-        else:
-            nbuf = max(min_buf, int(self.buffer_count))
+        nbuf = (
+            min_buf
+            if self.buffer_count is None
+            else max(min_buf, int(self.buffer_count))
+        )
 
         for _ in range(nbuf):
             buf = self.datastream.AllocAndAnnounceBuffer(payload)
