@@ -30,9 +30,15 @@ dev = [
     { name = "ruff" },
     { name = "types-setuptools" },
 ]
+ids = [
+    { name = "ids-peak", marker = "sys_platform != 'darwin'" },
+    { name = "ids-peak-ipl", marker = "sys_platform != 'darwin'" },
+]
 
 [package.metadata]
 requires-dist = [
+    { name = "ids-peak", marker = "sys_platform != 'darwin' and extra == 'ids'" },
+    { name = "ids-peak-ipl", marker = "sys_platform != 'darwin' and extra == 'ids'" },
     { name = "numba", specifier = ">=0.62.1" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "opencv-python", specifier = ">=4.11.0.86" },
@@ -40,7 +46,47 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "types-setuptools", marker = "extra == 'dev'" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["ids", "dev"]
+
+[[package]]
+name = "ids-peak"
+version = "1.13.0.0.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "ids-peak-common", marker = "sys_platform != 'darwin'" },
+    { name = "ids-peak-ipl", marker = "sys_platform != 'darwin'" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/11/73/c70b7f4a91c1d8c266ce0a41e15dc00f69e97bbadbc5464b89d5801316d2/ids_peak-1.13.0.0.6-cp310-abi3-manylinux_2_26_aarch64.whl", hash = "sha256:21706c04ba8f4208b978bdd04090c2f17886a4b4b9570479a0850c52c2434736", size = 4307781, upload-time = "2025-12-19T09:20:00.547Z" },
+    { url = "https://files.pythonhosted.org/packages/a1/dc/5e2c1ea68d11d8cced95397f27f0af26b3e92f5bf9fde2e94e22788bfa0e/ids_peak-1.13.0.0.6-cp310-abi3-manylinux_2_27_x86_64.whl", hash = "sha256:c1d7c71bbabec4823117a7a07b6bf7e54d17798446af756915b6c42bc154932a", size = 4881655, upload-time = "2025-12-19T09:20:04.446Z" },
+    { url = "https://files.pythonhosted.org/packages/26/b1/d5b4d5396c5bece269f22aa9cb42b3a4db8642ca31cc042a5b5c17fc224c/ids_peak-1.13.0.0.6-cp310-abi3-win_amd64.whl", hash = "sha256:8484841b8a97fb3eb6b85859b1b2584229fff8604641aa5b4b7240fb48008228", size = 4233466, upload-time = "2025-12-19T09:20:07.803Z" },
+]
+
+[[package]]
+name = "ids-peak-common"
+version = "1.1.0.2757"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/57/8e/74687963528f68b5e9b63043734f303973aec95829312fd1074984ac6f6a/ids_peak_common-1.1.0.2757-py3-none-any.whl", hash = "sha256:62e072691bcc9f799f182e9f1ca4654bc8e0d4fad1bf5eeba358361f815c4d34", size = 31878, upload-time = "2025-12-19T09:20:34.077Z" },
+]
+
+[[package]]
+name = "ids-peak-ipl"
+version = "1.17.1.0.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "ids-peak-common", marker = "sys_platform != 'darwin'" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' and sys_platform != 'darwin'" },
+    { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' and sys_platform != 'darwin'" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e4/c5/3bfedb7f1af99b34a3fe4738f9ea5539d9d7e8315d391b471862af141ae9/ids_peak_ipl-1.17.1.0.5-cp310-cp310-manylinux_2_27_aarch64.whl", hash = "sha256:e67da496cc10f80a85c02463857829fd4b19608ce5a7836c3b3649839c8f9d1d", size = 6210405, upload-time = "2025-12-19T09:20:15.43Z" },
+    { url = "https://files.pythonhosted.org/packages/f8/30/09f9cd52e204d128916d0446da4d241b99fb103e654525c715f34180ef8a/ids_peak_ipl-1.17.1.0.5-cp310-cp310-manylinux_2_27_x86_64.whl", hash = "sha256:6c2fc53892904edb112e25b1482a6b81a2e82180a84a9f27a71bce47a7ea533f", size = 6902612, upload-time = "2025-12-19T09:20:31.517Z" },
+    { url = "https://files.pythonhosted.org/packages/50/96/641bb1df7944bf147198623075f94877cad18ebf3860c670cf26a3d33463/ids_peak_ipl-1.17.1.0.5-cp310-cp310-win_amd64.whl", hash = "sha256:3f25ae5c103dc8bb59f39c01be049881a21bce2cb2262f414d6eee50b031769d", size = 7008626, upload-time = "2025-12-19T09:20:19.518Z" },
+    { url = "https://files.pythonhosted.org/packages/ad/3c/83cc15f5f59d2650e0d3d425208fd12939a8d4a49fe521878a68fade0a9d/ids_peak_ipl-1.17.1.0.5-cp311-abi3-manylinux_2_27_aarch64.whl", hash = "sha256:49755ee1d1cb3800694d512d9dc94d13c16718010bc46276cf7aa068ced20072", size = 6208973, upload-time = "2025-12-19T09:20:11.273Z" },
+    { url = "https://files.pythonhosted.org/packages/81/a3/eb62aaa150f3cb236b31c90b720de4edea4fc927b4f102ef111bedd02e7e/ids_peak_ipl-1.17.1.0.5-cp311-abi3-manylinux_2_27_x86_64.whl", hash = "sha256:d431ec7e7d6c101a20ea88d69d774403f389b6a7690c1c77e474a0eec9705ee2", size = 6906089, upload-time = "2025-12-19T09:20:24.271Z" },
+    { url = "https://files.pythonhosted.org/packages/5e/d3/6860707cdf1e7f9035eee3f5010e9593925d44b0c9e4797bbf551f994e9a/ids_peak_ipl-1.17.1.0.5-cp311-abi3-win_amd64.whl", hash = "sha256:2607a11f38d4cf14349681296749e978a46821a891351151a72358fba0e9a1e4", size = 7020248, upload-time = "2025-12-19T09:20:27.7Z" },
+]
 
 [[package]]
 name = "llvmlite"
