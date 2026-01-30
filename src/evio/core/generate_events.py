@@ -58,13 +58,16 @@ def fill_event_arrays(
     idx = 0
     for row in range(frame_height):
         for col in range(frame_width):
-            d = (
+            normalized_change = (
                 float(curr_frame[row, col]) - float(prev_frame[row, col])
             ) - mean_change
-            if d >= threshold or d <= -threshold:
+            if (
+                normalized_change >= threshold
+                or normalized_change <= -threshold
+            ):
                 x_coords[idx] = col
                 y_coords[idx] = row
-                polarities[idx] = 1 if d > 0 else 0
+                polarities[idx] = 1 if normalized_change > 0 else 0
                 timestamps[idx] = timestamp_us
                 idx += 1
 
