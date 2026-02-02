@@ -10,7 +10,7 @@ import numpy as np
 
 from evio.codec.dt8 import Dt8Codec, find_dat_data_offset
 from evio.core.events import EventsBatch
-from evio.core.window import WindowBatchProcessor
+from evio.core.window import RollingWindowBatchProcessor
 from evio.io.mp_file import MultiprocessingFileSource
 
 
@@ -22,8 +22,8 @@ class MultiprocessingDatFileSource:
 
     - Computes the DAT data offset (like `open_dat_dt8`).
     - Uses `Dt8Codec` to decode the 8-byte CD events from raw uint16 words.
-    - Uses `FixedWindowBatchProcessor` to group events into
-      `window_us`-wide time windows before they hit the consumer.
+    - Uses `RollingWindowBatchProcessor` to group events into
+      `window_length`-wide rolling time windows before they hit the consumer.
 
     Typical usage:
 
@@ -31,7 +31,8 @@ class MultiprocessingDatFileSource:
             path="events.dat",
             width=1280,
             height=720,
-            window_us=1000,
+            window_length=1000,
+            step_us=16667,
         )
 
         for batch in src:
@@ -40,6 +41,7 @@ class MultiprocessingDatFileSource:
 
     path: Path | str
     window_length: int
+    step_us: int
     chunk_words: int = 1 * 1024 * 1024
     queue_size: int = 8
     width: int = 1280
@@ -53,6 +55,12 @@ class MultiprocessingDatFileSource:
         data_offset = find_dat_data_offset(path)
 
         # Underlying generic MP file source:
+        batch_processor_factory = partial(
+            RollingWindowBatchProcessor,
+            window_length=self.window_length,
+            step_us=self.step_us,
+        )
+
         self._inner = MultiprocessingFileSource(
             path=path,
             codec_factory=partial(
@@ -61,10 +69,7 @@ class MultiprocessingDatFileSource:
             data_offset=data_offset,
             chunk_words=self.chunk_words,
             dtype=np.dtype("<u2"),  # uint16 words
-            batch_processor_factory=partial(
-                WindowBatchProcessor,
-                window_length=self.window_length,
-            ),
+            batch_processor_factory=batch_processor_factory,
             queue_size=self.queue_size,
         )
 

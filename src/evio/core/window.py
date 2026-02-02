@@ -1,226 +1,148 @@
+from collections import deque
 from collections.abc import Iterable
 
 import numpy as np
-from numba import njit, types
-from numba.typed import List
-from numpy.typing import NDArray
 
 from evio.core.events import EventsBatch
 
 
-@njit
-def window_events(
-    timestamps: NDArray[np.int64],
-    x_coords: NDArray[np.int16],
-    y_coords: NDArray[np.int16],
-    polarities: NDArray[np.int8],
-    window_us: int,
-    # Pylance cries about calling a module with numba lists, hence the ignores
-    timestamps_buffer_jit: List[int],  # type: ignore
-    x_coords_buffer_jit: List[int],  # type: ignore
-    y_coords_buffer_jit: List[int],  # type: ignore
-    polarities_buffer_jit: List[int],  # type: ignore
-    window_start_ts: int,
-    window_start_idx: int,
-    global_idx: int,
-) -> tuple[
-    # Pylance cries about calling a module with numba lists, hence the ignores
-    List[NDArray[np.int64]],  # type: ignore
-    List[NDArray[np.int16]],  # type: ignore
-    List[NDArray[np.int16]],  # type: ignore
-    List[NDArray[np.int8]],  # type: ignore
-    int,
-    int,
-    int,
-]:
-    # Pylance cries about calling a module with numba lists, hence the ignores
-    timestamps_jit = List()  # type: ignore
-    x_coords_jit = List()  # type: ignore
-    y_coords_jit = List()  # type: ignore
-    polarities_jit = List()  # type: ignore
+class RollingWindowBatchProcessor:
+    """Stateful rolling time-windowing for decoded batches.
 
-    n_timestamps = timestamps.shape[0]
+    Windows are left-aligned: [t, t + window_length), advancing by step_us.
+    Empty windows are skipped (no EventsBatch emitted).
+    """
 
-    for i in range(n_timestamps):
-        timestamp = int(timestamps[i])
-
-        # initialize window start
-        if window_start_ts < 0:
-            window_start_ts = timestamp
-            window_start_idx = global_idx
-
-        # complete window
-        if (
-            timestamp - window_start_ts >= window_us
-            and len(timestamps_buffer_jit) > 0
-        ):
-            n_timestamps_buffer = len(timestamps_buffer_jit)
-            timestamps_buffer_np = np.empty(n_timestamps_buffer, np.int64)
-            x_coords_buffer_np = np.empty(n_timestamps_buffer, np.int16)
-            y_coords_buffer_np = np.empty(n_timestamps_buffer, np.int16)
-            polarities_buffer_np = np.empty(n_timestamps_buffer, np.int8)
-
-            # copy buffers from Numba Lists to np arrays
-            for j in range(n_timestamps_buffer):
-                timestamps_buffer_np[j] = timestamps_buffer_jit[j]
-                x_coords_buffer_np[j] = x_coords_buffer_jit[j]
-                y_coords_buffer_np[j] = y_coords_buffer_jit[j]
-                polarities_buffer_np[j] = polarities_buffer_jit[j]
-
-            timestamps_jit.append(timestamps_buffer_np)
-            x_coords_jit.append(x_coords_buffer_np)
-            y_coords_jit.append(y_coords_buffer_np)
-            polarities_jit.append(polarities_buffer_np)
-
-            timestamps_buffer_jit.clear()
-            x_coords_buffer_jit.clear()
-            y_coords_buffer_jit.clear()
-            polarities_buffer_jit.clear()
-
-            window_start_ts = timestamp
-            window_start_idx = global_idx
-
-        # append event
-        timestamps_buffer_jit.append(timestamp)
-        x_coords_buffer_jit.append(x_coords[i])
-        y_coords_buffer_jit.append(y_coords[i])
-        polarities_buffer_jit.append(polarities[i])
-        global_idx += 1
-
-    return (
-        timestamps_jit,
-        x_coords_jit,
-        y_coords_jit,
-        polarities_jit,
-        window_start_ts,
-        window_start_idx,
-        global_idx,
-    )
-
-
-@njit
-def flush_tail(
-    # Pylance cries about calling a module with numba lists, hence the ignores
-    timestamps_buffer_jit: List[int],  # type: ignore
-    x_coords_buffer_jit: List[int],  # type: ignore
-    y_coords_buffer_jit: List[int],  # type: ignore
-    polarities_buffer_jit: List[int],  # type: ignore
-    start_idx: int,
-) -> tuple[
-    # Pylance cries about calling a module with numba lists, hence the ignores
-    List[NDArray[np.int64]],  # type: ignore
-    List[NDArray[np.int16]],  # type: ignore
-    List[NDArray[np.int16]],  # type: ignore
-    List[NDArray[np.int8]],  # type: ignore
-]:
-    # Pylance cries about calling a module with numba lists, hence the ignores
-    timestampts_jit = List()  # type: ignore
-    timestamps_jit = List()  # type: ignore
-    y_coords_jit = List()  # type: ignore
-    polarities_jit = List()  # type: ignore
-
-    if len(timestamps_buffer_jit) > 0:
-        n_timestamps_buffer = len(timestamps_buffer_jit)
-
-        timestamps_buffer_np = np.empty(n_timestamps_buffer, np.int64)
-        x_coords_buffer_np = np.empty(n_timestamps_buffer, np.int16)
-        y_coords_buffer_np = np.empty(n_timestamps_buffer, np.int16)
-        polarities_buffer_np = np.empty(n_timestamps_buffer, np.int8)
-
-        # copy buffers from Numba Lists to np arrays
-        for j in range(n_timestamps_buffer):
-            timestamps_buffer_np[j] = timestamps_buffer_jit[j]
-            x_coords_buffer_np[j] = x_coords_buffer_jit[j]
-            y_coords_buffer_np[j] = y_coords_buffer_jit[j]
-            polarities_buffer_np[j] = polarities_buffer_jit[j]
-
-        timestampts_jit.append(timestamps_buffer_np)
-        timestamps_jit.append(x_coords_buffer_np)
-        y_coords_jit.append(y_coords_buffer_np)
-        polarities_jit.append(polarities_buffer_np)
-
-        timestamps_buffer_jit.clear()
-        x_coords_buffer_jit.clear()
-        y_coords_buffer_jit.clear()
-        polarities_buffer_jit.clear()
-
-    return (
-        timestampts_jit,
-        timestamps_jit,
-        y_coords_jit,
-        polarities_jit,
-    )
-
-
-class WindowBatchProcessor:
-    """Stateful time-windowing for decoded EVT3 batches."""
-
-    def __init__(self, window_length: int) -> None:
+    def __init__(self, window_length: int, step_us: int) -> None:
         self.window_length = window_length
+        self.step_us = step_us
+        self._chunks: deque[EventsBatch] = deque()
+        self._head_offset = 0
+        self._next_start_ts: int | None = None
 
-        # numba.typed.List buffers
-        self.timestamps_buffer_jit = List.empty_list(types.int64)
-        self.x_coords_buffer_jit = List.empty_list(types.int16)
-        self.y_coords_buffer_jit = List.empty_list(types.int16)
-        self.polarities_buffer_jit = List.empty_list(types.int8)
+    def _drop_before(self, timestamp_us: int) -> None:
+        while self._chunks:
+            head = self._chunks[0]
+            timestamps = head.timestamps
+            if timestamps.size == 0:
+                self._chunks.popleft()
+                self._head_offset = 0
+                continue
 
-        self.window_start_ts = -1
-        self.window_start_idx = 0
-        self.global_idx = 0
+            if timestamps[-1] < timestamp_us:
+                self._chunks.popleft()
+                self._head_offset = 0
+                continue
+
+            if self._head_offset:
+                if timestamps[self._head_offset] < timestamp_us:
+                    local = np.searchsorted(
+                        timestamps[self._head_offset :],
+                        timestamp_us,
+                        side="left",
+                    )
+                    self._head_offset += int(local)
+            elif timestamps[0] < timestamp_us:
+                self._head_offset = np.searchsorted(
+                    timestamps, timestamp_us, side="left"
+                )
+
+            if self._head_offset >= timestamps.shape[0]:
+                self._chunks.popleft()
+                self._head_offset = 0
+                continue
+            break
+
+    def _collect_window(self, start_ts: int, end_ts: int) -> EventsBatch | None:
+        if not self._chunks:
+            return None
+
+        timestamps_parts: list[np.ndarray] = []
+        x_parts: list[np.ndarray] = []
+        y_parts: list[np.ndarray] = []
+        p_parts: list[np.ndarray] = []
+
+        for idx, chunk in enumerate(self._chunks):
+            timestamps = chunk.timestamps
+            if timestamps.size == 0:
+                continue
+
+            base_offset = self._head_offset if idx == 0 else 0
+            if timestamps[-1] < start_ts:
+                continue
+
+            start_idx = base_offset + np.searchsorted(
+                timestamps[base_offset:], start_ts, side="left"
+            )
+
+            if start_idx >= timestamps.shape[0]:
+                continue
+
+            end_idx = np.searchsorted(timestamps, end_ts, side="left")
+            if end_idx <= start_idx:
+                if timestamps[0] >= end_ts:
+                    break
+                continue
+
+            timestamps_parts.append(timestamps[start_idx:end_idx])
+            x_parts.append(chunk.x_coords[start_idx:end_idx])
+            y_parts.append(chunk.y_coords[start_idx:end_idx])
+            p_parts.append(chunk.polarities[start_idx:end_idx])
+
+            if end_idx < timestamps.shape[0] or timestamps[-1] >= end_ts:
+                break
+
+        if not timestamps_parts:
+            return None
+
+        return EventsBatch(
+            np.concatenate(timestamps_parts),
+            np.concatenate(x_parts),
+            np.concatenate(y_parts),
+            np.concatenate(p_parts),
+        )
+
+    def _emit_ready(self, *, final: bool) -> Iterable[EventsBatch]:
+        if self._next_start_ts is None:
+            return
+
+        while self._chunks:
+            last_ts = int(self._chunks[-1].timestamps[-1])
+            if final:
+                if self._next_start_ts > last_ts:
+                    return
+            else:
+                if last_ts < self._next_start_ts + self.window_length:
+                    return
+
+            start_ts = self._next_start_ts
+            end_ts = start_ts + self.window_length
+
+            self._drop_before(start_ts)
+            if not self._chunks:
+                return
+
+            window = self._collect_window(start_ts, end_ts)
+            if window is not None:
+                yield window
+
+            self._next_start_ts += self.step_us
 
     def process(
         self, batches: Iterable[EventsBatch], *, final: bool = False
     ) -> Iterable[EventsBatch]:
         for batch in batches:
-            (
-                timestamps_jit,
-                x_coords_jit,
-                y_coords_jit,
-                polarities_jit,
-                self.window_start_ts,
-                self.window_start_idx,
-                self.global_idx,
-            ) = window_events(
-                batch.timestamps,
-                batch.x_coords,
-                batch.y_coords,
-                batch.polarities,
-                self.window_length,
-                self.timestamps_buffer_jit,
-                self.x_coords_buffer_jit,
-                self.y_coords_buffer_jit,
-                self.polarities_buffer_jit,
-                self.window_start_ts,
-                self.window_start_idx,
-                self.global_idx,
-            )
+            if batch.timestamps.size == 0:
+                continue
 
-            for i in range(len(timestamps_jit)):
-                yield EventsBatch(
-                    timestamps_jit[i],
-                    x_coords_jit[i],
-                    y_coords_jit[i],
-                    polarities_jit[i],
-                )
+            if self._next_start_ts is None:
+                self._next_start_ts = int(batch.timestamps[0])
+
+            self._chunks.append(batch)
+            yield from self._emit_ready(final=False)
 
         if final:
-            (
-                timestamps_jit,
-                x_coords_jit,
-                y_coords_jit,
-                polarities_jit,
-            ) = flush_tail(
-                self.timestamps_buffer_jit,
-                self.x_coords_buffer_jit,
-                self.y_coords_buffer_jit,
-                self.polarities_buffer_jit,
-                self.window_start_idx,
-            )
-
-            for i in range(len(timestamps_jit)):
-                yield EventsBatch(
-                    timestamps_jit[i],
-                    x_coords_jit[i],
-                    y_coords_jit[i],
-                    polarities_jit[i],
-                )
+            yield from self._emit_ready(final=True)
+            self._chunks.clear()
+            self._head_offset = 0
+            self._next_start_ts = None
