@@ -3,7 +3,6 @@ from collections.abc import Iterator
 import numpy as np
 
 from evio.core.events import BatchRange
-from evio.core.index_scheduler import build_windows
 from evio.core.recording import open_dat_dt8
 
 
@@ -12,7 +11,8 @@ class DatFileSource:
     Minimal file-backed source for event batches.
 
     - Opens a .dat file with fixed geometry (defaults to 1280x720).
-    - Precomputes non-overlapping windows.
+    - Precomputes time windows. If step_us is set, windows are rolling and
+      left-aligned; otherwise they are non-overlapping.
     - Exposes:
         * words_u32 : np.ndarray  (packed uint32 words)
         * order     : np.ndarray  (time-sorted indices)
@@ -24,7 +24,8 @@ class DatFileSource:
     def __init__(
         self,
         path: str,
-        window_length_us: int = 1000,
+        window_length_us: int,
+        step_us: int,
         width: int = 1280,
         height: int = 720,
     ) -> None:
@@ -33,30 +34,38 @@ class DatFileSource:
         self._order = rec.order
         self._width, self._height = int(rec.width), int(rec.height)
 
-        t_raw = getattr(rec, "timestamps", getattr(rec, "ts_us", None))
-        if t_raw is None:
+        t_sorted = getattr(rec, "timestamps", getattr(rec, "ts_us", None))
+        if t_sorted is None:
             msg = "Recording missing timestamps ('timestamps' or 'ts_us')."
             raise AttributeError(msg)
-        t_raw = np.asarray(t_raw)
-        if t_raw.shape[0] != self._event_words.shape[0]:
+        t_sorted = np.asarray(t_sorted).astype(np.int64, copy=False)
+        if t_sorted.shape[0] != self._event_words.shape[0]:
             msg = "timestamps length must match event count"
             raise ValueError(msg)
 
-        # time-sorted timestamps to match index space of build_windows
-        t_sorted = t_raw[self._order].astype(np.int64, copy=False)
-
-        # windows are [start, stop) in time-ordered index space
-        win_idx = build_windows(rec, window_length_us)
+        t_start = t_sorted[0]
+        t_end = t_sorted[-1]
+        start_times = np.arange(
+            t_start, t_end + step_us, step_us, dtype=np.int64
+        )
+        end_times = start_times + window_length_us
+        starts = np.searchsorted(t_sorted, start_times, side="left").astype(
+            np.int32
+        )
+        stops = np.searchsorted(t_sorted, end_times, side="left").astype(
+            np.int32
+        )
 
         self._ranges = [
             BatchRange(
-                start_idx=int(s),
-                end_idx=int(e),
-                start_ts_us=int(t_sorted[s]),
-                end_ts_us=int(t_sorted[e - 1]),
+                start_idx,
+                end_idx,
+                int(start_time),
+                int(end_time),
             )
-            for s, e in win_idx
-            if e > s
+            for start_idx, end_idx, start_time, end_time in zip(
+                starts, stops, start_times, end_times, strict=True
+            )
         ]
 
     # --- Public surface ----------------------------------------------------
