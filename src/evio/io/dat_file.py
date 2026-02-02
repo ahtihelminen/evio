@@ -11,8 +11,7 @@ class DatFileSource:
     Minimal file-backed source for event batches.
 
     - Opens a .dat file with fixed geometry (defaults to 1280x720).
-    - Precomputes time windows. If step_us is set, windows are rolling and
-      left-aligned; otherwise they are non-overlapping.
+    - Precomputes rolling time windows (left-aligned) using step_us.
     - Exposes:
         * words_u32 : np.ndarray  (packed uint32 words)
         * order     : np.ndarray  (time-sorted indices)
@@ -24,7 +23,8 @@ class DatFileSource:
     def __init__(
         self,
         path: str,
-        window_length_us: int,
+        window_length_us: int = 1000,
+        *,
         step_us: int,
         width: int = 1280,
         height: int = 720,
@@ -34,17 +34,13 @@ class DatFileSource:
         self._order = rec.order
         self._width, self._height = int(rec.width), int(rec.height)
 
-        t_sorted = getattr(rec, "timestamps", getattr(rec, "ts_us", None))
-        if t_sorted is None:
-            msg = "Recording missing timestamps ('timestamps' or 'ts_us')."
-            raise AttributeError(msg)
-        t_sorted = np.asarray(t_sorted).astype(np.int64, copy=False)
+        t_sorted = rec.timestamps
+
         if t_sorted.shape[0] != self._event_words.shape[0]:
             msg = "timestamps length must match event count"
             raise ValueError(msg)
 
-        t_start = t_sorted[0]
-        t_end = t_sorted[-1]
+        t_start, t_end = t_sorted[0], t_sorted[-1]
         start_times = np.arange(
             t_start, t_end + step_us, step_us, dtype=np.int64
         )
@@ -58,10 +54,10 @@ class DatFileSource:
 
         self._ranges = [
             BatchRange(
-                start_idx,
-                end_idx,
-                int(start_time),
-                int(end_time),
+                start_idx=int(start_idx),
+                end_idx=int(end_idx),
+                start_ts_us=int(start_time),
+                end_ts_us=int(end_time),
             )
             for start_idx, end_idx, start_time, end_time in zip(
                 starts, stops, start_times, end_times, strict=True
