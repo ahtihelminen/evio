@@ -1,85 +1,86 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import ceil
 
 
 @dataclass(slots=True)
-class GridCell:
-    index: int
-    row: int
-    col: int
-    x1: int
-    y1: int
-    x2: int
-    y2: int
-
-
-@dataclass(slots=True)
-class Grid:
+class GridConfig:
     width: int
     height: int
     cols: int
     rows: int
-    cell_w: int
-    cell_h: int
-    cells: list[GridCell]
+    cell_w: int = field(init=False)
+    cell_h: int = field(init=False)
 
-    def cell(self, *, index: int, row: int, col: int) -> GridCell:
-        if index:
-            return self.cells[index]
-        return self.cells[row * self.cols + col]
+    def __post_init__(self) -> None:
+        if self.width <= 0 or self.height <= 0:
+            msg = "width and height must be > 0"
+            raise ValueError(msg)
+        if self.cols <= 0 or self.rows <= 0:
+            msg = "cols and rows must be > 0"
+            raise ValueError(msg)
+
+        self.cell_w = ceil(self.width / self.cols)
+        self.cell_h = ceil(self.height / self.rows)
+
+    @property
+    def n_cells(self) -> int:
+        return self.cols * self.rows
+
+    @property
+    def cell_area(self) -> int:
+        return self.cell_w * self.cell_h
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        return (self.rows, self.cols)
+
+    def cell_index(self, row: int, col: int) -> int:
+        if row < 0 or row >= self.rows or col < 0 or col >= self.cols:
+            msg = f"cell out of bounds (row={row}, col={col})"
+            raise ValueError(msg)
+        return row * self.cols + col
+
+    def cell_coords(self, index: int) -> tuple[int, int]:
+        if index < 0 or index >= self.n_cells:
+            msg = f"cell index out of bounds (index={index})"
+            raise ValueError(msg)
+        return divmod(index, self.cols)
+
+    def cell_index_for_xy(self, x: int, y: int) -> int:
+        if x < 0:
+            x = 0
+        elif x >= self.width:
+            x = self.width - 1
+
+        if y < 0:
+            y = 0
+        elif y >= self.height:
+            y = self.height - 1
+
+        col = min(x // self.cell_w, self.cols - 1)
+        row = min(y // self.cell_h, self.rows - 1)
+        return row * self.cols + col
+
+    def cell_bounds(self, row: int, col: int) -> tuple[int, int, int, int]:
+        idx = self.cell_index(row, col)
+        row, col = self.cell_coords(idx)
+        x1 = col * self.cell_w
+        y1 = row * self.cell_h
+        x2 = min(x1 + self.cell_w, self.width)
+        y2 = min(y1 + self.cell_h, self.height)
+        return x1, y1, x2, y2
 
 
-def build_grid(width: int, height: int, cols: int, rows: int) -> Grid:
-    if cols <= 0 or rows <= 0:
-        msg = "cols and rows must be > 0"
-        raise ValueError(msg)
-
-    cell_w = ceil(width / cols)
-    cell_h = ceil(height / rows)
-
-    cells: list[GridCell] = []
-    for row in range(rows):
-        for col in range(cols):
-            x1 = col * cell_w
-            y1 = row * cell_h
-            x2 = min(x1 + cell_w, width)
-            y2 = min(y1 + cell_h, height)
-            idx = row * cols + col
-            cells.append(
-                GridCell(
-                    index=idx,
-                    row=row,
-                    col=col,
-                    x1=x1,
-                    y1=y1,
-                    x2=x2,
-                    y2=y2,
-                )
-            )
-
-    return Grid(
-        width=width,
-        height=height,
-        cols=cols,
-        rows=rows,
-        cell_w=cell_w,
-        cell_h=cell_h,
-        cells=cells,
-    )
-
-
-def grid_line_positions(grid: Grid) -> tuple[list[int], list[int]]:
+def grid_line_positions(cfg: GridConfig) -> tuple[list[int], list[int]]:
     """
     Return x and y pixel positions for grid boundaries (excluding outer border).
     """
     x_lines = [
-        cell.x2
-        for cell in grid.cells
-        if cell.row == 0 and cell.col < grid.cols - 1
+        min((col + 1) * cfg.cell_w, cfg.width)
+        for col in range(cfg.cols - 1)
     ]
     y_lines = [
-        cell.y2
-        for cell in grid.cells
-        if cell.col == 0 and cell.row < grid.rows - 1
+        min((row + 1) * cfg.cell_h, cfg.height)
+        for row in range(cfg.rows - 1)
     ]
     return x_lines, y_lines
