@@ -9,25 +9,65 @@ def cell_shannon_entropy(
     events: EventsBatch, grid: GridConfig
 ) -> NDArray[np.float32]:
     """
-    Shannon entropy (base-2) of the spatial event distribution inside each cell.
-    For each cell: p_i = count(pixel_i)/sum(counts), H = -sum p_i log2 p_i
+    Spatiotemporal Shannon entropy.
     """
+    S_yt = cell_shannon_entropy_axis(events, grid, axis="x")
+    S_xt = cell_shannon_entropy_axis(events, grid, axis="y")
+    S_xy = cell_shannon_entropy_axis(events, grid, axis="t")
+
+    return np.sqrt(S_yt**2 + S_xt**2 + S_xy**2)
+
+
+def cell_shannon_entropy_axis(
+    events: EventsBatch, grid: GridConfig, *, axis: str
+) -> NDArray[np.float32]:
+    """
+    Shannon entropy (base-2) of the event distribution inside each cell.
+
+    axis="t"  -> full per-pixel distribution in (x, y) within each cell
+    axis="x"  -> distribution over (y, t) within each cell (collapse x)
+    axis="y"  -> distribution over (x, t) within each cell (collapse y)
+    """
+    if events.x_coords.size == 0:
+        return np.zeros(int(grid.cells), dtype=np.float32)
+
     cell_ids = grid.cell_id(events.x_coords, events.y_coords).astype(
         np.int64, copy=False
     )
 
-    cell_area = int(grid.cell_w) * int(grid.cell_h)
     local_x = (events.x_coords % grid.cell_w).astype(np.int64, copy=False)
     local_y = (events.y_coords % grid.cell_h).astype(np.int64, copy=False)
-    local_pixel_id = local_y * int(grid.cell_w) + local_x
+    cell_w = int(grid.cell_w)
+    cell_h = int(grid.cell_h)
 
-    pixel_in_cell_id = cell_ids * cell_area + local_pixel_id
+    if axis == "t":
+        bins_per_cell = cell_w * cell_h
+        bin_id = local_y * cell_w + local_x
+    elif axis in ("x", "y"):
+        dt_us = grid.dt_us
+        t = events.timestamps.astype(np.int64, copy=False)
+        t0 = int(t.min())
+        t_bin = ((t - t0) // np.int64(dt_us)).astype(np.int64, copy=False)
+        n_bins = int(t_bin.max()) + 1
+        if n_bins <= 0:
+            return np.zeros(int(grid.cells), dtype=np.float32)
+        if axis == "x":
+            bins_per_cell = n_bins * cell_h
+            bin_id = t_bin * cell_h + local_y
+        else:
+            bins_per_cell = n_bins * cell_w
+            bin_id = t_bin * cell_w + local_x
+    else:
+        msg = "axis must be one of: None, 'x', 'y', 't'"
+        raise ValueError(msg)
 
-    # Per (cell, local_pixel) counts
+    composite = cell_ids * bins_per_cell + bin_id
+
+    # Per (cell, bin_id) counts
     pix_counts = np.bincount(
-        pixel_in_cell_id, minlength=int(grid.cells) * cell_area
+        composite, minlength=int(grid.cells) * bins_per_cell
     ).astype(np.float32, copy=False)
-    pix_counts = pix_counts.reshape(int(grid.cells), cell_area)
+    pix_counts = pix_counts.reshape(int(grid.cells), bins_per_cell)
 
     totals = pix_counts.sum(axis=1)  # (cells,)
     ent = np.zeros(int(grid.cells), dtype=np.float32)
@@ -39,9 +79,9 @@ def cell_shannon_entropy(
         mask = p > 0
         ent_nonzero = -(p[mask] * np.log2(p[mask])).reshape(-1)
         # Sum back per-row (cell): do it via row indices
-        row_idx = np.repeat(np.arange(p.shape[0], dtype=np.int32), cell_area)[
-            mask.ravel()
-        ]
+        row_idx = np.repeat(
+            np.arange(p.shape[0], dtype=np.int32), bins_per_cell
+        )[mask.ravel()]
         ent_acc = np.bincount(
             row_idx, weights=ent_nonzero, minlength=p.shape[0]
         ).astype(np.float32, copy=False)
