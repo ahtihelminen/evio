@@ -1,17 +1,19 @@
 from collections.abc import Callable
 
-from evio.detection.features.features import (
+from evio.detection.features.basic_features import (
     cell_8_coactivity,
     cell_active_pixels,
     cell_event_count,
     cell_polarity_skewness,
 )
+from evio.detection.features.entropy import cell_shannon_entropy
 
 FEATURE_FUNCTIONS: dict[str, Callable] = {
-    "cell_event_count": cell_event_count,
-    "cell_active_pixels": cell_active_pixels,
-    "cell_8_coactivity": cell_8_coactivity,
-    "cell_polarity_skewness": cell_polarity_skewness,
+    "event_count": cell_event_count,
+    "active_pixels": cell_active_pixels,
+    "8_coactivity": cell_8_coactivity,
+    "polarity_skewness": cell_polarity_skewness,
+    "entropy": cell_shannon_entropy,
 }
 
 DEFAULT_FEATURE_NAME = "cell_8_coactivity"
