@@ -6,7 +6,7 @@ import numpy as np
 from numba import njit
 from numpy.typing import NDArray
 
-from evio.codec.protocol import CodecInput, EventCodec
+from evio.codec.codec_protocol import CodecInput, EventCodec
 from evio.core.events import EventsBatch
 
 

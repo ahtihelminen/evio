@@ -11,7 +11,7 @@ from typing import Protocol
 
 import numpy as np
 
-from evio.codec.protocol import EventCodec
+from evio.codec.codec_protocol import EventCodec
 from evio.core.events import EventsBatch
 
 
