@@ -16,7 +16,7 @@ FEATURE_FUNCTIONS: dict[str, Callable] = {
     "entropy": cell_shannon_entropy,
 }
 
-DEFAULT_FEATURE_NAME = "cell_8_coactivity"
+DEFAULT_FEATURE_NAME = "event_count"
 
 
 def get_feature_fn(name: str) -> Callable:
