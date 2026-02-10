@@ -18,18 +18,22 @@ def cell_shannon_entropy(
     return np.sqrt(S_yt**2 + S_xt**2 + S_xy**2)
 
 
-def cell_shannon_entropy_axis(
-    events: EventsBatch, grid: GridConfig, *, axis: str
+def cell_event_probabilities_axis(
+    events: EventsBatch, grid: GridConfig, *, axis: str = "t"
 ) -> NDArray[np.float32]:
     """
-    Shannon entropy (base-2) of the event distribution inside each cell.
+    Per-cell probability distribution over bins defined by axis.
 
     axis="t"  -> full per-pixel distribution in (x, y) within each cell
     axis="x"  -> distribution over (y, t) within each cell (collapse x)
     axis="y"  -> distribution over (x, t) within each cell (collapse y)
     """
     if events.x_coords.size == 0:
-        return np.zeros(int(grid.cells), dtype=np.float32)
+        if axis == "t":
+            bins_per_cell = int(grid.cell_w) * int(grid.cell_h)
+        else:
+            bins_per_cell = 0
+        return np.zeros((int(grid.cells), bins_per_cell), dtype=np.float32)
 
     cell_ids = grid.cell_id(events.x_coords, events.y_coords).astype(
         np.int64, copy=False
@@ -50,7 +54,7 @@ def cell_shannon_entropy_axis(
         t_bin = ((t - t0) // np.int64(dt_us)).astype(np.int64, copy=False)
         n_bins = int(t_bin.max()) + 1
         if n_bins <= 0:
-            return np.zeros(int(grid.cells), dtype=np.float32)
+            return np.zeros((int(grid.cells), 0), dtype=np.float32)
         if axis == "x":
             bins_per_cell = n_bins * cell_h
             bin_id = t_bin * cell_h + local_y
@@ -64,30 +68,41 @@ def cell_shannon_entropy_axis(
     composite = cell_ids * bins_per_cell + bin_id
 
     # Per (cell, bin_id) counts
-    pix_counts = np.bincount(
+    event_counts = np.bincount(
         composite, minlength=int(grid.cells) * bins_per_cell
     ).astype(np.float32, copy=False)
-    pix_counts = pix_counts.reshape(int(grid.cells), bins_per_cell)
+    event_counts = event_counts.reshape(int(grid.cells), bins_per_cell)
 
-    totals = pix_counts.sum(axis=1)  # (cells,)
-    ent = np.zeros(int(grid.cells), dtype=np.float32)
-
+    totals = event_counts.sum(axis=1)
+    event_probabilities = np.zeros_like(event_counts, dtype=np.float32)
     nonzero = totals > 0
     if np.any(nonzero):
-        p = pix_counts[nonzero] / totals[nonzero, None]
-        # Avoid log(0) by masking
-        mask = p > 0
-        ent_nonzero = -(p[mask] * np.log2(p[mask])).reshape(-1)
-        # Sum back per-row (cell): do it via row indices
-        row_idx = np.repeat(
-            np.arange(p.shape[0], dtype=np.int32), bins_per_cell
-        )[mask.ravel()]
-        ent_acc = np.bincount(
-            row_idx, weights=ent_nonzero, minlength=p.shape[0]
-        ).astype(np.float32, copy=False)
-        ent[nonzero] = ent_acc
+        event_probabilities[nonzero] = (
+            event_counts[nonzero] / totals[nonzero, None]
+        )
 
-    return ent
+    return event_probabilities
+
+
+def cell_shannon_entropy_axis(
+    events: EventsBatch,
+    grid: GridConfig,
+    *,
+    axis: str,
+) -> NDArray[np.float32]:
+    """
+    Shannon entropy (base-2) of the event distribution inside each cell.
+    Set return_p_sum=True to return sum(p) per cell instead of entropy.
+
+    axis="t"  -> full per-pixel distribution in (x, y) within each cell
+    axis="x"  -> distribution over (y, t) within each cell (collapse x)
+    axis="y"  -> distribution over (x, t) within each cell (collapse y)
+    """
+    p = cell_event_probabilities_axis(events, grid, axis=axis)
+
+    mask = p > 0
+    p_safe = np.where(mask, p, np.float32(1.0))
+    return (-(p * np.log2(p_safe)).sum(axis=1)).astype(np.float32, copy=False)
 
 
 def cell_bernoulli_entropy(
