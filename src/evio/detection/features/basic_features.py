@@ -36,6 +36,49 @@ def cell_active_pixels(
     )
 
 
+def cell_fano_factor(
+    events: EventsBatch, grid: GridConfig
+) -> NDArray[np.float32]:
+    """
+    Per-cell Fano factor of per-pixel event counts:
+      F = variance(counts) / mean(counts)
+    Returns 0 when the mean count is 0.
+    """
+    if events.x_coords.size == 0:
+        return np.zeros(int(grid.cells), dtype=np.float32)
+
+    cell_w = int(grid.cell_w)
+    cell_h = int(grid.cell_h)
+    cell_area = cell_w * cell_h
+    if cell_area <= 0:
+        return np.zeros(int(grid.cells), dtype=np.float32)
+
+    cells = int(grid.cells)
+    cell_ids = grid.cell_id(events.x_coords, events.y_coords).astype(
+        np.int64, copy=False
+    )
+    local_x = (events.x_coords % cell_w).astype(np.int64, copy=False)
+    local_y = (events.y_coords % cell_h).astype(np.int64, copy=False)
+    local_pixel_id = local_y * cell_w + local_x
+
+    pixel_in_cell_id = cell_ids * cell_area + local_pixel_id
+    counts = np.bincount(
+        pixel_in_cell_id, minlength=cells * cell_area
+    ).astype(np.float32, copy=False)
+    counts = counts.reshape(cells, cell_area)
+
+    sum_counts = counts.sum(axis=1, dtype=np.float32)
+    mean = sum_counts / np.float32(cell_area)
+    sum_sq = (counts * counts).sum(axis=1, dtype=np.float32)
+    var = sum_sq / np.float32(cell_area) - mean * mean
+    var = np.maximum(var, np.float32(0.0))
+
+    fano = np.zeros(cells, dtype=np.float32)
+    nz = mean > 0
+    fano[nz] = var[nz] / mean[nz]
+    return fano
+
+
 def cell_8_coactivity(
     events: EventsBatch, grid: GridConfig
 ) -> NDArray[np.int32]:
