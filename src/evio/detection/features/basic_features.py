@@ -73,7 +73,7 @@ def cell_fano_factor(
     var = sum_sq / np.float32(cell_area) - mean * mean
     var = np.maximum(var, np.float32(0.0))
 
-    fano = np.zeros(cells, dtype=np.float32)
+    fano = np.ones(cells, dtype=np.float32)
     nz = mean > 0
     fano[nz] = var[nz] / mean[nz]
     return fano
