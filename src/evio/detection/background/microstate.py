@@ -2,7 +2,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from evio.core.events import EventsBatch
-from evio.detection.voxel import GridConfig
+from evio.detection.grid import GridConfig
 
 
 def microstate_from_events(
