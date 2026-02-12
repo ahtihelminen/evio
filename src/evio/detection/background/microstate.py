@@ -26,6 +26,9 @@ def microstate_from_events(
     else:
         counts = np.zeros((rows, cols, time_bins), dtype=np.int32)
 
+    if events.timestamps.size == 0:
+        return counts.reshape(-1)
+
     cell_ids = grid.cell_id(events.x_coords, events.y_coords)
     row_indices = (cell_ids // cols).astype(np.int32, copy=False)
     col_indices = (cell_ids % cols).astype(np.int32, copy=False)
@@ -46,6 +49,90 @@ def microstate_from_events(
         )
     else:
         np.add.at(counts, (row_indices, col_indices, time_indices), 1)
+
+    return counts.reshape(-1)
+
+
+def microstate_from_events_regions(
+    events: EventsBatch,
+    region_grid: GridConfig,
+    *,
+    sub_rows: int,
+    sub_cols: int,
+    time_bins: int,
+    include_polarity: bool = False,
+    window_start_us: int | None = None,
+) -> NDArray[np.int32]:
+    """
+    Build microstates for each region, with a sub-grid inside every region.
+
+    Regions are defined by region_grid (rows x cols). Each region is further
+    subdivided into (sub_rows, sub_cols) cells and time_bins bins.
+    """
+    region_rows = region_grid.rows
+    region_cols = region_grid.cols
+
+    if include_polarity:
+        counts = np.zeros(
+            (region_rows, region_cols, sub_rows, sub_cols, time_bins, 2),
+            dtype=np.int32,
+        )
+    else:
+        counts = np.zeros(
+            (region_rows, region_cols, sub_rows, sub_cols, time_bins),
+            dtype=np.int32,
+        )
+
+    if events.timestamps.size == 0:
+        return counts.reshape(-1)
+
+    cell_ids = region_grid.cell_id(events.x_coords, events.y_coords)
+    region_row = (cell_ids // region_cols).astype(np.int32, copy=False)
+    region_col = (cell_ids % region_cols).astype(np.int32, copy=False)
+
+    region_w = region_grid.cell_w
+    region_h = region_grid.cell_h
+    sub_w = max(1, (region_w + sub_cols - 1) // sub_cols)
+    sub_h = max(1, (region_h + sub_rows - 1) // sub_rows)
+
+    local_x = (
+        events.x_coords.astype(np.int32, copy=False) - region_col * region_w
+    )
+    local_y = (
+        events.y_coords.astype(np.int32, copy=False) - region_row * region_h
+    )
+    sub_col = np.clip(local_x // sub_w, 0, sub_cols - 1)
+    sub_row = np.clip(local_y // sub_h, 0, sub_rows - 1)
+
+    if window_start_us is None:
+        window_start_us = int(events.timestamps.min())
+    time_offsets = events.timestamps.astype(np.int64, copy=False) - int(
+        window_start_us
+    )
+    dt_us = max(1, (region_grid.window_us + time_bins - 1) // time_bins)
+    time_idx = (time_offsets // dt_us).astype(np.int32, copy=False)
+    time_idx = np.clip(time_idx, 0, time_bins - 1)
+
+    if include_polarity:
+        polarity_idx = (events.polarities > 0).astype(np.int32, copy=False)
+        np.add.at(
+            counts,
+            (
+                region_row,
+                region_col,
+                sub_row,
+                sub_col,
+                time_idx,
+                polarity_idx,
+            ),
+            1,
+        )
+    else:
+        np.add.at(
+            counts,
+            (region_row, region_col, sub_row, sub_col, time_idx),
+            1,
+        )
 
     return counts.reshape(-1)
 
