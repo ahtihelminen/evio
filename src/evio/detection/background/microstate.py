@@ -72,19 +72,18 @@ def microstate_from_events_regions(
     region_rows = region_grid.rows
     region_cols = region_grid.cols
 
-    if include_polarity:
-        counts = np.zeros(
-            (region_rows, region_cols, sub_rows, sub_cols, time_bins, 2),
-            dtype=np.int32,
-        )
-    else:
-        counts = np.zeros(
-            (region_rows, region_cols, sub_rows, sub_cols, time_bins),
-            dtype=np.int32,
-        )
-
     if events.timestamps.size == 0:
-        return counts.reshape(-1)
+        if include_polarity:
+            empty = np.zeros(
+                (region_rows, region_cols, sub_rows, sub_cols, time_bins, 2),
+                dtype=np.int32,
+            )
+        else:
+            empty = np.zeros(
+                (region_rows, region_cols, sub_rows, sub_cols, time_bins),
+                dtype=np.int32,
+            )
+        return empty.reshape(-1)
 
     cell_ids = region_grid.cell_id(events.x_coords, events.y_coords)
     region_row = (cell_ids // region_cols).astype(np.int32, copy=False)
@@ -114,24 +113,39 @@ def microstate_from_events_regions(
     time_idx = np.clip(time_idx, 0, time_bins - 1)
 
     if include_polarity:
-        polarity_idx = (events.polarities > 0).astype(np.int32, copy=False)
-        np.add.at(
-            counts,
-            (
-                region_row,
-                region_col,
-                sub_row,
-                sub_col,
-                time_idx,
-                polarity_idx,
-            ),
-            1,
+        polarity_idx = (events.polarities > 0).astype(np.int64, copy=False)
+        features_per_region = sub_rows * sub_cols * time_bins * 2
+        feature_id = (
+            ((sub_row * sub_cols) + sub_col) * time_bins + time_idx
+        ).astype(np.int64, copy=False)
+        feature_id = feature_id * 2 + polarity_idx
+        region_id = (region_row * region_cols + region_col).astype(
+            np.int64, copy=False
+        )
+        composite = region_id * features_per_region + feature_id
+        total_bins = region_rows * region_cols * features_per_region
+        counts_flat = np.bincount(
+            composite, minlength=total_bins
+        ).astype(np.int32, copy=False)
+        counts = counts_flat.reshape(
+            region_rows, region_cols, sub_rows, sub_cols, time_bins, 2
         )
     else:
-        np.add.at(
-            counts,
-            (region_row, region_col, sub_row, sub_col, time_idx),
-            1,
+        features_per_region = sub_rows * sub_cols * time_bins
+        feature_id = (
+            (sub_row * sub_cols) + sub_col
+        ) * time_bins + time_idx
+        feature_id = feature_id.astype(np.int64, copy=False)
+        region_id = (region_row * region_cols + region_col).astype(
+            np.int64, copy=False
+        )
+        composite = region_id * features_per_region + feature_id
+        total_bins = region_rows * region_cols * features_per_region
+        counts_flat = np.bincount(
+            composite, minlength=total_bins
+        ).astype(np.int32, copy=False)
+        counts = counts_flat.reshape(
+            region_rows, region_cols, sub_rows, sub_cols, time_bins
         )
 
     return counts.reshape(-1)
