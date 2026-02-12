@@ -14,17 +14,38 @@ from evio.core.events import EventsBatch
 class GridConfig:
     width: int
     height: int
-    cell_w: int
-    cell_h: int
-    dt_us: int
+    rows: int
+    cols: int
+    time_bins: int
+    window_us: int
+
+    def __post_init__(self) -> None:
+        if self.width <= 0 or self.height <= 0:
+            msg = "width and height must be positive"
+            raise ValueError(msg)
+        if self.rows <= 0 or self.cols <= 0:
+            msg = "rows and cols must be positive"
+            raise ValueError(msg)
+        if self.time_bins <= 0:
+            msg = "time_bins must be positive"
+            raise ValueError(msg)
+        if self.window_us <= 0:
+            msg = "window_us must be positive"
+            raise ValueError(msg)
 
     @property
-    def cols(self) -> int:
-        return (self.width + self.cell_w - 1) // self.cell_w
+    def cell_w(self) -> int:
+        return (self.width + self.cols - 1) // self.cols
 
     @property
-    def rows(self) -> int:
-        return (self.height + self.cell_h - 1) // self.cell_h
+    def cell_h(self) -> int:
+        return (self.height + self.rows - 1) // self.rows
+
+    @property
+    def dt_us(self) -> int:
+        return max(
+            1, (self.window_us + self.time_bins - 1) // self.time_bins
+        )
 
     @property
     def cells(self) -> int:
@@ -56,8 +77,8 @@ class FeatureFn(Protocol):
         grid: GridConfig,
     ) -> NDArray[np.floating] | NDArray[np.integer]:
         """
-        Must return per-cell feature array, either shape (grid.n_cells,)
-        or shape (grid.n_rows, grid.n_cols).
+        Must return per-cell feature array, either shape (grid.cells,)
+        or shape (grid.rows, grid.cols).
         """
         ...
 
