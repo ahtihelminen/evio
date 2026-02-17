@@ -5,6 +5,7 @@ The code should remain as human readable as possible in the development stage.
 Before finishing:
 - Examine the code you added and make sure it uses clear variable names.
 - Remove redundant type checking and error handling.
+- Minimize the number of added code lines.
 - Try to keep scripts under ./scripts as tidy as possible, preferably just a main() function that gets executed on running the script. Refactor all helper functions and classes under appropriate modules.
 
 ## Linting (mandatory)
