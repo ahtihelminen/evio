@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -43,9 +41,7 @@ class GridConfig:
 
     @property
     def dt_us(self) -> int:
-        return max(
-            1, (self.window_us + self.time_bins - 1) // self.time_bins
-        )
+        return max(1, (self.window_us + self.time_bins - 1) // self.time_bins)
 
     @property
     def cells(self) -> int:
