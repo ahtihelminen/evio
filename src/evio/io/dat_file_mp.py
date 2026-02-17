@@ -78,6 +78,9 @@ class MultiprocessingDatFileSource:
     def __iter__(self) -> Iterator[EventsBatch]:
         return iter(self._inner)
 
+    def get_batch_nowait(self) -> tuple[EventsBatch | None, bool]:
+        return self._inner.get_batch_nowait()
+
     def close(self) -> None:
         self._inner.close()
 
