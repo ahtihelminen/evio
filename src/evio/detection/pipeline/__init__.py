@@ -3,6 +3,12 @@ from .background_stage import (
     BackgroundStageConfig,
     BackgroundStageResult,
 )
+from .candidate_stage import (
+    CandidateRoi,
+    CandidateStage,
+    CandidateStageConfig,
+    CandidateStageResult,
+)
 from .visualization import (
     BackgroundPhaseViewConfig,
     render_background_phase_canvas,
@@ -13,5 +19,9 @@ __all__ = [
     "BackgroundStage",
     "BackgroundStageConfig",
     "BackgroundStageResult",
+    "CandidateRoi",
+    "CandidateStage",
+    "CandidateStageConfig",
+    "CandidateStageResult",
     "render_background_phase_canvas",
 ]
