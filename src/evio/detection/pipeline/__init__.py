@@ -15,6 +15,13 @@ from .tbd_stage import (
     TbdStageConfig,
     TbdStageResult,
 )
+from .track_stage import (
+    CandidateAttribution,
+    TrackStage,
+    TrackStageConfig,
+    TrackStageResult,
+    TrackView,
+)
 from .visualization import (
     BackgroundPhaseViewConfig,
     render_background_phase_canvas,
@@ -25,6 +32,7 @@ __all__ = [
     "BackgroundStage",
     "BackgroundStageConfig",
     "BackgroundStageResult",
+    "CandidateAttribution",
     "CandidateRoi",
     "CandidateStage",
     "CandidateStageConfig",
@@ -33,5 +41,9 @@ __all__ = [
     "TbdStage",
     "TbdStageConfig",
     "TbdStageResult",
+    "TrackStage",
+    "TrackStageConfig",
+    "TrackStageResult",
+    "TrackView",
     "render_background_phase_canvas",
 ]
