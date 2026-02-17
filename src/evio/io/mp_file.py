@@ -6,6 +6,7 @@ from multiprocessing import Event as MpEvent
 from multiprocessing import Process, Queue
 from multiprocessing.synchronize import Event as MpSyncEvent
 from pathlib import Path
+from queue import Empty
 from types import TracebackType
 from typing import Protocol
 
@@ -164,6 +165,30 @@ class MultiprocessingFileSource:
         finally:
             self.close()
 
+    def get_batch_nowait(self) -> tuple[EventsBatch | None, bool]:
+        """
+        Poll one decoded batch without blocking.
+
+        Returns `(batch, ended)`:
+        - `batch` is `EventsBatch` when a batch is immediately available.
+        - `batch is None` and `ended is False` when no batch is available yet.
+        - `batch is None` and `ended is True` when stream has ended/closed.
+        """
+        if self._closed:
+            return None, True
+
+        self._start()
+        try:
+            item = self._out_queue.get_nowait()
+        except Empty:
+            return None, False
+
+        if item is _SENTINEL:
+            self.close()
+            return None, True
+
+        return item, False
+
     def close(self) -> None:
         # Double close prevention
         if self._closed:
@@ -172,13 +197,17 @@ class MultiprocessingFileSource:
 
         self._stop_event.set()
 
-        # Drain the queue until empty
-        while not self._out_queue.empty():
-            _ = self._out_queue.get_nowait()
+        # Drain output queue best-effort.
+        while True:
+            try:
+                _ = self._out_queue.get_nowait()
+            except Empty:
+                break
 
         for process in (self._reader, self._worker):
             if process.is_alive():
                 process.terminate()
+                process.join(timeout=0.1)
 
         self._in_queue.close()
         self._out_queue.close()
