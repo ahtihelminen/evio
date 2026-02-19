@@ -2,7 +2,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from evio.core.events import EventsBatch
-from evio.detection.grid_state import GridConfig
+from evio.detection.grid import GridConfig
 
 
 def cell_event_count(
@@ -62,9 +62,9 @@ def cell_fano_factor(
     local_pixel_id = local_y * cell_w + local_x
 
     pixel_in_cell_id = cell_ids * cell_area + local_pixel_id
-    counts = np.bincount(
-        pixel_in_cell_id, minlength=cells * cell_area
-    ).astype(np.float32, copy=False)
+    counts = np.bincount(pixel_in_cell_id, minlength=cells * cell_area).astype(
+        np.float32, copy=False
+    )
     counts = counts.reshape(cells, cell_area)
 
     sum_counts = counts.sum(axis=1, dtype=np.float32)
