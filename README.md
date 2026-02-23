@@ -1,93 +1,118 @@
 # evio
 
-Minimal library for standardized handling of event camera data, with file
-playback, live capture, and panorama streaming tools.
+Toolkit for event-camera playback, live capture, panorama streaming, and
+background/detection experiments.
 
-## What it does
-- Decode DT8 (.dat) and EVT3 (.raw) streams with Numba codecs
-  (`src/evio/codec/*`).
-- Read files with single-process and multiprocessing sources, then build
-  fixed-duration windows (`src/evio/io/*`, `src/evio/core/*`).
-- Render event frames, HUD overlays, and panoramas (`src/evio/rendering/*`).
-- Capture live cameras via Metavision HAL and multiplex them into a panorama
-  (`src/evio/io/camera.py`, `src/evio/streaming/camera_utils.py`).
-- Stream panoramas over RTSP and control them via the PySide6 UI
-  (`src/evio/streaming/stream.py`, `src/evio/ui/*`).
-- Convert EVT3 RAW to DT8 DAT or NPZ with `EventDataConverter`
-  (`src/evio/io/converter.py`).
+## What this repo contains
+- DT8 (`.dat`) and EVT3 (`.raw`) readers plus conversion tooling.
+- Frame and panorama rendering utilities (OpenCV + Numba paths).
+- Live local camera capture and RTSP panorama streaming tools.
+- Detection/background pipeline components and diagnostics scripts.
+- PySide6 desktop UIs for local and streamed visualization.
 
-## CLI scripts
-- `play_dat.py` / `play_dat_mp.py`: DAT playback (single-process vs
-  multiprocessing).
-- `play_raw_mp.py` / `play_raw_folder.py`: EVT3 RAW playback (single file or
-  folder).
-- `play_live_panorama.py`: local multi-camera panorama UI.
-- `stream_live_panorama.py`: capture local cameras and stream a panorama over
-  RTSP.
-- `play_stream.py`: PySide6 viewer/controller for an RTSP panorama stream.
-- `convert_raw_to_dat.py` / `bench_live_render.py`: format conversion and live
-  render benchmarks.
+## Current repository structure
 
-Run any script with `--help` for flags such as `--window`, `--speed`, and
-`--force-speed`.
-
-## Optional system dependencies
-- Live camera capture requires `metavision_hal` and a supported camera.
-- RTSP panorama streaming requires `mediamtx` and `ffmpeg` on your PATH.
-
-## Project layout
-
-```
+```text
 .
+├─ AGENTS.md
 ├─ README.md
 ├─ pyproject.toml
 ├─ uv.lock
-├─ data/
-│  └─ fred1.dat
-├─ scripts/
-│  ├─ bench_live_render.py
-│  ├─ convert_raw_to_dat.py
-│  ├─ play_dat.py
-│  ├─ play_dat_mp.py
-│  ├─ play_live_panorama.py
-│  ├─ play_raw_folder.py
-│  ├─ play_raw_mp.py
-│  ├─ play_stream.py
-│  └─ stream_live_panorama.py
-└─ src/
-   └─ evio/
-      ├─ codec/
-      ├─ core/
-      ├─ io/
-      ├─ rendering/
-      ├─ streaming/
-      └─ ui/
+├─ data/              # sample recordings (*.dat)
+├─ diagnostics/       # generated CSV diagnostics
+├─ docs/              # design and pipeline notes
+├─ notebooks/         # analysis notebooks
+├─ scripts/           # runnable entry points
+├─ src/evio/
+│  ├─ codec/          # DT8 / EVT3 codec logic
+│  ├─ core/           # events, windows, pacing, recording helpers
+│  ├─ detection/      # features, background model, detection pipeline
+│  ├─ io/             # file/camera readers and conversion
+│  ├─ multiprocessing/# camera and worker process orchestration
+│  ├─ rendering/      # frame, heatmap, panorama rendering
+│  ├─ streaming/      # RTSP and control-plane utilities
+│  └─ ui/             # PySide6 app, controllers, widgets, styles
+└─ tests/             # test assets (currently minimal)
 ```
 
-## Quick start
+## Setup
 
 ```bash
-# install dependencies (uv or pip)
 uv sync
-
-# play a DAT (DT8) file
-uv run scripts/play_dat.py data/fred1.dat --window 10 --speed 1
-
-# play DAT/RAW with multiprocessing
-uv run scripts/play_dat_mp.py path/to/events.dat --window 10 --speed 1
-uv run scripts/play_raw_mp.py path/to/events.raw --window 10 --speed 1
-
-# play a folder of EVT3 RAW files
-uv run scripts/play_raw_folder.py path/to/raws --window 10 --speed 1
-
-# local panorama UI (requires Metavision HAL)
-uv run scripts/play_live_panorama.py --window-ms 10 --view-width 1920
-
-# stream a panorama over RTSP (requires mediamtx + ffmpeg)
-uv run scripts/stream_live_panorama.py \
-  --rtsp-url rtsp://127.0.0.1:8554/panorama
-uv run scripts/play_stream.py --host-ip <host-ip> --path panorama
 ```
 
-DAT/RAW playback defaults to 1280x720 geometry; adjust the source defaults in
-`src/evio/io/*` (or the scripts) if your recordings differ.
+## Script run examples
+
+Use `--help` with any script for full options.
+
+### File playback and conversion
+
+```bash
+# DT8 DAT playback (single process)
+uv run scripts/play_dat.py data/fred1.dat --fps 60 --window 10 --speed 1
+
+# DT8 DAT playback (multiprocessing source)
+uv run scripts/play_dat_mp.py data/fred1.dat --fps 60 --window 10 --speed 1
+
+# EVT3 RAW playback (single RAW file)
+uv run scripts/play_raw_mp.py path/to/events.raw --fps 60 --window 10 --speed 1
+
+# EVT3 RAW playback (folder of RAW files)
+uv run scripts/play_raw_folder.py path/to/raw_folder --fps 60 --window 10
+
+# EVT3 RAW -> DT8 DAT conversion
+uv run scripts/convert_raw_to_dat.py \
+  --input path/to/input.raw \
+  --output data/converted.dat
+```
+
+### Stats, diagnostics, and detection
+
+```bash
+# Grid feature heatmap/stat view over DAT playback
+uv run scripts/event_stats.py data/fred1.dat --fps 60 --stat entropy
+
+# Background anomaly scoring + optional diagnostics CSV
+uv run scripts/bg_stats.py data/fred1.dat --fps 60 --diagnostics
+
+# End-to-end detection pipeline MVP visualizer
+uv run scripts/run_detection_pipeline_mvp.py data/fred1.dat --display-fps 30
+
+# Synthetic anomaly/background scenario generator and player
+uv run scripts/synthetic_background_test.py --total-windows 400 --playback-fps 30
+```
+
+### Live camera and panorama tools
+
+```bash
+# Single mono camera view (or event view with --event)
+uv run scripts/play_live_mono.py --fps 60
+
+# Multi-camera local panorama UI
+uv run scripts/play_live_panorama.py --window-ms 10 --fps 60 --view-width 1920
+
+# Stream live panorama to RTSP (requires mediamtx + ffmpeg)
+uv run scripts/stream_live_panorama.py \
+  --rtsp-url rtsp://127.0.0.1:8554/panorama \
+  --fps 60
+
+# View/control RTSP panorama stream
+uv run scripts/play_stream.py --host-ip 127.0.0.1 --path panorama
+
+# eMovie launcher UI (source selector for recording/RTSP)
+uv run scripts/emovie.py
+```
+
+### Benchmarks
+
+```bash
+# Event generation benchmark from mono camera frames
+uv run scripts/bench_event_generation.py --seconds 3 --threshold 8
+
+# Numba vs numpy live render benchmark
+uv run scripts/bench_live_render.py --method both --frames 300 --warmup 30
+```
+
+## Optional runtime dependencies
+- Live camera scripts need supported hardware plus camera runtime libraries.
+- RTSP streaming scripts need `mediamtx` and `ffmpeg` on `PATH`.
