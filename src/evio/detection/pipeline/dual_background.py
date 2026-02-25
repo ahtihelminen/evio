@@ -26,6 +26,8 @@ class ClassSpecificConfig:
     count_weight: float = 1.0
     multi_weight: float = 1.0
     coactivity_weight: float = 1.0
+    count_std_floor: float = 10.0
+    multi_std_floor: float = 10.0
 
     def __post_init__(self) -> None:
         if self.z_threshold <= 0:
@@ -46,6 +48,12 @@ class ClassSpecificConfig:
         if self.coactivity_weight < 0:
             msg = "coactivity_weight must be >= 0"
             raise ValueError(msg)
+        if self.count_std_floor <= 0:
+            msg = "count_std_floor must be > 0"
+            raise ValueError(msg)
+        if self.multi_std_floor <= 0:
+            msg = "multi_std_floor must be > 0"
+            raise ValueError(msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,15 +61,15 @@ class DualBackgroundConfig:
     """Configuration for dual background models (sky/not-sky)."""
 
     sky: ClassSpecificConfig = ClassSpecificConfig(
-        z_threshold=4.0,
-        update_threshold=4.0,
+        z_threshold=3.0,
+        update_threshold=3.0,
         calibration_windows=20,
         count_weight=1.5,
         coactivity_weight=0.5,
     )
     not_sky: ClassSpecificConfig = ClassSpecificConfig(
-        z_threshold=6.0,
-        update_threshold=5.0,
+        z_threshold=4.0,
+        update_threshold=4.0,
         calibration_windows=10,
         count_weight=1.0,
         coactivity_weight=1.0,
@@ -180,8 +188,8 @@ class _PerClassModel:
             update_mask = np.zeros_like(class_mask)
             return z_count, z_multi, z_coact, z_flat, update_mask
 
-        max_count = int(microstate[class_mask].max(initial=0))
-        max_total = int(event_totals[class_mask].max(initial=0))
+        max_count = int(microstate.max(initial=0))
+        max_total = int(event_totals.max(initial=0))
         self._ensure_log_factorials(max(max_count, max_total))
 
         log_factorial_total = self._log_factorial_lookup[
@@ -302,13 +310,19 @@ class _PerClassModel:
         z_coact = np.zeros_like(event_totals)
 
         if np.any(valid_count):
-            std_count = np.sqrt(self._count_var[valid_count])
+            std_count = np.maximum(
+                np.sqrt(self._count_var[valid_count]),
+                np.float32(self.config.count_std_floor),
+            )
             z_count[valid_count] = (
                 count_energy[valid_count] - self._count_mean[valid_count]
             ) / (std_count + self.shared.epsilon)
 
         if np.any(valid_multi):
-            std_multi = np.sqrt(self._multi_var[valid_multi])
+            std_multi = np.maximum(
+                np.sqrt(self._multi_var[valid_multi]),
+                np.float32(self.config.multi_std_floor),
+            )
             z_multi[valid_multi] = (
                 multi_energy[valid_multi] - self._multi_mean[valid_multi]
             ) / (std_multi + self.shared.epsilon)

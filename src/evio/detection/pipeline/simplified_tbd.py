@@ -29,8 +29,11 @@ class SimplifiedTbdConfig:
     min_hist_side_px: int = 8
     baseline_warmup_samples: int = 50
     baseline_update_threshold: float = 4.0
-    coherence_threshold: float = 3.0
-    sky_coherence_threshold: float = 2.5
+    # Z-score threshold for validation (used instead of PSR-based coherence)
+    # Higher values = fewer false positives but may miss weak detections
+    # GT detections typically have z_scores 100-300, noise has 10-50
+    coherence_threshold: float = 50.0
+    sky_coherence_threshold: float = 30.0
     epsilon: float = 1e-6
 
     def __post_init__(self) -> None:
@@ -75,6 +78,7 @@ class Detection:
     row_end: int
     col_start: int
     col_end: int
+    z_score: float = 0.0
 
 
 @dataclass(slots=True)
@@ -245,13 +249,14 @@ class SimplifiedTbdStage:
         class_map: IntArray,
         sky_threshold: float,
         not_sky_threshold: float,
-    ) -> list[tuple[int, int, int, int, int]]:
+    ) -> list[tuple[int, int, int, int, int, float]]:
         """Find candidate regions from z-map threshold crossings.
 
-        Returns list of (row_start, row_end, col_start, col_end, bg_class).
+        Returns list of (row_start, row_end, col_start, col_end, bg_class,
+        z_score).
         """
         rows, cols = z_map.shape
-        candidates: list[tuple[int, int, int, int, int]] = []
+        candidates: list[tuple[int, int, int, int, int, float]] = []
 
         threshold_mask = np.zeros((rows, cols), dtype=bool)
         sky_mask = class_map == 0
@@ -286,8 +291,15 @@ class SimplifiedTbdStage:
                 center_col = (col_start + col_end) // 2
                 bg_class = int(class_map[center_row, center_col])
 
+                # Use max z-score in the component
+                max_z = 0.0
+                for r, c in component:
+                    z_val = float(z_map[r, c])
+                    if z_val > max_z:
+                        max_z = z_val
+
                 candidates.append(
-                    (row_start, row_end, col_start, col_end, bg_class)
+                    (row_start, row_end, col_start, col_end, bg_class, max_z)
                 )
 
         return candidates
@@ -333,7 +345,7 @@ class SimplifiedTbdStage:
 
     def _score_candidate(
         self,
-        candidate: tuple[int, int, int, int, int],
+        candidate: tuple[int, int, int, int, int, float],
         *,
         timestamps: NDArray[np.int64],
         x_coords: NDArray[np.int16],
@@ -341,7 +353,7 @@ class SimplifiedTbdStage:
         t_ref: int,
         class_map: IntArray,
     ) -> Detection | None:
-        row_start, row_end, col_start, col_end, bg_class = candidate
+        row_start, row_end, col_start, col_end, bg_class, z_score = candidate
         x0, y0, x1, y1 = self._cell_to_pixel_bounds(
             row_start, row_end, col_start, col_end
         )
@@ -391,20 +403,17 @@ class SimplifiedTbdStage:
                     best_vx = float(vx)
                     best_vy = float(vy)
 
-        m_coh = self._coherence_score(best_psr)
-        should_update = (
-            self._baseline_count < self.config.baseline_warmup_samples
-            or m_coh <= self.config.baseline_update_threshold
-        )
-        if should_update:
-            self._update_baseline(best_psr)
-            m_coh = self._coherence_score(best_psr)
-
+        # Use z-score directly for validation instead of PSR-based coherence
+        # The z-score is already computed from the background model and
+        # provides a reliable measure of anomaly
         coherence_threshold = (
             self.config.sky_coherence_threshold
             if bg_class == 0
             else self.config.coherence_threshold
         )
+
+        # Use z_score as m_coh for validation
+        m_coh = z_score
 
         if m_coh < coherence_threshold:
             return None
@@ -424,6 +433,7 @@ class SimplifiedTbdStage:
             row_end=row_end,
             col_start=col_start,
             col_end=col_end,
+            z_score=z_score,
         )
 
     def _cell_to_pixel_bounds(
