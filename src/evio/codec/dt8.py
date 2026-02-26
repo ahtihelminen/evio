@@ -112,6 +112,7 @@ def decode_dt8_pairs(
     """Unpack N DT8 events into (timestamps, x_coords, y_coords, polarities)."""
     n_timestamps = timestamps.size
 
+    timestamps_out = np.empty(n_timestamps, dtype=np.int64)
     x_coords = np.empty(n_timestamps, dtype=np.int16)
     y_coords = np.empty(n_timestamps, dtype=np.int16)
     polarities = np.empty(n_timestamps, dtype=np.int8)
@@ -125,12 +126,13 @@ def decode_dt8_pairs(
         polarity = (word >> 28) & 0x1
 
         if 0 <= x_coord < width and 0 <= y_coord < height:
+            timestamps_out[out] = np.int64(timestamps[i])
             x_coords[out] = x_coord
             y_coords[out] = y_coord
             polarities[out] = polarity
             out += 1
     return (
-        timestamps.astype(np.int64),
+        timestamps_out[:out],
         x_coords[:out],
         y_coords[:out],
         polarities[:out],
