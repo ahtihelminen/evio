@@ -61,27 +61,28 @@ class DualBackgroundConfig:
     """Configuration for dual background models (sky/not-sky)."""
 
     sky: ClassSpecificConfig = ClassSpecificConfig(
-        z_threshold=3.0,
-        update_threshold=3.0,
+        z_threshold=20,
+        update_threshold=5,
         calibration_windows=20,
-        count_weight=1.5,
-        coactivity_weight=0.5,
+        count_weight=1.0,
+        coactivity_weight=1.0,
     )
     not_sky: ClassSpecificConfig = ClassSpecificConfig(
-        z_threshold=4.0,
-        update_threshold=4.0,
+        z_threshold=50,
+        update_threshold=10,
         calibration_windows=10,
         count_weight=1.0,
         coactivity_weight=1.0,
     )
-    sub_rows: int = 4
-    sub_cols: int = 4
-    time_bins: int = 6
+    sub_rows: int = 9
+    sub_cols: int = 9
+    time_bins: int = 3
     alpha: float = 1.0
     ema_alpha: float | None = 0.05
-    min_events: int = 1
+    min_events: int = 5
     model_update_weight: float = 1.0
     coactivity_std_floor: float = 1.0
+    std_max: float = 10.0
     epsilon: float = 1e-6
 
     def __post_init__(self) -> None:
@@ -105,6 +106,9 @@ class DualBackgroundConfig:
             raise ValueError(msg)
         if self.coactivity_std_floor <= 0:
             msg = "coactivity_std_floor must be > 0"
+            raise ValueError(msg)
+        if self.std_max <= 0:
+            msg = "std_max must be > 0"
             raise ValueError(msg)
         if self.epsilon <= 0:
             msg = "epsilon must be > 0"
@@ -309,28 +313,33 @@ class _PerClassModel:
         z_multi = np.zeros_like(event_totals)
         z_coact = np.zeros_like(event_totals)
 
+        std_max = np.float32(self.shared.std_max)
+
         if np.any(valid_count):
-            std_count = np.maximum(
+            std_count = np.clip(
                 np.sqrt(self._count_var[valid_count]),
                 np.float32(self.config.count_std_floor),
+                std_max,
             )
             z_count[valid_count] = (
                 count_energy[valid_count] - self._count_mean[valid_count]
             ) / (std_count + self.shared.epsilon)
 
         if np.any(valid_multi):
-            std_multi = np.maximum(
+            std_multi = np.clip(
                 np.sqrt(self._multi_var[valid_multi]),
                 np.float32(self.config.multi_std_floor),
+                std_max,
             )
             z_multi[valid_multi] = (
                 multi_energy[valid_multi] - self._multi_mean[valid_multi]
             ) / (std_multi + self.shared.epsilon)
 
         if np.any(valid_coact):
-            std_coact = np.maximum(
+            std_coact = np.clip(
                 np.sqrt(self._coact_var[valid_coact]),
                 np.float32(self.shared.coactivity_std_floor),
+                std_max,
             )
             z_coact[valid_coact] = (
                 coactivity_energy[valid_coact] - self._coact_mean[valid_coact]

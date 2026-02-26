@@ -49,40 +49,26 @@ class BackgroundClassesClassifier:
         self._feature_mean: NDArray[np.float32] | None = None
         self._feature_std: NDArray[np.float32] | None = None
         self._cluster_centers: NDArray[np.float32] | None = None
+        self._class_map: NDArray[np.int32] | None = None
 
     def update(self, events: EventsBatch) -> BgClassesResult:
-        feature_matrix = _compute_feature_matrix(events, self._grid)
-        prepared = _prepare_feature_matrix(feature_matrix, self._grid)
+        if self._class_map is not None:
+            return BgClassesResult(
+                calibrating=False,
+                class_map=self._class_map,
+                calibration_elapsed_us=self._calibration_elapsed_us,
+                calibration_target_us=self._calibration_time_us,
+            )
 
-        if self._cluster_centers is None:
-            self._collect_calibration_window(prepared, events)
-            if self._calibration_done():
-                self._fit_clusters()
-            if self._cluster_centers is None:
-                return BgClassesResult(
-                    calibrating=True,
-                    class_map=None,
-                    calibration_elapsed_us=self._calibration_elapsed_us,
-                    calibration_target_us=self._calibration_time_us,
-                )
-
-        feature_mean = self._feature_mean
-        feature_std = self._feature_std
-        centers = self._cluster_centers
-        if feature_mean is None or feature_std is None or centers is None:
-            msg = "Cluster model is not initialized."
-            raise RuntimeError(msg)
-
-        standardized = _standardize_matrix(
-            prepared,
-            feature_mean=feature_mean,
-            feature_std=feature_std,
+        prepared = _prepare_feature_matrix(
+            _compute_feature_matrix(events, self._grid), self._grid
         )
-        labels = _assign_clusters(standardized, centers)
-        class_map = labels.reshape(self._grid.rows, self._grid.cols)
+        self._collect_calibration_window(prepared, events)
+        if self._calibration_done():
+            self._fit_clusters()
         return BgClassesResult(
-            calibrating=False,
-            class_map=class_map,
+            calibrating=True,
+            class_map=self._class_map,
             calibration_elapsed_us=self._calibration_elapsed_us,
             calibration_target_us=self._calibration_time_us,
         )
@@ -141,6 +127,11 @@ class BackgroundClassesClassifier:
         self._feature_std = feature_std.astype(np.float32, copy=False)
         self._cluster_centers = centers.astype(np.float32, copy=False)
         self._calibration_windows.clear()
+
+        labels = _assign_clusters(standardized, self._cluster_centers)
+        self._class_map = labels.reshape(
+            self._grid.rows, self._grid.cols
+        ).astype(np.int32)
 
 
 def _compute_feature_matrix(

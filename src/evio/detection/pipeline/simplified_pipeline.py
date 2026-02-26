@@ -33,7 +33,7 @@ IntArray = NDArray[np.int32]
 class SimplifiedPipelineConfig:
     """Configuration for the simplified detection pipeline."""
 
-    calibration_time_us: int = 2_000_000
+    calibration_time_us: int = 100_000
     random_seed: int = 7
     background: DualBackgroundConfig = field(
         default_factory=DualBackgroundConfig
@@ -57,6 +57,7 @@ class SimplifiedPipelineResult:
     detections: list[Detection]
     class_calibration_elapsed_us: int
     class_calibration_target_us: int
+    bg_result: DualBackgroundResult | None = None
 
 
 class SimplifiedDetectionPipeline:
@@ -97,6 +98,7 @@ class SimplifiedDetectionPipeline:
         """Process an event batch through all pipeline stages."""
         class_result = self._classifier.update(batch)
 
+        bg_result: DualBackgroundResult | None = None
         if class_result.class_map is None:
             z_map = np.zeros(
                 (self._grid.rows, self._grid.cols), dtype=np.float32
@@ -118,6 +120,7 @@ class SimplifiedDetectionPipeline:
             detections=detections,
             class_calibration_elapsed_us=class_result.calibration_elapsed_us,
             class_calibration_target_us=class_result.calibration_target_us,
+            bg_result=bg_result,
         )
         self._window_index += 1
         return result
