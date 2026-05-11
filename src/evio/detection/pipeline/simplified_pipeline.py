@@ -19,11 +19,11 @@ from evio.detection.pipeline.dual_background import (
     DualBackgroundScorer,
 )
 from evio.detection.pipeline.simplified_tbd import (
-    Detection,
     SimplifiedTbdConfig,
     SimplifiedTbdResult,
     SimplifiedTbdStage,
 )
+from evio.detection.types import Detection
 
 FloatArray = NDArray[np.float32]
 IntArray = NDArray[np.int32]
