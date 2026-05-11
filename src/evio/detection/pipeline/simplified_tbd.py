@@ -10,6 +10,7 @@ from numpy.typing import NDArray
 
 from evio.core.events import EventsBatch
 from evio.detection.grid import GridConfig
+from evio.detection.types import Detection
 
 FloatArray = NDArray[np.float32]
 BoolArray = NDArray[np.bool_]
@@ -58,27 +59,6 @@ class SimplifiedTbdConfig:
         if self.epsilon <= 0.0:
             msg = "epsilon must be > 0"
             raise ValueError(msg)
-
-
-@dataclass(frozen=True, slots=True)
-class Detection:
-    """A validated detection with motion coherence."""
-
-    x0: int
-    y0: int
-    x1: int
-    y1: int
-    vx_px_s: float
-    vy_px_s: float
-    m_coh: float
-    best_psr: float
-    event_count: int
-    bg_class: int
-    row_start: int
-    row_end: int
-    col_start: int
-    col_end: int
-    z_score: float = 0.0
 
 
 @dataclass(slots=True)

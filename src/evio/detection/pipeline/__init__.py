@@ -1,3 +1,5 @@
+from evio.detection.types import Classification, Detection
+
 from .background_stage import (
     BackgroundStage,
     BackgroundStageConfig,
@@ -10,7 +12,6 @@ from .dual_background import (
     DualBackgroundScorer,
 )
 from .simplified_pipeline import (
-    Detection,
     SimplifiedDetectionPipeline,
     SimplifiedPipelineConfig,
     SimplifiedPipelineResult,
@@ -26,6 +27,7 @@ __all__ = [
     "BackgroundStageConfig",
     "BackgroundStageResult",
     "ClassSpecificConfig",
+    "Classification",
     "Detection",
     "DualBackgroundConfig",
     "DualBackgroundResult",
