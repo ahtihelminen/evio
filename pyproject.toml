@@ -86,3 +86,8 @@ select = [
 ignore = [
 	"COM812",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# The emitter deliberately catches any subscriber exception to keep the
+# detection pipeline running when a downstream consumer misbehaves.
+"src/evio/detection/emitter.py" = ["BLE001"]
