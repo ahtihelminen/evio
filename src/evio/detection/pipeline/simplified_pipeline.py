@@ -12,6 +12,7 @@ from evio.detection.background.classes import (
     BackgroundClassesClassifier,
     BgClassesResult,
 )
+from evio.detection.emitter import DetectionEmitter
 from evio.detection.grid import GridConfig
 from evio.detection.pipeline.dual_background import (
     DualBackgroundConfig,
@@ -85,6 +86,7 @@ class SimplifiedDetectionPipeline:
         self._tbd = SimplifiedTbdStage(grid, config.tbd)
 
         self._window_index = 0
+        self.emitter = DetectionEmitter()
 
     @property
     def window_index(self) -> int:
@@ -111,6 +113,9 @@ class SimplifiedDetectionPipeline:
             z_map = bg_result.z_map
             detections = tbd_result.detections
             calibrating = class_result.calibrating or bg_result.calibrating
+
+        for detection in detections:
+            self.emitter.emit(detection)
 
         result = SimplifiedPipelineResult(
             window_index=self._window_index,
