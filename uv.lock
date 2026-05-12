@@ -2810,7 +2810,9 @@ requires-dist = [{ name = "protobuf", specifier = ">=6.33.6" }]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "cryptography", specifier = ">=48.0.0" },
     { name = "grpcio-tools", specifier = ">=1.80.0" },
+    { name = "hypothesis", specifier = ">=6.152.6" },
     { name = "mypy-protobuf", specifier = ">=5.1.0" },
     { name = "pyright", specifier = ">=1.1.0" },
     { name = "pytest", specifier = ">=8.0" },
