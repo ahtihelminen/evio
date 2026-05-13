@@ -13,6 +13,18 @@ from ids_peak_ipl import ids_peak_ipl  # type: ignore
 from evio.core.events import EventsBatch
 from evio.core.generate_events import get_events_from_frames
 
+
+def get_mono_camera_serials() -> list[str]:
+    """Returns attached IDS Peak mono-camera serials in ascending order."""
+    ids_peak.Library.Initialize()
+    device_manager = ids_peak.DeviceManager.Instance()
+    device_manager.Update()
+    devices = device_manager.Devices()
+    return sorted(
+        str(devices[i].SerialNumber()) for i in range(int(devices.size()))
+    )
+
+
 # ---------------- Camera source ----------------
 
 
