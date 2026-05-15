@@ -31,8 +31,19 @@ from evio.core.window import RollingWindowBatchProcessor
 
 
 def get_camera_serials() -> list[str]:
-    """Return attached IMX636 camera serial numbers in ascending order."""
-    return sorted(imx636.IMX636.list_cameras())
+    """Return camera IDs for each connected IMX636 camera.
+
+    If the FX3 EEPROMs are programmed with real serial numbers, returns
+    those (sorted). If serials are blank — common on the IDS UE-39B0XCP
+    + custom-built carriers we use — returns positional IDs like
+    "event-0" through "event-N-1". The order matches successive calls to
+    `imx636.IMX636.open()`, which is stable for a given physical USB
+    topology (libusb enumerates by bus+port).
+    """
+    raw = list(imx636.IMX636.list_cameras())
+    if all(s == "" for s in raw):
+        return [f"event-{i}" for i in range(len(raw))]
+    return sorted(raw)
 
 
 @dataclass()
@@ -55,7 +66,13 @@ class Imx636CameraSource:
     _processor_step_us: int = field(init=False, default=0)
 
     def __enter__(self) -> Imx636CameraSource:
-        self.cam = imx636.IMX636.open(self.serial or "")
+        # Synthetic positional IDs ("event-N") aren't real USB serials; pass
+        # "" so the driver opens whichever camera is next-available. The
+        # caller relies on the open order matching get_camera_serials().
+        real_serial = (
+            "" if self.serial.startswith("event-") else self.serial
+        )
+        self.cam = imx636.IMX636.open(real_serial)
         self.width = int(self.cam.width())
         self.height = int(self.cam.height())
         self.cam.set_cd_callback(self._on_cd_events)
