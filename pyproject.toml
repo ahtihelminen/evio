@@ -21,6 +21,7 @@ dependencies = [
     "opencv-python>=4.11.0.86",
     "pandas>=2.3.3",
     "pyside6>=6.10.1",
+    "pyserial>=3.5",
     "pyyaml>=6.0.3",
     "sapient",
     "websockets>=16.0",
