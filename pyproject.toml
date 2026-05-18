@@ -97,3 +97,6 @@ ignore = [
 # The GUI catches arbitrary exceptions from camera grab() / solver so a
 # transient failure surfaces in the UI rather than killing the session.
 "src/evio/calibration/gui.py" = ["BLE001"]
+# The encoder worker catches arbitrary exceptions so a buggy clip encode
+# logs and continues instead of killing the worker thread.
+"src/evio/media/manager.py" = ["BLE001"]
