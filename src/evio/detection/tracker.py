@@ -60,6 +60,11 @@ class TrackManagerConfig:
     # but only emit detections from it after it has been re-observed this
     # many times. Filters noise spikes that briefly form fake tracks.
     confirm_after_hits: int = 3
+    # Unmatched detections only spawn a new track if their m_coh meets
+    # this floor. Set well above the pipeline's noise floor to stop
+    # transient high-z-score blobs from fragmenting an existing track.
+    # 0 = spawn anything (legacy behaviour).
+    spawn_min_mcoh: float = 0.0
 
 
 class TrackManager:
@@ -97,6 +102,8 @@ class TrackManager:
             ))
 
         for det in unmatched_dets:
+            if det.m_coh < self._cfg.spawn_min_mcoh:
+                continue
             new_track = self._spawn(det, now_us)
             if new_track.age_frames >= self._cfg.confirm_after_hits:
                 annotated.append(
