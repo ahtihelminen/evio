@@ -47,3 +47,4 @@ class Detection:
     camera_id: str = ""
     classification: Classification | None = None
     range_m: float | None = None
+    track_id: str = ""
