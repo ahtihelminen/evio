@@ -21,7 +21,10 @@ dependencies = [
     "opencv-python>=4.11.0.86",
     "pandas>=2.3.3",
     "pyside6>=6.10.1",
+    "pyserial>=3.5",
+    "pyyaml>=6.0.3",
     "sapient",
+    "websockets>=16.0",
 ]
 
 [project.optional-dependencies]
@@ -91,3 +94,6 @@ ignore = [
 # The emitter deliberately catches any subscriber exception to keep the
 # detection pipeline running when a downstream consumer misbehaves.
 "src/evio/detection/emitter.py" = ["BLE001"]
+# The GUI catches arbitrary exceptions from camera grab() / solver so a
+# transient failure surfaces in the UI rather than killing the session.
+"src/evio/calibration/gui.py" = ["BLE001"]
