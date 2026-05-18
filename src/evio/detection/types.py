@@ -46,3 +46,4 @@ class Detection:
     timestamp_us: int = 0
     camera_id: str = ""
     classification: Classification | None = None
+    range_m: float | None = None
