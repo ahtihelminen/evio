@@ -35,8 +35,9 @@ ids = [
 
 # Dataset-acquisition tools: install with `uv pip install '.[data]'`.
 data = [
-    "gdown>=5.2.0",      # Google Drive (FRED dataset)
-    "datasets>=3.0.0",   # HuggingFace (Ev-Flying)
+    "gdown>=5.2.0",        # Google Drive (FRED, NeRDD)
+    "datasets>=3.0.0",     # HuggingFace (Ev-Flying)
+    "kagglehub>=0.3.0",    # Kaggle (Drone-vs-Bird)
 ]
 
 dev = [
