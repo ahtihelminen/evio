@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import numpy as np
+
 from evio.detection.tracker import TrackManager, TrackManagerConfig
 from evio.detection.types import Detection
 
@@ -14,6 +16,7 @@ def _det(
     vx: float = 0.0,
     vy: float = 0.0,
     m_coh: float = 0.8,
+    patch: np.ndarray | None = None,
 ) -> Detection:
     return Detection(
         x0=int(cx - half), y0=int(cy - half),
@@ -22,7 +25,14 @@ def _det(
         m_coh=m_coh, best_psr=1.0, event_count=100,
         bg_class=0, row_start=0, row_end=1, col_start=0, col_end=1,
         z_score=3.0, camera_id="cam",
+        patch=patch,
     )
+
+
+def _patch(seed: int) -> np.ndarray:
+    """A deterministic uint8 BGR patch."""
+    rng = np.random.default_rng(seed)
+    return rng.integers(0, 255, (32, 32, 3), dtype=np.uint8)
 
 
 def test_first_window_spawns_fresh_tracks() -> None:
@@ -126,3 +136,123 @@ def test_consistent_motion_preserves_confidence() -> None:
     )
     assert first[0].track_id == second[0].track_id
     assert second[0].m_coh >= 0.5
+
+
+def test_reid_disabled_evicts_to_nothing() -> None:
+    """With reid_enabled=False the dormant pool stays empty (legacy path)."""
+    tracker = TrackManager(TrackManagerConfig(
+        confirm_after_hits=1, max_miss_frames=1, reid_enabled=False,
+    ))
+    tracker.update([_det(100, 100, patch=_patch(0))], now_us=0)
+    tracker.update([_det(100, 100, patch=_patch(0))], now_us=10_000)
+    tracker.update([], now_us=20_000)
+    tracker.update([], now_us=30_000)
+    assert tracker.active_track_count == 0
+    assert tracker.dormant_track_count == 0
+
+
+def test_reid_moves_evicted_track_to_dormant_pool() -> None:
+    tracker = TrackManager(TrackManagerConfig(
+        confirm_after_hits=1, max_miss_frames=1, reid_enabled=True,
+    ))
+    sig_patch = _patch(7)
+    tracker.update([_det(100, 100, patch=sig_patch)], now_us=0)
+    tracker.update([_det(100, 100, patch=sig_patch)], now_us=10_000)
+    tracker.update([], now_us=20_000)
+    tracker.update([], now_us=30_000)
+    assert tracker.active_track_count == 0
+    assert tracker.dormant_track_count == 1
+
+
+def test_reid_resurrects_track_id_on_similar_patch() -> None:
+    """Drone disappears → reappears with a near-identical event-density
+    patch. Same track_id should be re-used."""
+    tracker = TrackManager(TrackManagerConfig(
+        confirm_after_hits=1, max_miss_frames=1,
+        reid_enabled=True, reid_similarity_threshold=0.5,
+    ))
+    sig_patch = _patch(13)
+    first = tracker.update(
+        [_det(100, 100, patch=sig_patch)], now_us=0,
+    )
+    tracker.update([_det(100, 100, patch=sig_patch)], now_us=10_000)
+    original_id = first[0].track_id
+
+    tracker.update([], now_us=20_000)
+    tracker.update([], now_us=30_000)
+    tracker.update([], now_us=40_000)
+    assert tracker.dormant_track_count == 1
+
+    out = tracker.update(
+        [_det(500, 500, patch=sig_patch)], now_us=50_000,
+    )
+    assert len(out) == 1
+    assert out[0].track_id == original_id
+    assert tracker.dormant_track_count == 0
+
+
+def test_reid_spawns_new_id_on_different_patch() -> None:
+    tracker = TrackManager(TrackManagerConfig(
+        confirm_after_hits=1, max_miss_frames=1,
+        reid_enabled=True, reid_similarity_threshold=0.95,
+    ))
+    first = tracker.update(
+        [_det(100, 100, patch=_patch(1))], now_us=0,
+    )
+    tracker.update([_det(100, 100, patch=_patch(1))], now_us=10_000)
+    tracker.update([], now_us=20_000)
+    tracker.update([], now_us=30_000)
+
+    out = tracker.update(
+        [_det(500, 500, patch=_patch(99))], now_us=40_000,
+    )
+    assert out[0].track_id != first[0].track_id
+
+
+def test_reid_signature_fallback_reattaches_when_iou_fails() -> None:
+    """Drone darts far enough that IoU misses, but its appearance matches
+    the still-active track. We should attach by signature, not spawn."""
+    tracker = TrackManager(TrackManagerConfig(
+        confirm_after_hits=1, match_iou_threshold=0.2,
+        reid_enabled=True, reid_similarity_threshold=0.5,
+    ))
+    sig_patch = _patch(21)
+    first = tracker.update(
+        [_det(100, 100, patch=sig_patch)], now_us=0,
+    )
+    # Same drone, identical patch, but 500 px away — IoU = 0.
+    second = tracker.update(
+        [_det(600, 600, patch=sig_patch)], now_us=10_000,
+    )
+    assert first[0].track_id == second[0].track_id
+    assert tracker.active_track_count == 1
+
+
+def test_reid_signature_fallback_off_when_disabled() -> None:
+    tracker = TrackManager(TrackManagerConfig(
+        confirm_after_hits=1, match_iou_threshold=0.2,
+        reid_enabled=False,
+    ))
+    first = tracker.update(
+        [_det(100, 100, patch=_patch(21))], now_us=0,
+    )
+    second = tracker.update(
+        [_det(600, 600, patch=_patch(21))], now_us=10_000,
+    )
+    assert first[0].track_id != second[0].track_id
+    assert tracker.active_track_count == 2
+
+
+def test_reid_dormant_timeout_drops_old_tracks() -> None:
+    tracker = TrackManager(TrackManagerConfig(
+        confirm_after_hits=1, max_miss_frames=1,
+        reid_enabled=True, reid_dormant_timeout_s=0.01,
+    ))
+    sig_patch = _patch(5)
+    tracker.update([_det(100, 100, patch=sig_patch)], now_us=0)
+    tracker.update([_det(100, 100, patch=sig_patch)], now_us=5_000)
+    tracker.update([], now_us=10_000)
+    tracker.update([], now_us=15_000)
+    assert tracker.dormant_track_count == 1
+    tracker.update([], now_us=200_000)
+    assert tracker.dormant_track_count == 0

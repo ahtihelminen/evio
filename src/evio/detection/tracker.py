@@ -20,12 +20,18 @@ consecutive misses.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import NDArray
 from sapient.messages import new_ulid
+
+from evio.detection.reid import (
+    SignatureBuffer,
+    cosine_similarity,
+    normalize_patch,
+)
 
 if TYPE_CHECKING:
     from evio.detection.types import Detection
@@ -44,6 +50,20 @@ class _Track:
     last_seen_us: int
     age_frames: int = 1
     miss_count: int = 0
+    signature: SignatureBuffer = field(default_factory=SignatureBuffer)
+
+
+@dataclass(slots=True)
+class _DormantTrack:
+    """A confirmed track whose Kalman state has timed out. Held in the
+    re-ID dormant pool so an occluded-then-reappearing drone can resurrect
+    its original track_id instead of getting a fresh one."""
+
+    track_id: str
+    signature: NDArray[np.float32]  # unit-norm feature vector
+    last_seen_us: int
+    last_bbox: tuple[int, int, int, int]
+    last_state: NDArray[np.float64]  # [cx, cy, vx, vy] at eviction time
 
 
 @dataclass(slots=True)
@@ -65,6 +85,17 @@ class TrackManagerConfig:
     # transient high-z-score blobs from fragmenting an existing track.
     # 0 = spawn anything (legacy behaviour).
     spawn_min_mcoh: float = 0.0
+    # Signature-based re-identification: when a confirmed track times out,
+    # move it to a dormant pool instead of deleting; if an unmatched
+    # detection's patch matches a dormant signature, resurrect the original
+    # track_id. Opt-in — set reid_enabled=True and populate Detection.patch.
+    reid_enabled: bool = False
+    # Cosine similarity is sharply concentrated on event-density patches
+    # (typical same-drone cosine is 0.92-0.99 on FRED 84), so the default
+    # is well above 0.5; tune empirically per dataset.
+    reid_similarity_threshold: float = 0.9
+    reid_dormant_timeout_s: float = 10.0
+    reid_signature_buffer: int = 10
 
 
 class TrackManager:
@@ -73,7 +104,12 @@ class TrackManager:
     def __init__(self, config: TrackManagerConfig | None = None) -> None:
         self._cfg = config or TrackManagerConfig()
         self._tracks: dict[str, _Track] = {}
+        self._dormant: dict[str, _DormantTrack] = {}
         self._last_us: int | None = None
+
+    @property
+    def dormant_track_count(self) -> int:
+        return len(self._dormant)
 
     @property
     def active_track_count(self) -> int:
@@ -102,9 +138,9 @@ class TrackManager:
             ))
 
         for det in unmatched_dets:
-            if det.m_coh < self._cfg.spawn_min_mcoh:
+            new_track = self._resurrect_or_spawn(det, now_us)
+            if new_track is None:
                 continue
-            new_track = self._spawn(det, now_us)
             if new_track.age_frames >= self._cfg.confirm_after_hits:
                 annotated.append(
                     replace(det, track_id=new_track.track_id),
@@ -113,7 +149,7 @@ class TrackManager:
         for track in unmatched_tracks:
             track.miss_count += 1
 
-        self._evict_stale()
+        self._evict_stale(now_us)
         self._last_us = now_us
         return annotated
 
@@ -157,21 +193,54 @@ class TrackManager:
         matches: list[tuple[Detection, _Track]] = []
         unmatched_dets: list[Detection] = []
         for det in detections:
-            best_iou = self._cfg.match_iou_threshold
-            best_track: _Track | None = None
-            det_box = (det.x0, det.y0, det.x1, det.y1)
-            for track in unmatched_tracks:
-                track_box = self._predicted_bbox(track)
-                iou = _iou(det_box, track_box)
-                if iou > best_iou:
-                    best_iou = iou
-                    best_track = track
+            best_track = self._match_by_iou(det, unmatched_tracks)
+            if best_track is None:
+                # Drone may have darted past the Kalman prediction (event-
+                # camera detections are jittery). Fall back to appearance
+                # similarity against the remaining active tracks before
+                # spawning a fresh ID.
+                best_track = self._match_by_signature(det, unmatched_tracks)
             if best_track is None:
                 unmatched_dets.append(det)
             else:
                 matches.append((det, best_track))
                 unmatched_tracks.remove(best_track)
         return matches, unmatched_dets, unmatched_tracks
+
+    def _match_by_iou(
+        self, det: Detection, candidates: list[_Track],
+    ) -> _Track | None:
+        best_iou = self._cfg.match_iou_threshold
+        best_track: _Track | None = None
+        det_box = (det.x0, det.y0, det.x1, det.y1)
+        for track in candidates:
+            iou = _iou(det_box, self._predicted_bbox(track))
+            if iou > best_iou:
+                best_iou = iou
+                best_track = track
+        return best_track
+
+    def _match_by_signature(
+        self, det: Detection, candidates: list[_Track],
+    ) -> _Track | None:
+        if (
+            not self._cfg.reid_enabled
+            or det.patch is None
+            or not candidates
+        ):
+            return None
+        det_sig = normalize_patch(det.patch)
+        best_sim = self._cfg.reid_similarity_threshold
+        best_track: _Track | None = None
+        for track in candidates:
+            track_sig = track.signature.signature()
+            if track_sig is None:
+                continue
+            sim = cosine_similarity(det_sig, track_sig)
+            if sim > best_sim:
+                best_sim = sim
+                best_track = track
+        return best_track
 
     def _predicted_bbox(
         self, track: _Track,
@@ -213,9 +282,13 @@ class TrackManager:
         track.last_seen_us = now_us
         track.age_frames += 1
         track.miss_count = 0
+        if self._cfg.reid_enabled and det.patch is not None:
+            track.signature.add(det.patch)
         return mahal
 
-    def _spawn(self, det: Detection, now_us: int) -> _Track:
+    def _spawn(
+        self, det: Detection, now_us: int, track_id: str | None = None,
+    ) -> _Track:
         cx = (det.x0 + det.x1) / 2.0
         cy = (det.y0 + det.y1) / 2.0
         x = np.array([cx, cy, det.vx_px_s, det.vy_px_s])
@@ -226,17 +299,66 @@ class TrackManager:
             (2 * self._cfg.obs_noise_vel_px_per_s) ** 2,
         ])
         track = _Track(
-            track_id=new_ulid(),
+            track_id=track_id or new_ulid(),
             x=x, cov=cov,
             half_width=(det.x1 - det.x0) / 2.0,
             half_height=(det.y1 - det.y0) / 2.0,
             last_seen_us=now_us,
+            signature=SignatureBuffer(
+                capacity=self._cfg.reid_signature_buffer,
+            ),
         )
+        if self._cfg.reid_enabled and det.patch is not None:
+            track.signature.add(det.patch)
         self._tracks[track.track_id] = track
         return track
 
-    def _evict_stale(self) -> None:
-        stale = [
+    def _resurrect_or_spawn(
+        self, det: Detection, now_us: int,
+    ) -> _Track | None:
+        """Try to reuse a dormant track_id before spawning a fresh one.
+
+        Returns None when the caller should skip (m_coh below spawn floor).
+        """
+        if det.m_coh < self._cfg.spawn_min_mcoh:
+            return None
+        if (
+            not self._cfg.reid_enabled
+            or det.patch is None
+            or not self._dormant
+        ):
+            return self._spawn(det, now_us)
+
+        timeout_us = int(self._cfg.reid_dormant_timeout_s * 1_000_000)
+        det_sig = normalize_patch(det.patch)
+        best_sim = self._cfg.reid_similarity_threshold
+        best_tid: str | None = None
+        for tid, dormant in self._dormant.items():
+            if now_us - dormant.last_seen_us > timeout_us:
+                continue
+            sim = cosine_similarity(det_sig, dormant.signature)
+            if sim > best_sim:
+                best_sim = sim
+                best_tid = tid
+        if best_tid is None:
+            return self._spawn(det, now_us)
+
+        # Resurrect: spawn a new Kalman state with the dormant's track_id.
+        dormant = self._dormant.pop(best_tid)
+        track = self._spawn(det, now_us, track_id=dormant.track_id)
+        # The resurrected track is immediately confirmed — it inherits its
+        # prior identity, so don't re-enforce the confirmation cooldown.
+        track.age_frames = max(
+            track.age_frames, self._cfg.confirm_after_hits,
+        )
+        return track
+
+    def _evict_stale(self, now_us: int) -> None:
+        timeout_us = int(self._cfg.reid_dormant_timeout_s * 1_000_000)
+        # Active tracks: tentative ones (any miss before confirmation) die
+        # immediately; confirmed ones past `max_miss_frames` go dormant if
+        # re-id is on, else just die.
+        stale_active = [
             tid for tid, t in self._tracks.items()
             if t.miss_count > self._cfg.max_miss_frames
             or (
@@ -244,8 +366,34 @@ class TrackManager:
                 and t.age_frames < self._cfg.confirm_after_hits
             )
         ]
-        for tid in stale:
-            del self._tracks[tid]
+        for tid in stale_active:
+            track = self._tracks.pop(tid)
+            if (
+                self._cfg.reid_enabled
+                and track.age_frames >= self._cfg.confirm_after_hits
+            ):
+                sig = track.signature.signature()
+                if sig is not None:
+                    self._dormant[tid] = _DormantTrack(
+                        track_id=tid,
+                        signature=sig,
+                        last_seen_us=track.last_seen_us,
+                        last_bbox=(
+                            int(track.x[0] - track.half_width),
+                            int(track.x[1] - track.half_height),
+                            int(track.x[0] + track.half_width),
+                            int(track.x[1] + track.half_height),
+                        ),
+                        last_state=track.x.copy(),
+                    )
+        # Dormant tracks themselves age out past the dormant timeout.
+        if self._dormant:
+            stale_dormant = [
+                tid for tid, d in self._dormant.items()
+                if now_us - d.last_seen_us > timeout_us
+            ]
+            for tid in stale_dormant:
+                del self._dormant[tid]
 
     def _confidence_factor(self, mahal: float) -> float:
         """Mahalanobis → multiplier in [min, 1].

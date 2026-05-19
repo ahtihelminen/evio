@@ -14,6 +14,10 @@ from a TBD-internal module.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,3 +52,8 @@ class Detection:
     classification: Classification | None = None
     range_m: float | None = None
     track_id: str = ""
+    # Fixed-size event-density crop inside the bbox, used by the Re-ID path
+    # in `evio.detection.reid` to match an occluded-then-reappearing drone
+    # back to its dormant track. None means caller didn't extract one;
+    # tracker falls back to legacy spawn behaviour.
+    patch: np.ndarray | None = None
