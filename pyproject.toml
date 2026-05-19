@@ -33,6 +33,12 @@ ids = [
   "ids-peak-ipl; platform_system != 'Darwin'",
 ]
 
+# Dataset-acquisition tools: install with `uv pip install '.[data]'`.
+data = [
+    "gdown>=5.2.0",      # Google Drive (FRED dataset)
+    "datasets>=3.0.0",   # HuggingFace (Ev-Flying)
+]
+
 dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
