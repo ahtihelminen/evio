@@ -40,6 +40,11 @@ data = [
     "kagglehub>=0.3.0",    # Kaggle (Drone-vs-Bird)
 ]
 
+# Learned-classifier training + inference: `uv pip install '.[ml]'`.
+ml = [
+    "torch>=2.4",          # CNN training (MPS backend on macOS)
+]
+
 dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",

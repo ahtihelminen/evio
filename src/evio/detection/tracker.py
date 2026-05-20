@@ -37,6 +37,7 @@ from evio.detection.reid import (
 from evio.detection.spawn_density import SpawnDensityConfig, SpawnDensityMap
 
 if TYPE_CHECKING:
+    from evio.detection.classifier import ClassifierFilter
     from evio.detection.types import Detection
 
 # 4D chi-square 95th percentile ≈ 9.49; below this, fit is "good".
@@ -198,11 +199,18 @@ class TrackManagerConfig:
 class TrackManager:
     """Per-camera Kalman tracker. Stateful across calls."""
 
-    def __init__(self, config: TrackManagerConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: TrackManagerConfig | None = None,
+        *,
+        classifier: ClassifierFilter | None = None,
+    ) -> None:
         self._cfg = config or TrackManagerConfig()
         self._tracks: dict[str, _Track] = {}
         self._dormant: dict[str, _DormantTrack] = {}
         self._last_us: int | None = None
+        self._classifier = classifier
+        self._classifier_drops = 0
         self._persistence = PersistenceMap(
             PersistenceGateConfig(
                 grid_rows=self._cfg.persistence_grid_rows,
@@ -277,6 +285,10 @@ class TrackManager:
     def physics_drops(self) -> int:
         return self._physics_gate.total_dropped
 
+    @property
+    def classifier_drops(self) -> int:
+        return self._classifier_drops
+
     def update(
         self, detections: list[Detection], now_us: int,
     ) -> list[Detection]:
@@ -339,6 +351,15 @@ class TrackManager:
 
         self._evict_stale(now_us)
         self._last_us = now_us
+
+        # CNN classifier runs on emitted (tracked) detections — populates
+        # Detection.classification and can drop confident non-drone tracks.
+        # Bypass guard ensures single-pixel max-range candidates are never
+        # vetoed (per the strategy memo).
+        if self._classifier is not None:
+            before = len(annotated)
+            annotated = self._classifier(annotated)
+            self._classifier_drops += before - len(annotated)
         return annotated
 
     def _dt(self, now_us: int) -> float:
