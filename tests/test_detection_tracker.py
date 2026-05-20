@@ -379,6 +379,67 @@ def test_adaptive_gate_widens_cutoff_for_slow_confirmed_tracks() -> None:
     assert tracker._effective_chi2_cutoff(slow_confirmed) == 30.0
 
 
+# ---------------- Fix 4: physics gate ----------------
+
+
+def test_physics_gate_drops_fast_subpixel_detection() -> None:
+    """A 1x1-px detection at 200 px/s gets gated."""
+    tracker = TrackManager(TrackManagerConfig(
+        confirm_after_hits=1, max_miss_frames=1,
+        physics_gate_enabled=True,
+        physics_subpixel_bbox_area_px=4.0,
+        physics_max_subpixel_apparent_speed_px_s=150.0,
+    ))
+    # 2x2 bbox is 4 px²; speed = 200 px/s → triggers rule 1.
+    tracker.update(
+        [_det(100, 100, half=1, vx=200.0, vy=0.0)], now_us=0,
+    )
+    assert tracker.physics_drops == 1
+    assert tracker.active_track_count == 0
+
+
+def test_physics_gate_drops_pure_vertical_fast() -> None:
+    """Pure downward fast motion gets gated as rain."""
+    tracker = TrackManager(TrackManagerConfig(
+        confirm_after_hits=1, max_miss_frames=1,
+        physics_gate_enabled=True,
+        physics_vertical_purity_threshold=0.85,
+        physics_vertical_purity_min_speed_px_s=100.0,
+    ))
+    tracker.update(
+        [_det(100, 100, vx=5.0, vy=300.0)], now_us=0,
+    )
+    assert tracker.physics_drops == 1
+    assert tracker.active_track_count == 0
+
+
+def test_physics_gate_keeps_slow_subpixel() -> None:
+    """Far drone (small bbox, slow apparent speed) survives."""
+    tracker = TrackManager(TrackManagerConfig(
+        confirm_after_hits=1, max_miss_frames=1,
+        physics_gate_enabled=True,
+        physics_subpixel_bbox_area_px=4.0,
+        physics_max_subpixel_apparent_speed_px_s=150.0,
+    ))
+    tracker.update(
+        [_det(100, 100, half=1, vx=10.0, vy=5.0)], now_us=0,
+    )
+    assert tracker.physics_drops == 0
+    assert tracker.active_track_count == 1
+
+
+def test_physics_gate_disabled_is_noop() -> None:
+    tracker = TrackManager(TrackManagerConfig(
+        confirm_after_hits=1, max_miss_frames=1,
+        physics_gate_enabled=False,
+    ))
+    tracker.update(
+        [_det(100, 100, half=1, vx=500.0, vy=500.0)], now_us=0,
+    )
+    assert tracker.physics_drops == 0
+    assert tracker.active_track_count == 1
+
+
 def test_adaptive_gate_disabled_keeps_tight_cutoff() -> None:
     from evio.detection.tracker import _Track
 

@@ -28,6 +28,7 @@ from numpy.typing import NDArray
 from sapient.messages import new_ulid
 
 from evio.detection.persistence import PersistenceGateConfig, PersistenceMap
+from evio.detection.physics_gate import PhysicsGate, PhysicsGateConfig
 from evio.detection.reid import (
     SignatureBuffer,
     cosine_similarity,
@@ -183,6 +184,16 @@ class TrackManagerConfig:
     adaptive_gate_low_speed_px_s: float = 50.0
     adaptive_gate_widen_factor: float = 2.0
 
+    # ---- F4: physics-prior gate (sub-pixel-fast + vertical-purity) ----
+    # Stateless per-detection filter that drops kinematically-impossible
+    # drone candidates (rain, near-camera noise). Runs upstream of the
+    # tracker so no track state is contaminated.
+    physics_gate_enabled: bool = False
+    physics_subpixel_bbox_area_px: float = 4.0
+    physics_max_subpixel_apparent_speed_px_s: float = 150.0
+    physics_vertical_purity_threshold: float = 0.85
+    physics_vertical_purity_min_speed_px_s: float = 100.0
+
 
 class TrackManager:
     """Per-camera Kalman tracker. Stateful across calls."""
@@ -220,6 +231,19 @@ class TrackManager:
         )
         self._spawn_density_drops = 0
         self._dormant_resurrections = 0
+        self._physics_gate = PhysicsGate(PhysicsGateConfig(
+            enabled=self._cfg.physics_gate_enabled,
+            subpixel_bbox_area_px=self._cfg.physics_subpixel_bbox_area_px,
+            max_subpixel_apparent_speed_px_s=(
+                self._cfg.physics_max_subpixel_apparent_speed_px_s
+            ),
+            vertical_purity_threshold=(
+                self._cfg.physics_vertical_purity_threshold
+            ),
+            vertical_purity_min_speed_px_s=(
+                self._cfg.physics_vertical_purity_min_speed_px_s
+            ),
+        ))
 
     @property
     def dormant_track_count(self) -> int:
@@ -249,9 +273,20 @@ class TrackManager:
     def dormant_resurrections(self) -> int:
         return self._dormant_resurrections
 
+    @property
+    def physics_drops(self) -> int:
+        return self._physics_gate.total_dropped
+
     def update(
         self, detections: list[Detection], now_us: int,
     ) -> list[Detection]:
+        # F4 physics gate: drop kinematically-impossible-as-drone
+        # detections (sub-pixel-fast + vertical-purity) BEFORE any
+        # tracker state observes them, so rain doesn't contaminate the
+        # persistence map or the dormant pool.
+        if self._cfg.physics_gate_enabled:
+            detections = self._physics_gate.filter(detections)
+
         observations = [
             (
                 (d.x0 + d.x1) / 2.0,
