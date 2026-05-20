@@ -256,3 +256,139 @@ def test_reid_dormant_timeout_drops_old_tracks() -> None:
     assert tracker.dormant_track_count == 1
     tracker.update([], now_us=200_000)
     assert tracker.dormant_track_count == 0
+
+
+# ---------------- Fix 1: spawn-density suppressor ----------------
+
+
+def test_spawn_density_suppresses_repeated_spawns_in_same_cell() -> None:
+    """A region producing many short-lived tracks gets gated."""
+    tracker = TrackManager(TrackManagerConfig(
+        confirm_after_hits=1, max_miss_frames=0,  # die on first miss
+        spawn_density_enabled=True,
+        spawn_density_window_s=1.0,
+        spawn_density_max_spawns=3,
+        spawn_density_cooldown_s=1.0,
+    ))
+    # 3 spawn → die cycles fills the cell's spawn deque.
+    for i in range(3):
+        tracker.update([_det(100, 100)], now_us=i * 100_000)
+        tracker.update([], now_us=i * 100_000 + 50_000)
+    # 4th attempt at the same cell trips the gate.
+    tracker.update([_det(100, 100)], now_us=400_000)
+    assert tracker.spawn_density_drops >= 1
+
+
+def test_spawn_density_disabled_lets_all_through() -> None:
+    tracker = TrackManager(TrackManagerConfig(
+        confirm_after_hits=1, max_miss_frames=0,
+        spawn_density_enabled=False,
+    ))
+    for i in range(10):
+        tracker.update([_det(100, 100)], now_us=i * 100_000)
+        tracker.update([], now_us=i * 100_000 + 50_000)
+    assert tracker.spawn_density_drops == 0
+
+
+# ---------------- Fix 2: spatial-only dormant pool ----------------
+
+
+def test_spatial_dormant_resurrects_slowdown_drone() -> None:
+    """Drone moves, slows, track dies, reappears nearby → same track_id."""
+    tracker = TrackManager(TrackManagerConfig(
+        confirm_after_hits=1, max_miss_frames=1,
+        spatial_dormant_enabled=True,
+        spatial_dormant_timeout_s=2.0,
+        spatial_dormant_chi2_cutoff=50.0,  # generous for the test
+    ))
+    first = tracker.update(
+        [_det(100, 100, vx=200.0, vy=0.0)], now_us=0,
+    )
+    tracker.update(
+        [_det(110, 100, vx=200.0, vy=0.0)], now_us=50_000,
+    )
+    original_id = first[0].track_id
+    # Two empty windows kill the track.
+    tracker.update([], now_us=100_000)
+    tracker.update([], now_us=150_000)
+    assert tracker.dormant_track_count == 1
+    assert tracker.active_track_count == 0
+    # Reappear near the extrapolated location after a brief gap.
+    out = tracker.update(
+        [_det(140, 100, vx=200.0, vy=0.0)], now_us=200_000,
+    )
+    assert tracker.dormant_resurrections == 1
+    assert len(out) == 1
+    assert out[0].track_id == original_id
+
+
+def test_spatial_dormant_does_not_merge_distant_detections() -> None:
+    """Detection far from any dormant track's extrapolation spawns fresh."""
+    tracker = TrackManager(TrackManagerConfig(
+        confirm_after_hits=1, max_miss_frames=1,
+        spatial_dormant_enabled=True,
+        spatial_dormant_timeout_s=2.0,
+        spatial_dormant_chi2_cutoff=15.0,
+    ))
+    first = tracker.update([_det(100, 100)], now_us=0)
+    tracker.update([_det(100, 100)], now_us=50_000)
+    tracker.update([], now_us=100_000)
+    tracker.update([], now_us=150_000)
+    out = tracker.update([_det(900, 600)], now_us=200_000)
+    assert tracker.dormant_resurrections == 0
+    assert out[0].track_id != first[0].track_id
+
+
+# ---------------- Fix 3: adaptive Mahalanobis gate ----------------
+
+
+def test_adaptive_gate_widens_cutoff_for_slow_confirmed_tracks() -> None:
+    """Effective χ² grows by `widen_factor` for confirmed slow tracks."""
+    from evio.detection.tracker import _Track
+
+    cfg = TrackManagerConfig(
+        mahalanobis_chi2_cutoff=10.0,
+        adaptive_gate_enabled=True,
+        adaptive_gate_min_age_frames=3,
+        adaptive_gate_low_speed_px_s=50.0,
+        adaptive_gate_widen_factor=3.0,
+    )
+    tracker = TrackManager(cfg)
+
+    fast_young = _Track(
+        track_id="x", x=np.array([0.0, 0.0, 100.0, 0.0]),
+        cov=np.eye(4), half_width=10.0, half_height=10.0,
+        last_seen_us=0, age_frames=1,
+    )
+    fast_confirmed = _Track(
+        track_id="y", x=np.array([0.0, 0.0, 100.0, 0.0]),
+        cov=np.eye(4), half_width=10.0, half_height=10.0,
+        last_seen_us=0, age_frames=10,
+    )
+    slow_confirmed = _Track(
+        track_id="z", x=np.array([0.0, 0.0, 5.0, 0.0]),
+        cov=np.eye(4), half_width=10.0, half_height=10.0,
+        last_seen_us=0, age_frames=10,
+    )
+
+    # Young track keeps the tight cutoff regardless of speed.
+    assert tracker._effective_chi2_cutoff(fast_young) == 10.0
+    # Fast confirmed track also keeps the tight cutoff (no widening).
+    assert tracker._effective_chi2_cutoff(fast_confirmed) == 10.0
+    # Slow + confirmed → widened.
+    assert tracker._effective_chi2_cutoff(slow_confirmed) == 30.0
+
+
+def test_adaptive_gate_disabled_keeps_tight_cutoff() -> None:
+    from evio.detection.tracker import _Track
+
+    tracker = TrackManager(TrackManagerConfig(
+        mahalanobis_chi2_cutoff=10.0,
+        adaptive_gate_enabled=False,
+    ))
+    slow_confirmed = _Track(
+        track_id="z", x=np.array([0.0, 0.0, 5.0, 0.0]),
+        cov=np.eye(4), half_width=10.0, half_height=10.0,
+        last_seen_us=0, age_frames=10,
+    )
+    assert tracker._effective_chi2_cutoff(slow_confirmed) == 10.0
