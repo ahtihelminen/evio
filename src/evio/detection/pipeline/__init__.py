@@ -11,6 +11,11 @@ from .dual_background import (
     DualBackgroundResult,
     DualBackgroundScorer,
 )
+from .gmm_online_pipeline import (
+    GmmOnlineBgDetectionPipeline,
+    GmmOnlinePipelineConfig,
+    GmmOnlinePipelineResult,
+)
 from .simplified_pipeline import (
     SimplifiedDetectionPipeline,
     SimplifiedPipelineConfig,
@@ -32,6 +37,9 @@ __all__ = [
     "DualBackgroundConfig",
     "DualBackgroundResult",
     "DualBackgroundScorer",
+    "GmmOnlineBgDetectionPipeline",
+    "GmmOnlinePipelineConfig",
+    "GmmOnlinePipelineResult",
     "SimplifiedDetectionPipeline",
     "SimplifiedPipelineConfig",
     "SimplifiedPipelineResult",
