@@ -57,3 +57,8 @@ class Detection:
     # back to its dormant track. None means caller didn't extract one;
     # tracker falls back to legacy spawn behaviour.
     patch: np.ndarray | None = None
+    # Sub-pixel center. When populated, the tracker uses these instead of
+    # the integer-bbox midpoint, enabling detectors that localise finer
+    # than one pixel (Gaussian-fit, CenterNet offset, IWE quadratic fit).
+    cx: float | None = None
+    cy: float | None = None

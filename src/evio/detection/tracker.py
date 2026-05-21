@@ -27,6 +27,7 @@ import numpy as np
 from numpy.typing import NDArray
 from sapient.messages import new_ulid
 
+from evio.detection.persistence import PersistenceGateConfig, PersistenceMap
 from evio.detection.reid import (
     SignatureBuffer,
     cosine_similarity,
@@ -38,6 +39,8 @@ if TYPE_CHECKING:
 
 # 4D chi-square 95th percentile ≈ 9.49; below this, fit is "good".
 _CHI2_4DOF_95 = 9.49
+# 4D chi-square 95th percentile = 9.49; 99% = 13.28; 99.9% = 18.47.
+_DEFAULT_MAHAL_GATE = 13.28
 
 
 @dataclass(slots=True)
@@ -51,6 +54,11 @@ class _Track:
     age_frames: int = 1
     miss_count: int = 0
     signature: SignatureBuffer = field(default_factory=SignatureBuffer)
+    # Velocity-coherence accumulator used by the F1 confirmation rule.
+    # `speed_samples` stores observed speeds (px/s); `path_history` is the
+    # last N centroids for the straightness measure.
+    speed_samples: list[float] = field(default_factory=list)
+    path_history: list[tuple[float, float]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -97,6 +105,40 @@ class TrackManagerConfig:
     reid_dormant_timeout_s: float = 10.0
     reid_signature_buffer: int = 10
 
+    # ---- F1: persistence-gate + Mahalanobis-first matching ----
+    # Enable the persistent-cluster suppression map.  Detections in cells
+    # that fire in >`persistence_hit_rate_threshold` of recent windows
+    # AND with mean speed below `persistence_max_velocity_px_s` get
+    # dropped before the tracker. Off by default; flip on for F1.
+    persistence_gate_enabled: bool = False
+    # Use Mahalanobis-distance gating instead of greedy IoU.  Cosine
+    # similarity becomes a tiebreaker (only invoked when ≥2 tracks gate
+    # the same detection).
+    mahalanobis_matching_enabled: bool = False
+    # 4-D chi-square cutoff for the Mahalanobis gate.  Default = 99% CI;
+    # plan calibration range is 9.5 - 16.3.
+    mahalanobis_chi2_cutoff: float = _DEFAULT_MAHAL_GATE
+    # Velocity-coherence confirmation rule (replaces plain hit count).
+    # A tentative track promotes to confirmed once it has been seen
+    # `confirm_after_hits` times AND the velocity-coherence check passes.
+    # Set False to keep SORT's hit-count-only behaviour.
+    velocity_coherence_enabled: bool = False
+    velocity_min_confirm_px_s: float = 25.0
+    velocity_cv_max: float = 0.6
+    velocity_straightness_min: float = 0.3
+    velocity_history_len: int = 8
+    # F1 persistence-gate parameters (passed straight through to the
+    # ``PersistenceMap`` helper).
+    persistence_grid_rows: int = 64
+    persistence_grid_cols: int = 64
+    persistence_window_history: int = 200
+    persistence_hit_rate_threshold: float = 0.30
+    persistence_max_velocity_px_s: float = 5.0
+    persistence_warmup_windows: int = 30
+    # F1 sensor geometry (defaults match the IMX636 used across evio).
+    sensor_width_px: int = 1280
+    sensor_height_px: int = 720
+
 
 class TrackManager:
     """Per-camera Kalman tracker. Stateful across calls."""
@@ -106,6 +148,20 @@ class TrackManager:
         self._tracks: dict[str, _Track] = {}
         self._dormant: dict[str, _DormantTrack] = {}
         self._last_us: int | None = None
+        self._persistence = PersistenceMap(
+            PersistenceGateConfig(
+                grid_rows=self._cfg.persistence_grid_rows,
+                grid_cols=self._cfg.persistence_grid_cols,
+                window_history=self._cfg.persistence_window_history,
+                hit_rate_threshold=self._cfg.persistence_hit_rate_threshold,
+                max_velocity_px_s=self._cfg.persistence_max_velocity_px_s,
+                warmup_windows=self._cfg.persistence_warmup_windows,
+                enabled=self._cfg.persistence_gate_enabled,
+            ),
+            width=self._cfg.sensor_width_px,
+            height=self._cfg.sensor_height_px,
+        )
+        self._persistence_drops = 0
 
     @property
     def dormant_track_count(self) -> int:
@@ -115,9 +171,31 @@ class TrackManager:
     def active_track_count(self) -> int:
         return len(self._tracks)
 
+    @property
+    def persistence_map(self) -> PersistenceMap:
+        return self._persistence
+
+    @property
+    def persistence_drops(self) -> int:
+        return self._persistence_drops
+
     def update(
         self, detections: list[Detection], now_us: int,
     ) -> list[Detection]:
+        observations = [
+            (
+                (d.x0 + d.x1) / 2.0,
+                (d.y0 + d.y1) / 2.0,
+                math.hypot(d.vx_px_s, d.vy_px_s),
+            )
+            for d in detections
+        ]
+        self._persistence.observe(observations)
+        if self._cfg.persistence_gate_enabled:
+            kept = self._persistence.filter(detections)
+            self._persistence_drops += len(detections) - len(kept)
+            detections = kept
+
         dt = self._dt(now_us)
         self._predict_all(dt)
         matches, unmatched_dets, unmatched_tracks = self._match(detections)
@@ -127,6 +205,11 @@ class TrackManager:
             mahal = self._update_track_kalman(track, det, now_us)
             if track.age_frames < self._cfg.confirm_after_hits:
                 continue  # tentative — wait for confirmation
+            if (
+                self._cfg.velocity_coherence_enabled
+                and not _passes_velocity_coherence(track, self._cfg)
+            ):
+                continue  # incoherent motion — likely clutter
             factor = self._confidence_factor(mahal)
             annotated.append(replace(
                 det,
@@ -193,7 +276,10 @@ class TrackManager:
         matches: list[tuple[Detection, _Track]] = []
         unmatched_dets: list[Detection] = []
         for det in detections:
-            best_track = self._match_by_iou(det, unmatched_tracks)
+            if self._cfg.mahalanobis_matching_enabled:
+                best_track = self._match_by_mahalanobis(det, unmatched_tracks)
+            else:
+                best_track = self._match_by_iou(det, unmatched_tracks)
             if best_track is None:
                 # Drone may have darted past the Kalman prediction (event-
                 # camera detections are jittery). Fall back to appearance
@@ -206,6 +292,62 @@ class TrackManager:
                 matches.append((det, best_track))
                 unmatched_tracks.remove(best_track)
         return matches, unmatched_dets, unmatched_tracks
+
+    def _match_by_mahalanobis(
+        self, det: Detection, candidates: list[_Track],
+    ) -> _Track | None:
+        """Mahalanobis-distance gate; cosine tiebreaker when ≥2 tracks gate."""
+        if not candidates:
+            return None
+        cx = det.cx if det.cx is not None else (det.x0 + det.x1) / 2.0
+        cy = det.cy if det.cy is not None else (det.y0 + det.y1) / 2.0
+        z = np.array([cx, cy, det.vx_px_s, det.vy_px_s])
+        r = np.diag([
+            self._cfg.obs_noise_pos_px ** 2,
+            self._cfg.obs_noise_pos_px ** 2,
+            self._cfg.obs_noise_vel_px_per_s ** 2,
+            self._cfg.obs_noise_vel_px_per_s ** 2,
+        ])
+        gated: list[tuple[float, _Track]] = []
+        best_dist = self._cfg.mahalanobis_chi2_cutoff
+        best_track: _Track | None = None
+        for track in candidates:
+            innov = z - track.x
+            s = track.cov + r
+            try:
+                s_inv = np.linalg.inv(s)
+            except np.linalg.LinAlgError:
+                continue
+            dist = float(innov @ s_inv @ innov)
+            if dist <= self._cfg.mahalanobis_chi2_cutoff:
+                gated.append((dist, track))
+            if dist < best_dist:
+                best_dist = dist
+                best_track = track
+        if len(gated) <= 1:
+            return best_track
+        return self._tiebreak_by_signature(det, gated) or gated[0][1]
+
+    def _tiebreak_by_signature(
+        self,
+        det: Detection,
+        gated: list[tuple[float, _Track]],
+    ) -> _Track | None:
+        """Cosine similarity tiebreaker, only invoked when ≥2 tracks gate."""
+        if not self._cfg.reid_enabled or det.patch is None:
+            return None
+        det_sig = normalize_patch(det.patch)
+        best_sim = -1.0
+        best_track: _Track | None = None
+        for _, track in gated:
+            track_sig = track.signature.signature()
+            if track_sig is None:
+                continue
+            sim = cosine_similarity(det_sig, track_sig)
+            if sim > best_sim:
+                best_sim = sim
+                best_track = track
+        return best_track
 
     def _match_by_iou(
         self, det: Detection, candidates: list[_Track],
@@ -254,12 +396,9 @@ class TrackManager:
     def _update_track_kalman(
         self, track: _Track, det: Detection, now_us: int,
     ) -> float:
-        z = np.array([
-            (det.x0 + det.x1) / 2.0,
-            (det.y0 + det.y1) / 2.0,
-            det.vx_px_s,
-            det.vy_px_s,
-        ])
+        cx = det.cx if det.cx is not None else (det.x0 + det.x1) / 2.0
+        cy = det.cy if det.cy is not None else (det.y0 + det.y1) / 2.0
+        z = np.array([cx, cy, det.vx_px_s, det.vy_px_s])
         r = np.diag([
             self._cfg.obs_noise_pos_px ** 2,
             self._cfg.obs_noise_pos_px ** 2,
@@ -284,13 +423,22 @@ class TrackManager:
         track.miss_count = 0
         if self._cfg.reid_enabled and det.patch is not None:
             track.signature.add(det.patch)
+        # F1 velocity-coherence accumulator: keep N most-recent speeds +
+        # centroids so the confirmation gate sees a stable history.
+        speed = math.hypot(det.vx_px_s, det.vy_px_s)
+        track.speed_samples.append(speed)
+        track.path_history.append((float(track.x[0]), float(track.x[1])))
+        if len(track.speed_samples) > self._cfg.velocity_history_len:
+            track.speed_samples.pop(0)
+        if len(track.path_history) > self._cfg.velocity_history_len:
+            track.path_history.pop(0)
         return mahal
 
     def _spawn(
         self, det: Detection, now_us: int, track_id: str | None = None,
     ) -> _Track:
-        cx = (det.x0 + det.x1) / 2.0
-        cy = (det.y0 + det.y1) / 2.0
+        cx = det.cx if det.cx is not None else (det.x0 + det.x1) / 2.0
+        cy = det.cy if det.cy is not None else (det.y0 + det.y1) / 2.0
         x = np.array([cx, cy, det.vx_px_s, det.vy_px_s])
         cov = np.diag([
             (2 * self._cfg.obs_noise_pos_px) ** 2,
@@ -408,6 +556,36 @@ class TrackManager:
             self._cfg.min_confidence_factor,
             math.exp(-mahal / (2 * _CHI2_4DOF_95)),
         )
+
+
+def _passes_velocity_coherence(
+    track: _Track, cfg: TrackManagerConfig,
+) -> bool:
+    """F1 velocity-coherence rule (replaces SORT's plain hit count)."""
+    samples = track.speed_samples
+    if len(samples) < cfg.confirm_after_hits:
+        return False
+    speeds = np.asarray(samples, dtype=np.float64)
+    mean_speed = float(speeds.mean())
+    if mean_speed < cfg.velocity_min_confirm_px_s:
+        return False
+    cv = float(speeds.std() / mean_speed) if mean_speed > 0 else float("inf")
+    if cv > cfg.velocity_cv_max:
+        return False
+    path = track.path_history
+    if len(path) < 2:
+        return False
+    p0 = np.asarray(path[0], dtype=np.float64)
+    pn = np.asarray(path[-1], dtype=np.float64)
+    endpoint_dist = float(np.linalg.norm(pn - p0))
+    travelled = float(sum(
+        np.linalg.norm(np.subtract(path[i], path[i - 1]))
+        for i in range(1, len(path))
+    ))
+    if travelled <= 0.0:
+        return False
+    straightness = endpoint_dist / travelled
+    return straightness >= cfg.velocity_straightness_min
 
 
 def _iou(
