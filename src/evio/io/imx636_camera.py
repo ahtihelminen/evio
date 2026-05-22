@@ -61,13 +61,11 @@ class Imx636CameraSource:
     serial: str = ""
     window_length_us: int = 10_000  # 10 ms rolling window
     step_us: int | None = None
-    # Mains-lighting flicker (50/60 Hz + ballast harmonics) shows up on
-    # event cameras as a strong synchronized event burst across the whole
-    # sensor — at the panorama level it looks like every tile pulsing
-    # bright/dark on each light cycle. Default ON: band-stop 50-500 Hz
-    # covers EU and US mains plus their first few harmonics. Override
-    # with anti_flicker=False or a custom AntiFlickerConfig from imx636.
-    anti_flicker: bool = True
+    # Optional band-stop filter for mains-lighting flicker (50/60 Hz +
+    # ballast harmonics). Useful indoors under fluorescents/LEDs;
+    # outdoor scenes generally don't need it and a wide notch can clip
+    # real motion. Off by default — opt in per source.
+    anti_flicker: bool = False
     # Optional Event Rate Controller — caps events/sec at the sensor
     # before they leave the chip. Off by default (0); set to a positive
     # value (e.g. 1_000_000 = 1 M ev/sec/cam) for high-clutter scenes
