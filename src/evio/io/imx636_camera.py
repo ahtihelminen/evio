@@ -68,16 +68,11 @@ class Imx636CameraSource:
     # covers EU and US mains plus their first few harmonics. Override
     # with anti_flicker=False or a custom AntiFlickerConfig from imx636.
     anti_flicker: bool = True
-    # Event Rate Controller — caps events/sec at the sensor before they
-    # leave the chip. Without this the cameras emit at their raw rate
-    # (~9 M ev/sec per IMX636) which makes per-window event counts wildly
-    # variable; downstream renderers that paint at fixed brightness per
-    # event then produce the "flashing tile" artefact at the panorama
-    # level (each tile's brightness tracks its instantaneous rate). The
-    # Metavision SDK enables ERC by default; the raw libusb driver does
-    # not — we have to wire it on explicitly. 0 disables ERC; sensible
-    # cap is ~1 M ev/sec/cam for general scenes.
-    erc_event_rate: int = 1_000_000
+    # Optional Event Rate Controller — caps events/sec at the sensor
+    # before they leave the chip. Off by default (0); set to a positive
+    # value (e.g. 1_000_000 = 1 M ev/sec/cam) for high-clutter scenes
+    # where downstream consumers can't keep up.
+    erc_event_rate: int = 0
 
     cam: Any = field(init=False, default=None)
     width: int = field(init=False, default=0)
