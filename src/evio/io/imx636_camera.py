@@ -61,6 +61,13 @@ class Imx636CameraSource:
     serial: str = ""
     window_length_us: int = 10_000  # 10 ms rolling window
     step_us: int | None = None
+    # Mains-lighting flicker (50/60 Hz + ballast harmonics) shows up on
+    # event cameras as a strong synchronized event burst across the whole
+    # sensor — at the panorama level it looks like every tile pulsing
+    # bright/dark on each light cycle. Default ON: band-stop 50-500 Hz
+    # covers EU and US mains plus their first few harmonics. Override
+    # with anti_flicker=False or a custom AntiFlickerConfig from imx636.
+    anti_flicker: bool = True
 
     cam: Any = field(init=False, default=None)
     width: int = field(init=False, default=0)
@@ -86,6 +93,14 @@ class Imx636CameraSource:
         self.width = int(self.cam.width())
         self.height = int(self.cam.height())
         self.cam.set_cd_callback(self._on_cd_events)
+        if self.anti_flicker:
+            cfg = imx636.AntiFlickerConfig()
+            cfg.enabled = True
+            cfg.band_stop = True
+            cfg.low_freq = 50
+            cfg.high_freq = 500
+            cfg.duty_cycle = 50
+            self.cam.set_antiflicker(cfg)
         self.cam.start()
         return self
 
