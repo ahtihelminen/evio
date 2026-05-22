@@ -1,3 +1,6 @@
+from typing import Any
+
+from evio.detection.grid import GridConfig
 from evio.detection.types import Classification, Detection
 
 from .background_stage import (
@@ -16,6 +19,14 @@ from .gmm_online_pipeline import (
     GmmOnlinePipelineConfig,
     GmmOnlinePipelineResult,
 )
+from .registry import (
+    PIPELINES,
+    DetectionPipeline,
+    PipelineFactory,
+    build,
+    list_pipelines,
+    register,
+)
 from .simplified_pipeline import (
     SimplifiedDetectionPipeline,
     SimplifiedPipelineConfig,
@@ -27,23 +38,73 @@ from .simplified_tbd import (
     SimplifiedTbdStage,
 )
 
+
+@register("simplified")
+def _build_simplified(cfg: dict[str, Any]) -> SimplifiedDetectionPipeline:
+    grid = GridConfig(
+        width=int(cfg.get("width", 1280)),
+        height=int(cfg.get("height", 720)),
+        rows=int(cfg.get("rows", 72)),
+        cols=int(cfg.get("cols", 128)),
+        time_bins=int(cfg.get("time_bins", 1)),
+        window_us=int(cfg.get("window_us", 10_000)),
+    )
+    class_cfg = ClassSpecificConfig(
+        z_threshold=int(cfg.get("z_threshold", 10)),
+        update_threshold=int(cfg.get("update_threshold", 2)),
+        calibration_windows=int(cfg.get("calibration_windows", 10)),
+        count_weight=int(cfg.get("count_weight", 10)),
+        multi_weight=int(cfg.get("multi_weight", 10)),
+        coactivity_weight=int(cfg.get("coactivity_weight", 100)),
+        count_std_floor=int(cfg.get("count_std_floor", 1)),
+        multi_std_floor=int(cfg.get("multi_std_floor", 1)),
+    )
+    background = DualBackgroundConfig(
+        sky=class_cfg, not_sky=class_cfg,
+        alpha=int(cfg.get("alpha", 5)),
+        ema_alpha=cfg.get("ema_alpha"),
+        model_update_weight=float(cfg.get("model_update_weight", 0.1)),
+    )
+    config = SimplifiedPipelineConfig(
+        calibration_time_us=int(cfg.get("calibration_time_us", int(1e6))),
+        background=background,
+    )
+    return SimplifiedDetectionPipeline(grid, config)
+
+
+@register("gmm_online")
+def _build_gmm_online(cfg: dict[str, Any]) -> GmmOnlineBgDetectionPipeline:
+    return GmmOnlineBgDetectionPipeline(GmmOnlinePipelineConfig(
+        sensor_width=int(cfg.get("width", 1280)),
+        sensor_height=int(cfg.get("height", 720)),
+        window_us=int(cfg.get("window_us", 10_000)),
+        calibration_start_s=float(cfg.get("calibration_start_s", 3.0)),
+    ))
+
+
 __all__ = [
+    "PIPELINES",
     "BackgroundStage",
     "BackgroundStageConfig",
     "BackgroundStageResult",
     "ClassSpecificConfig",
     "Classification",
     "Detection",
+    "DetectionPipeline",
     "DualBackgroundConfig",
     "DualBackgroundResult",
     "DualBackgroundScorer",
     "GmmOnlineBgDetectionPipeline",
     "GmmOnlinePipelineConfig",
     "GmmOnlinePipelineResult",
+    "PipelineFactory",
     "SimplifiedDetectionPipeline",
     "SimplifiedPipelineConfig",
     "SimplifiedPipelineResult",
     "SimplifiedTbdConfig",
     "SimplifiedTbdResult",
     "SimplifiedTbdStage",
+    "build",
+    "list_pipelines",
+    "register",
 ]
