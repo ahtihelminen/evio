@@ -17,6 +17,7 @@ by accumulating callback deliveries into a deque and draining it in
 
 from __future__ import annotations
 
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from types import TracebackType
@@ -28,6 +29,15 @@ from numpy.typing import NDArray
 
 from evio.core.events import EventsBatch
 from evio.core.window import RollingWindowBatchProcessor
+
+
+def _empty_batch() -> EventsBatch:
+    return EventsBatch(
+        timestamps=np.zeros(0, dtype=np.int64),
+        x_coords=np.zeros(0, dtype=np.int16),
+        y_coords=np.zeros(0, dtype=np.int16),
+        polarities=np.zeros(0, dtype=np.int8),
+    )
 
 
 def get_camera_serials() -> list[str]:
@@ -116,16 +126,27 @@ class Imx636CameraSource:
             raise RuntimeError(msg)
         self._ensure_processor()
 
+        # Match EventCameraSource pacing: even if no events arrive in a
+        # window, return an empty batch so downstream renderers tick at
+        # the configured cadence (otherwise a static scene blocks
+        # next() indefinitely and panorama frames stop updating).
+        deadline_ns = (
+            time.monotonic_ns() + int(self.window_length_us) * 1000
+        )
+
         while True:
             if self.window_queue:
                 return self.window_queue.popleft()
 
-            # Pump poll() until the CD callback delivers at least one chunk.
+            # Pump poll() until the CD callback delivers at least one chunk
+            # OR the window deadline elapses.
             while not self.decoded_queue:
                 r = self.cam.poll()
                 if r < 0:
                     msg = "imx636: USB error from poll()"
                     raise RuntimeError(msg)
+                if time.monotonic_ns() >= deadline_ns:
+                    return _empty_batch()
 
             buffer = self.decoded_queue.popleft()
             if buffer.size == 0:
