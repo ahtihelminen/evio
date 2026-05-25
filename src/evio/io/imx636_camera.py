@@ -17,6 +17,7 @@ by accumulating callback deliveries into a deque and draining it in
 
 from __future__ import annotations
 
+import contextlib
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -118,7 +119,15 @@ class Imx636CameraSource:
         _exc: BaseException | None,
         _tb: TracebackType | None,
     ) -> None:
-        if self.cam is not None:
+        if self.cam is None:
+            return
+        # cam.stop() writes the ISSD_STOP register sequence over USB.
+        # If we're tearing down because of a prior USB error (poll()
+        # returned -1) the device is unreachable and the very first
+        # register write throws "ISSD write_field failed at step 0".
+        # Cleanup should be best-effort here — swallow the secondary
+        # failure so the worker exits cleanly.
+        with contextlib.suppress(RuntimeError):
             self.cam.stop()
 
     def __iter__(self) -> Imx636CameraSource:
