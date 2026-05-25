@@ -149,27 +149,30 @@ class Imx636CameraSource:
             raise RuntimeError(msg)
         self._ensure_processor()
 
-        # Match EventCameraSource pacing: even if no events arrive in a
-        # window, return an empty batch so downstream renderers tick at
-        # the configured cadence (otherwise a static scene blocks
-        # next() indefinitely and panorama frames stop updating).
-        deadline_ns = (
-            time.monotonic_ns() + int(self.window_length_us) * 1000
-        )
+        # Pace at the configured window so a static scene still ticks the
+        # iterator (no events ⇒ empty batch ⇒ downstream renderer paints
+        # baseline). The idle clock RESETS every time poll() actually
+        # delivers data — otherwise events that arrived but didn't form
+        # a complete window before the first deadline get stranded in
+        # the processor and "come and go" between calls.
+        idle_budget_ns = int(self.window_length_us) * 1000
+        last_data_ns = time.monotonic_ns()
 
         while True:
             if self.window_queue:
                 return self.window_queue.popleft()
 
             # Pump poll() until the CD callback delivers at least one chunk
-            # OR the window deadline elapses.
+            # OR we've been idle for a full window with no new data.
             while not self.decoded_queue:
                 r = self.cam.poll()
                 if r < 0:
                     msg = "imx636: USB error from poll()"
                     raise RuntimeError(msg)
-                if time.monotonic_ns() >= deadline_ns:
+                if time.monotonic_ns() - last_data_ns >= idle_budget_ns:
                     return _empty_batch()
+            # Got fresh data — defer the empty timeout.
+            last_data_ns = time.monotonic_ns()
 
             buffer = self.decoded_queue.popleft()
             if buffer.size == 0:
