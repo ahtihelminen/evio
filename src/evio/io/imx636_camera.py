@@ -85,11 +85,18 @@ class Imx636CameraSource:
     )
     _processor_window_us: int = field(init=False, default=0)
     _processor_step_us: int = field(init=False, default=0)
+    _streaming: bool = field(init=False, default=False)
 
     def __enter__(self) -> Imx636CameraSource:
-        # Synthetic positional IDs ("event-N") aren't real USB serials; pass
-        # "" so the driver opens whichever camera is next-available. The
-        # caller relies on the open order matching get_camera_serials().
+        # ONLY claim the USB device + sensor init writes here. The
+        # actual streaming start happens lazily on first __next__().
+        # Why: when this object is constructed under a multi-process
+        # camera_open_lock, holding the lock through cam.start() means
+        # the next worker's sensor-init register writes contend with
+        # the prior camera's streaming traffic on the xHCI controller
+        # — ISSD writes start failing on the 3rd+ camera. Mirror the
+        # view_event_cameras.py pattern: open + config inside the
+        # lock, cam.start() outside.
         real_serial = (
             "" if self.serial.startswith("event-") else self.serial
         )
@@ -110,8 +117,12 @@ class Imx636CameraSource:
             erc.enabled = True
             erc.event_rate = int(self.erc_event_rate)
             self.cam.set_erc(erc)
-        self.cam.start()
         return self
+
+    def _ensure_streaming(self) -> None:
+        if not self._streaming and self.cam is not None:
+            self.cam.start()
+            self._streaming = True
 
     def __exit__(
         self,
@@ -119,7 +130,7 @@ class Imx636CameraSource:
         _exc: BaseException | None,
         _tb: TracebackType | None,
     ) -> None:
-        if self.cam is None:
+        if self.cam is None or not self._streaming:
             return
         # cam.stop() writes the ISSD_STOP register sequence over USB.
         # If we're tearing down because of a prior USB error (poll()
@@ -156,6 +167,7 @@ class Imx636CameraSource:
         if self.cam is None:
             msg = "Imx636CameraSource not started; use as a context manager."
             raise RuntimeError(msg)
+        self._ensure_streaming()
         self._ensure_processor()
 
         # Pace at the configured window so a static scene still ticks the
