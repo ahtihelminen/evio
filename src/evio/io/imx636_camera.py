@@ -1,13 +1,12 @@
-"""IMX636 event-camera source using the HAL-free libusb driver.
+"""IMX636 event-camera source — the only live-camera path in evio.
 
-Mirrors `EventCameraSource` from `evio.io.event_camera`:
-- Context manager opens/closes the device.
-- `__next__()` returns an `EventsBatch` over the configured rolling window.
+Context manager opens/closes the device; `__next__()` returns an
+`EventsBatch` over the configured rolling window.
 
 Backend: the in-house `imx636` Python module (built from
-github.com/sensofusion/IMX636 → `~/Documents/IMX636`), which talks directly
-to the Cypress FX3 USB bridge via libusb-1.0. No Prophesee / Metavision /
-OpenEB dependency at runtime.
+github.com/sensofusion/IMX636 → `~/Documents/IMX636`), which talks
+directly to the Cypress FX3 / CX3 USB bridge via libusb-1.0. No
+Prophesee / Metavision / openeb dependency at runtime.
 
 The IMX636 driver is push-style (registers a CD callback, host calls
 `poll()` to pump USB transfers); we adapt to evio's pull-style iterator
