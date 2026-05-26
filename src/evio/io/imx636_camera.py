@@ -41,19 +41,16 @@ def _empty_batch() -> EventsBatch:
 
 
 def get_camera_serials() -> list[str]:
-    """Return camera IDs for each connected IMX636 camera.
+    """Return the real serial number of each connected IMX636 camera.
 
-    If the FX3 EEPROMs are programmed with real serial numbers, returns
-    those (sorted). If serials are blank — common on the IDS UE-39B0XCP
-    + custom-built carriers we use — returns positional IDs like
-    "event-0" through "event-N-1". The order matches successive calls to
-    `imx636.IMX636.open()`, which is stable for a given physical USB
-    topology (libusb enumerates by bus+port).
+    Sorted ascending; uniquely identifies each camera regardless of USB
+    port (Treuzell GET_SERIAL — see imx636 driver). Any camera that
+    reports an empty serial here means its EEPROM/firmware is older than
+    the Treuzell read path landed in (commit 4dc6006 on the imx636 repo)
+    — rebuild the driver on the host before deploying.
     """
-    raw = list(imx636.IMX636.list_cameras())
-    if all(s == "" for s in raw):
-        return [f"event-{i}" for i in range(len(raw))]
-    return sorted(raw)
+    serials = [s for s in imx636.IMX636.list_cameras() if s]
+    return sorted(serials)
 
 
 @dataclass()
