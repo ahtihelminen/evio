@@ -107,3 +107,6 @@ ignore = [
 # The encoder worker catches arbitrary exceptions so a buggy clip encode
 # logs and continues instead of killing the worker thread.
 "src/evio/media/manager.py" = ["BLE001"]
+# Detection is best-effort overlay: any error trips a kill-switch and the
+# panorama keeps streaming, so the chain is wrapped in a blind except.
+"src/evio/streaming/live_detection.py" = ["BLE001"]
