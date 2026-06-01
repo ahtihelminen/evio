@@ -24,6 +24,7 @@ dependencies = [
     "pyserial>=3.5",
     "pyyaml>=6.0.3",
     "sapient",
+    "torch>=2.6",
     "websockets>=16.0",
 ]
 
@@ -54,8 +55,17 @@ build-backend = "hatchling.build"
 [tool.uv]
 default-groups = []
 
+# Torch ships multi-GB CUDA wheels by default on Linux; the field NUC is
+# CPU-only, so pull the CPU build there. macOS keeps the default PyPI wheel,
+# which already includes MPS support.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
 [tool.uv.sources]
 sapient = { path = "../sapient", editable = true }
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -107,3 +117,6 @@ ignore = [
 # The encoder worker catches arbitrary exceptions so a buggy clip encode
 # logs and continues instead of killing the worker thread.
 "src/evio/media/manager.py" = ["BLE001"]
+# Detection is best-effort overlay: any error trips a kill-switch and the
+# panorama keeps streaming, so the chain is wrapped in a blind except.
+"src/evio/streaming/live_detection.py" = ["BLE001"]

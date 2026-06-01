@@ -50,6 +50,11 @@ class FootageRecorder:
         self._camera_id = camera_id
         self._codec = Dt8Codec(width=width, height=height)
         self._now: _TimeFn = time_provider or time.time
+        # Per-process suffix so a re-run inside the same UTC hour writes a
+        # new file instead of clobbering the previous one. HHMMSSZ of the
+        # recorder's construction wall-clock; ambiguous only if two
+        # processes start within the same second on the same host.
+        self._run_id = time.strftime("%H%M%SZ", time.gmtime(self._now()))
         self._file: BinaryIO | None = None
         self._file_path: Path | None = None
         self._bucket: _Bucket | None = None
@@ -103,7 +108,7 @@ class FootageRecorder:
             / f"{year:04d}-{month:02d}-{day:02d}"
         )
         day_dir.mkdir(parents=True, exist_ok=True)
-        path = day_dir / f"{hour:02d}0000.dat"
+        path = day_dir / f"{hour:02d}0000Z-{self._run_id}.dat"
         f = path.open("wb")
         f.write(DAT_FILE_HEADER)
         self._hasher = hashlib.sha256()
