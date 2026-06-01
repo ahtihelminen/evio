@@ -43,8 +43,13 @@ def test_write_creates_file_and_manifest_on_rotation(tmp_path: Path) -> None:
     manifest = tmp_path / "event-0" / "2026-05-21" / "manifest.jsonl"
     entries = list(iter_manifest(manifest))
     assert len(entries) == 2
-    assert entries[0].filename == "100000.dat"
-    assert entries[1].filename == "110000.dat"
+    # Filename format: <hour>0000Z-<run_id>.dat — run_id is HHMMSSZ taken
+    # from the recorder's construction time, so the prefix encodes the
+    # bucket but each restart writes a fresh file.
+    assert entries[0].filename.startswith("100000Z-")
+    assert entries[0].filename.endswith(".dat")
+    assert entries[1].filename.startswith("110000Z-")
+    assert entries[1].filename.endswith(".dat")
     assert entries[0].end_ts_ns > entries[0].start_ts_ns
 
 
