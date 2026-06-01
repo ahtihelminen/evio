@@ -20,10 +20,13 @@ from evio.detection.temporal_transformer import (
 
 def _rand_uint8(
     batch: int, seq: int, size: int = 32, seed: int = 0,
+    in_channels: int = 3,
 ) -> torch.Tensor:
     rng = np.random.default_rng(seed)
     return torch.from_numpy(
-        rng.integers(0, 256, (batch, seq, size, size, 3), dtype=np.uint8),
+        rng.integers(
+            0, 256, (batch, seq, size, size, in_channels), dtype=np.uint8,
+        ),
     )
 
 
@@ -126,6 +129,7 @@ def test_load_temporal_transformer_via_bundle(tmp_path: Path) -> None:
         "config": {
             "seq_len": config.seq_len,
             "patch_size": config.patch_size,
+            "in_channels": config.in_channels,
             "embed_dim": config.embed_dim,
             "n_heads": config.n_heads,
             "n_layers": config.n_layers,
@@ -164,3 +168,25 @@ def test_seq_len_variation(seq_len: int) -> None:
     assert out["drone_logits"].shape == (2, seq_len)
     assert out["embeddings"].shape == (2, seq_len, config.embedding_dim)
     assert out["validity"].shape == (2,)
+
+
+@pytest.mark.parametrize("in_channels", [3, 16])
+def test_in_channels_variation(in_channels: int) -> None:
+    """Voxel-grid input (in_channels=16) is wire-compatible."""
+    config = TemporalTransformerConfig(in_channels=in_channels)
+    model = TemporalTrackTransformer(config).eval()
+    x = _rand_uint8(batch=2, seq=16, in_channels=in_channels, seed=in_channels)
+    with torch.no_grad():
+        out = model(x)
+    assert out["drone_logits"].shape == (2, 16)
+    assert out["embeddings"].shape == (2, 16, config.embedding_dim)
+    assert out["validity"].shape == (2,)
+
+
+def test_wrong_channel_count_raises() -> None:
+    model = TemporalTrackTransformer(
+        TemporalTransformerConfig(in_channels=3),
+    ).eval()
+    x = _rand_uint8(batch=1, seq=4, in_channels=16)
+    with pytest.raises(ValueError, match="expected"):
+        model(x)
