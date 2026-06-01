@@ -33,6 +33,7 @@ from evio.detection.reid import (
     cosine_similarity,
     normalize_patch,
 )
+from evio.detection.spawn_density import SpawnDensityConfig, SpawnDensityMap
 
 if TYPE_CHECKING:
     from evio.detection.types import Detection
@@ -65,13 +66,22 @@ class _Track:
 class _DormantTrack:
     """A confirmed track whose Kalman state has timed out. Held in the
     re-ID dormant pool so an occluded-then-reappearing drone can resurrect
-    its original track_id instead of getting a fresh one."""
+    its original track_id instead of getting a fresh one.
+
+    ``signature`` is populated only when ``reid_enabled`` is set; the F1.5
+    spatial-only dormant pool uses ``last_state`` + ``last_cov`` to do a
+    motion-extrapolated Mahalanobis match (no appearance), so the
+    signature can be ``None`` for purely classical reuse.
+    """
 
     track_id: str
-    signature: NDArray[np.float32]  # unit-norm feature vector
+    signature: NDArray[np.float32] | None
     last_seen_us: int
     last_bbox: tuple[int, int, int, int]
     last_state: NDArray[np.float64]  # [cx, cy, vx, vy] at eviction time
+    last_cov: NDArray[np.float64]    # 4x4 covariance at eviction time
+    half_width: float                # for re-spawn bbox sizing
+    half_height: float
 
 
 @dataclass(slots=True)
@@ -139,6 +149,40 @@ class TrackManagerConfig:
     sensor_width_px: int = 1280
     sensor_height_px: int = 720
 
+    # ---- F1.5: spawn-density suppressor (rain / sky-blob filter) ----
+    # Per-cell counter of NEW track_id spawns in a rolling time window.
+    # A region producing many short-lived spawn/die cycles is almost
+    # certainly noise — suppress further spawns there until the rate
+    # drops. Existing tracks passing through the region are unaffected.
+    spawn_density_enabled: bool = False
+    spawn_density_grid_rows: int = 64
+    spawn_density_grid_cols: int = 64
+    spawn_density_window_s: float = 5.0
+    spawn_density_max_spawns: int = 4
+    spawn_density_cooldown_s: float = 5.0
+
+    # ---- F1.5: spatial-only dormant pool (slowdown / dir-change fix) ----
+    # When a confirmed track dies, save its last Kalman state + covariance.
+    # An unmatched detection that lands within a motion-extrapolated
+    # Mahalanobis ellipse of any dormant track resurrects the original
+    # track_id. No appearance lookup — pure motion continuity, so it's
+    # safe even without trained signatures.
+    spatial_dormant_enabled: bool = False
+    spatial_dormant_timeout_s: float = 2.0
+    # χ²(4) cutoff for the dormant-extrapolated state.  Generous because
+    # the covariance has already been inflated by the dormant interval.
+    spatial_dormant_chi2_cutoff: float = 25.0
+
+    # ---- F1.5: adaptive Mahalanobis gate (preempts fragmentation) ----
+    # Loosen the χ² cutoff for confirmed tracks that have recently slowed.
+    # `widen_factor` multiplies the base cutoff; e.g. 2.0 doubles the gate
+    # so a slowing drone is still matched. Only applies once the track is
+    # past `min_age_frames` AND moving slower than `low_speed_px_s`.
+    adaptive_gate_enabled: bool = False
+    adaptive_gate_min_age_frames: int = 5
+    adaptive_gate_low_speed_px_s: float = 50.0
+    adaptive_gate_widen_factor: float = 2.0
+
 
 class TrackManager:
     """Per-camera Kalman tracker. Stateful across calls."""
@@ -162,6 +206,20 @@ class TrackManager:
             height=self._cfg.sensor_height_px,
         )
         self._persistence_drops = 0
+        self._spawn_density = SpawnDensityMap(
+            SpawnDensityConfig(
+                grid_rows=self._cfg.spawn_density_grid_rows,
+                grid_cols=self._cfg.spawn_density_grid_cols,
+                window_s=self._cfg.spawn_density_window_s,
+                max_spawns=self._cfg.spawn_density_max_spawns,
+                cooldown_s=self._cfg.spawn_density_cooldown_s,
+                enabled=self._cfg.spawn_density_enabled,
+            ),
+            width=self._cfg.sensor_width_px,
+            height=self._cfg.sensor_height_px,
+        )
+        self._spawn_density_drops = 0
+        self._dormant_resurrections = 0
 
     @property
     def dormant_track_count(self) -> int:
@@ -178,6 +236,18 @@ class TrackManager:
     @property
     def persistence_drops(self) -> int:
         return self._persistence_drops
+
+    @property
+    def spawn_density_map(self) -> SpawnDensityMap:
+        return self._spawn_density
+
+    @property
+    def spawn_density_drops(self) -> int:
+        return self._spawn_density_drops
+
+    @property
+    def dormant_resurrections(self) -> int:
+        return self._dormant_resurrections
 
     def update(
         self, detections: list[Detection], now_us: int,
@@ -299,9 +369,10 @@ class TrackManager:
         """Mahalanobis-distance gate; cosine tiebreaker when ≥2 tracks gate."""
         if not candidates:
             return None
-        cx = det.cx if det.cx is not None else (det.x0 + det.x1) / 2.0
-        cy = det.cy if det.cy is not None else (det.y0 + det.y1) / 2.0
-        z = np.array([cx, cy, det.vx_px_s, det.vy_px_s])
+        z = np.array([
+            (det.x0 + det.x1) / 2.0, (det.y0 + det.y1) / 2.0,
+            det.vx_px_s, det.vy_px_s,
+        ])
         r = np.diag([
             self._cfg.obs_noise_pos_px ** 2,
             self._cfg.obs_noise_pos_px ** 2,
@@ -309,7 +380,7 @@ class TrackManager:
             self._cfg.obs_noise_vel_px_per_s ** 2,
         ])
         gated: list[tuple[float, _Track]] = []
-        best_dist = self._cfg.mahalanobis_chi2_cutoff
+        best_dist = float("inf")
         best_track: _Track | None = None
         for track in candidates:
             innov = z - track.x
@@ -319,14 +390,36 @@ class TrackManager:
             except np.linalg.LinAlgError:
                 continue
             dist = float(innov @ s_inv @ innov)
-            if dist <= self._cfg.mahalanobis_chi2_cutoff:
+            cutoff = self._effective_chi2_cutoff(track)
+            if dist <= cutoff:
                 gated.append((dist, track))
-            if dist < best_dist:
+            if dist < best_dist and dist <= cutoff:
                 best_dist = dist
                 best_track = track
         if len(gated) <= 1:
             return best_track
         return self._tiebreak_by_signature(det, gated) or gated[0][1]
+
+    def _effective_chi2_cutoff(self, track: _Track) -> float:
+        """χ² cutoff widened for confirmed-but-slowing tracks (Fix 3).
+
+        When a drone slows or changes direction, the constant-velocity
+        prediction goes wrong → the next real detection lands outside
+        the tight χ² ellipse → track fragments. We widen the gate for
+        tracks past their confirmation threshold AND moving slower than
+        ``adaptive_gate_low_speed_px_s`` so the drone keeps its ID.
+        Young/uncommitted tracks keep the tight gate so noise can't
+        glue onto them.
+        """
+        base = self._cfg.mahalanobis_chi2_cutoff
+        if not self._cfg.adaptive_gate_enabled:
+            return base
+        if track.age_frames < self._cfg.adaptive_gate_min_age_frames:
+            return base
+        speed = math.hypot(float(track.x[2]), float(track.x[3]))
+        if speed >= self._cfg.adaptive_gate_low_speed_px_s:
+            return base
+        return base * self._cfg.adaptive_gate_widen_factor
 
     def _tiebreak_by_signature(
         self,
@@ -396,9 +489,12 @@ class TrackManager:
     def _update_track_kalman(
         self, track: _Track, det: Detection, now_us: int,
     ) -> float:
-        cx = det.cx if det.cx is not None else (det.x0 + det.x1) / 2.0
-        cy = det.cy if det.cy is not None else (det.y0 + det.y1) / 2.0
-        z = np.array([cx, cy, det.vx_px_s, det.vy_px_s])
+        z = np.array([
+            (det.x0 + det.x1) / 2.0,
+            (det.y0 + det.y1) / 2.0,
+            det.vx_px_s,
+            det.vy_px_s,
+        ])
         r = np.diag([
             self._cfg.obs_noise_pos_px ** 2,
             self._cfg.obs_noise_pos_px ** 2,
@@ -437,8 +533,8 @@ class TrackManager:
     def _spawn(
         self, det: Detection, now_us: int, track_id: str | None = None,
     ) -> _Track:
-        cx = det.cx if det.cx is not None else (det.x0 + det.x1) / 2.0
-        cy = det.cy if det.cy is not None else (det.y0 + det.y1) / 2.0
+        cx = (det.x0 + det.x1) / 2.0
+        cy = (det.y0 + det.y1) / 2.0
         x = np.array([cx, cy, det.vx_px_s, det.vy_px_s])
         cov = np.diag([
             (2 * self._cfg.obs_noise_pos_px) ** 2,
@@ -466,22 +562,109 @@ class TrackManager:
     ) -> _Track | None:
         """Try to reuse a dormant track_id before spawning a fresh one.
 
-        Returns None when the caller should skip (m_coh below spawn floor).
+        Returns None when the caller should skip (m_coh below spawn floor,
+        or spawn-density gate suppresses this region).
         """
         if det.m_coh < self._cfg.spawn_min_mcoh:
             return None
-        if (
-            not self._cfg.reid_enabled
-            or det.patch is None
-            or not self._dormant
-        ):
-            return self._spawn(det, now_us)
+        cx = (det.x0 + det.x1) / 2.0
+        cy = (det.y0 + det.y1) / 2.0
 
+        # Fix 2: spatial-only dormant resurrection (no appearance).
+        if self._cfg.spatial_dormant_enabled and self._dormant:
+            resurrected = self._match_dormant_spatial(det, now_us)
+            if resurrected is not None:
+                return resurrected
+
+        # Legacy cosine-based Re-ID (kept for backwards compatibility).
+        if (
+            self._cfg.reid_enabled
+            and det.patch is not None
+            and self._dormant
+        ):
+            resurrected = self._match_dormant_appearance(det, now_us)
+            if resurrected is not None:
+                return resurrected
+
+        # Fix 1: spawn-density gate suppresses noisy regions.
+        if self._spawn_density.should_suppress(cx, cy, now_us):
+            self._spawn_density_drops += 1
+            return None
+
+        track = self._spawn(det, now_us)
+        self._spawn_density.register_spawn(cx, cy, now_us)
+        return track
+
+    def _match_dormant_spatial(
+        self, det: Detection, now_us: int,
+    ) -> _Track | None:
+        """Resurrect a dormant track when motion extrapolation matches.
+
+        For each dormant track, extrapolate its last Kalman state forward
+        by (now - last_seen) and inflate the covariance by process noise
+        over that interval. Mahalanobis distance from the detection to
+        this extrapolated state, gated by ``spatial_dormant_chi2_cutoff``.
+        The covariance inflation does the right thing automatically: a
+        track that died right before the detection has a tight gate; one
+        that died a second ago has a generous one.
+        """
+        timeout_us = int(self._cfg.spatial_dormant_timeout_s * 1_000_000)
+        z = np.array([
+            (det.x0 + det.x1) / 2.0, (det.y0 + det.y1) / 2.0,
+            det.vx_px_s, det.vy_px_s,
+        ])
+        r = np.diag([
+            self._cfg.obs_noise_pos_px ** 2,
+            self._cfg.obs_noise_pos_px ** 2,
+            self._cfg.obs_noise_vel_px_per_s ** 2,
+            self._cfg.obs_noise_vel_px_per_s ** 2,
+        ])
+        best_tid: str | None = None
+        best_dist = self._cfg.spatial_dormant_chi2_cutoff
+        for tid, dormant in self._dormant.items():
+            dt_us = now_us - dormant.last_seen_us
+            if dt_us > timeout_us or dt_us < 0:
+                continue
+            dt = dt_us / 1_000_000.0
+            f = np.array(
+                [[1.0, 0.0, dt, 0.0],
+                 [0.0, 1.0, 0.0, dt],
+                 [0.0, 0.0, 1.0, 0.0],
+                 [0.0, 0.0, 0.0, 1.0]],
+            )
+            x_pred = f @ dormant.last_state
+            cov_pred = f @ dormant.last_cov @ f.T + self._process_noise(dt)
+            innov = z - x_pred
+            s = cov_pred + r
+            try:
+                s_inv = np.linalg.inv(s)
+            except np.linalg.LinAlgError:
+                continue
+            dist = float(innov @ s_inv @ innov)
+            if dist < best_dist:
+                best_dist = dist
+                best_tid = tid
+        if best_tid is None:
+            return None
+        dormant = self._dormant.pop(best_tid)
+        track = self._spawn(det, now_us, track_id=dormant.track_id)
+        track.age_frames = max(
+            track.age_frames, self._cfg.confirm_after_hits,
+        )
+        self._dormant_resurrections += 1
+        return track
+
+    def _match_dormant_appearance(
+        self, det: Detection, now_us: int,
+    ) -> _Track | None:
+        """Legacy cosine-similarity dormant resurrection."""
         timeout_us = int(self._cfg.reid_dormant_timeout_s * 1_000_000)
         det_sig = normalize_patch(det.patch)
         best_sim = self._cfg.reid_similarity_threshold
         best_tid: str | None = None
         for tid, dormant in self._dormant.items():
+            if dormant.signature is None:
+                continue
             if now_us - dormant.last_seen_us > timeout_us:
                 continue
             sim = cosine_similarity(det_sig, dormant.signature)
@@ -489,23 +672,22 @@ class TrackManager:
                 best_sim = sim
                 best_tid = tid
         if best_tid is None:
-            return self._spawn(det, now_us)
-
-        # Resurrect: spawn a new Kalman state with the dormant's track_id.
+            return None
         dormant = self._dormant.pop(best_tid)
         track = self._spawn(det, now_us, track_id=dormant.track_id)
-        # The resurrected track is immediately confirmed — it inherits its
-        # prior identity, so don't re-enforce the confirmation cooldown.
         track.age_frames = max(
             track.age_frames, self._cfg.confirm_after_hits,
         )
+        self._dormant_resurrections += 1
         return track
 
     def _evict_stale(self, now_us: int) -> None:
-        timeout_us = int(self._cfg.reid_dormant_timeout_s * 1_000_000)
         # Active tracks: tentative ones (any miss before confirmation) die
         # immediately; confirmed ones past `max_miss_frames` go dormant if
-        # re-id is on, else just die.
+        # either re-id mechanism is enabled, else just die.
+        dormant_active = (
+            self._cfg.reid_enabled or self._cfg.spatial_dormant_enabled
+        )
         stale_active = [
             tid for tid, t in self._tracks.items()
             if t.miss_count > self._cfg.max_miss_frames
@@ -517,25 +699,39 @@ class TrackManager:
         for tid in stale_active:
             track = self._tracks.pop(tid)
             if (
-                self._cfg.reid_enabled
+                dormant_active
                 and track.age_frames >= self._cfg.confirm_after_hits
             ):
-                sig = track.signature.signature()
-                if sig is not None:
-                    self._dormant[tid] = _DormantTrack(
-                        track_id=tid,
-                        signature=sig,
-                        last_seen_us=track.last_seen_us,
-                        last_bbox=(
-                            int(track.x[0] - track.half_width),
-                            int(track.x[1] - track.half_height),
-                            int(track.x[0] + track.half_width),
-                            int(track.x[1] + track.half_height),
-                        ),
-                        last_state=track.x.copy(),
-                    )
-        # Dormant tracks themselves age out past the dormant timeout.
+                sig = (
+                    track.signature.signature()
+                    if self._cfg.reid_enabled
+                    else None
+                )
+                self._dormant[tid] = _DormantTrack(
+                    track_id=tid,
+                    signature=sig,
+                    last_seen_us=track.last_seen_us,
+                    last_bbox=(
+                        int(track.x[0] - track.half_width),
+                        int(track.x[1] - track.half_height),
+                        int(track.x[0] + track.half_width),
+                        int(track.x[1] + track.half_height),
+                    ),
+                    last_state=track.x.copy(),
+                    last_cov=track.cov.copy(),
+                    half_width=track.half_width,
+                    half_height=track.half_height,
+                )
+        # Dormant tracks themselves age out — use the larger of any
+        # enabled mechanism's timeout so neither gets prematurely cut.
         if self._dormant:
+            candidates = []
+            if self._cfg.reid_enabled:
+                candidates.append(self._cfg.reid_dormant_timeout_s)
+            if self._cfg.spatial_dormant_enabled:
+                candidates.append(self._cfg.spatial_dormant_timeout_s)
+            timeout_s = max(candidates) if candidates else 0.0
+            timeout_us = int(timeout_s * 1_000_000)
             stale_dormant = [
                 tid for tid, d in self._dormant.items()
                 if now_us - d.last_seen_us > timeout_us

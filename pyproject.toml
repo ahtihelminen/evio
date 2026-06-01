@@ -74,7 +74,7 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 80
 target-version = "py312"
-extend-exclude = ["*.ipynb", "tests/fixtures"]
+extend-exclude = ["*.ipynb", "tests/fixtures", "scripts/_archive"]
 
 [tool.ruff.lint]
 select = [
@@ -108,6 +108,16 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+# Corpus-build and predecode scripts must set OMP/MKL/OpenBLAS env vars
+# BEFORE importing numpy so worker BLAS pools stay capped — this is what
+# avoids the thread storm that previously wedged the multiprocessing
+# pool on the trainer (documented in the corpus-build-lessons memory).
+# That forces imports to come after a small block of statements, which
+# is exactly what E402 disallows.
+"scripts/build_temporal_corpus_parallel.py" = ["E402"]
+"scripts/predecode_event_caches.py" = ["E402"]
+"scripts/extract_rain_84.py" = ["E402"]
+"scripts/extract_fred_neg.py" = ["E402"]
 # The emitter deliberately catches any subscriber exception to keep the
 # detection pipeline running when a downstream consumer misbehaves.
 "src/evio/detection/emitter.py" = ["BLE001"]
