@@ -77,31 +77,42 @@ def tokenize_events_in_track(
     t_max = timestamps_us[-1] + half
     span = max(1, t_max - t_min)
 
+    # Time crop FIRST via searchsorted on the (assumed sorted) timestamps —
+    # the spatial mask then only scans the small window slice instead of
+    # the entire per-clip event array. Caller-supplied timestamps in
+    # every extractor (FRED memmap cache, NeRDD npz, Ev-Flying npy,
+    # eTraM h5) ship sorted, so this is safe.
+    lo = int(np.searchsorted(batch.timestamps, t_min, side="left"))
+    hi = int(np.searchsorted(batch.timestamps, t_max, side="right"))
+    if hi <= lo:
+        return _empty(e_max)
+    ts_slice = batch.timestamps[lo:hi]
+    xs_slice = batch.x_coords[lo:hi]
+    ys_slice = batch.y_coords[lo:hi]
+    pol_slice = batch.polarities[lo:hi]
+
     in_box = (
-        (batch.x_coords >= x0u) & (batch.x_coords < x1u)
-        & (batch.y_coords >= y0u) & (batch.y_coords < y1u)
+        (xs_slice >= x0u) & (xs_slice < x1u)
+        & (ys_slice >= y0u) & (ys_slice < y1u)
     )
-    in_time = (
-        (batch.timestamps >= t_min) & (batch.timestamps < t_max)
-    )
-    indices = np.where(in_box & in_time)[0]
-    if indices.size == 0:
+    local_indices = np.where(in_box)[0]
+    if local_indices.size == 0:
         return _empty(e_max)
 
-    if indices.size > e_max:
+    if local_indices.size > e_max:
         # Uniform-stride subsample preserves temporal distribution
         # better than random — keeps the rotor-frequency periodicity
         # legible to the attention layer.
-        step = indices.size / e_max
+        step = local_indices.size / e_max
         keep = (np.arange(e_max) * step).astype(np.int64)
-        indices = indices[keep]
+        local_indices = local_indices[keep]
 
     out = np.zeros((e_max, 4), dtype=np.float32)
-    n = int(indices.size)
-    ts = batch.timestamps[indices].astype(np.float32)
-    xs = batch.x_coords[indices].astype(np.float32)
-    ys = batch.y_coords[indices].astype(np.float32)
-    ps = (batch.polarities[indices] > 0).astype(np.float32) * 2.0 - 1.0
+    n = int(local_indices.size)
+    ts = ts_slice[local_indices].astype(np.float32)
+    xs = xs_slice[local_indices].astype(np.float32)
+    ys = ys_slice[local_indices].astype(np.float32)
+    ps = (pol_slice[local_indices] > 0).astype(np.float32) * 2.0 - 1.0
     out[:n, 0] = (ts - t_min) / span
     out[:n, 1] = (xs - x0u) / width
     out[:n, 2] = (ys - y0u) / height
