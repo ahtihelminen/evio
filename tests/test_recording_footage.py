@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import calendar
+import json
 from pathlib import Path
 
 import numpy as np
@@ -67,6 +68,65 @@ def test_object_id_tag_lands_in_manifest(tmp_path: Path) -> None:
         tmp_path / "event-0" / "2026-05-21" / "manifest.jsonl",
     ))
     assert entries[0].object_ids == ["track-abc", "track-def"]
+
+
+def test_bias_and_context_land_in_provenance_and_capture(
+    tmp_path: Path,
+) -> None:
+    recorder = FootageRecorder(
+        root=tmp_path, camera_id="event-0",
+        width=1280, height=720, window_us=20_000, step_us=10_000,
+        time_provider=lambda: _epoch(2026, 5, 21, 14),
+    )
+    recorder.write(_batch(start_us=1_000_000, n=4))
+    recorder.note_bias("diff", 5, ts_ns=1_500_000_000)
+    recorder.note_context(
+        {
+            "regime": "overcast",
+            "target_noise_eps": 1e5,
+            "biases": {"diff": 5, "refr": 20},
+        },
+        ts_ns=1_600_000_000,
+    )
+    recorder.close()
+
+    prov = list((tmp_path / "event-0").glob("provenance-*.jsonl"))
+    assert len(prov) == 1
+    lines = [json.loads(x) for x in prov[0].read_text().splitlines()]
+    assert [x["event"] for x in lines] == ["bias", "context"]
+    assert lines[0] == {
+        "event": "bias", "ts_ns": 1_500_000_000, "name": "diff", "value": 5,
+    }
+    assert lines[1]["regime"] == "overcast"
+
+    entry = next(iter_manifest(
+        tmp_path / "event-0" / "2026-05-21" / "manifest.jsonl",
+    ))
+    assert entry.capture is not None
+    assert entry.capture["window_us"] == 20_000
+    assert entry.capture["step_us"] == 10_000
+    assert entry.capture["regime"] == "overcast"
+    # note_bias + note_context both fold into the snapshot vector.
+    assert entry.capture["biases"] == {"diff": 5, "refr": 20}
+
+
+def test_recording_without_notes_has_capture_but_no_provenance(
+    tmp_path: Path,
+) -> None:
+    recorder = FootageRecorder(
+        root=tmp_path, camera_id="event-0",
+        width=1280, height=720, window_us=20_000,
+        time_provider=lambda: _epoch(2026, 5, 21, 15),
+    )
+    recorder.write(_batch(start_us=1, n=3))
+    recorder.close()
+    assert not list((tmp_path / "event-0").glob("provenance-*.jsonl"))
+    entry = next(iter_manifest(
+        tmp_path / "event-0" / "2026-05-21" / "manifest.jsonl",
+    ))
+    assert entry.capture is not None
+    assert entry.capture["biases"] == {}
+    assert entry.capture["window_us"] == 20_000
 
 
 def test_empty_batch_is_a_noop(tmp_path: Path) -> None:

@@ -23,6 +23,11 @@ class ManifestEntry:
     size_bytes: int
     sha256: str
     object_ids: list[str] = field(default_factory=list)
+    # Static per-file capture snapshot: sensor dims, window/step, the bias
+    # vector active when the file opened, plus the autotuner's regime/scene
+    # context. None on un-augmented recordings. The bias vector here can't
+    # be reconstructed from the events, so it is the file's gold metadata.
+    capture: dict[str, object] | None = None
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), sort_keys=True)
@@ -37,6 +42,7 @@ class ManifestEntry:
             size_bytes=int(data["size_bytes"]),
             sha256=str(data["sha256"]),
             object_ids=list(data.get("object_ids", [])),
+            capture=data.get("capture"),
         )
 
 
