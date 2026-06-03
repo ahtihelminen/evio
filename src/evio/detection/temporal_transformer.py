@@ -15,7 +15,9 @@ The patch encoder reuses the GroupNorm conv-stem pattern from
 `FourClassClassifier` (BatchNorm is avoided because training uses
 class-balanced sampling while eval sees the natural distribution).
 
-Input shape is `(B, T, H, W, 3)`, BGR, dtype `uint8` or `float32` in
+Input shape is `(B, T, H, W, C)` where `C = config.in_channels` — 3 for
+the legacy BGR aggregate corpus, ``2 * n_bins`` for voxel-grid corpora
+(see :mod:`evio.detection.voxel_patch`). Dtype `uint8` or `float32` in
 `[0, 1]`. The module handles the channel permutation and uint8→float
 scaling internally so callers can pass either.
 """
@@ -42,6 +44,7 @@ class TemporalTransformerConfig:
 
     seq_len: int = 16
     patch_size: int = 32
+    in_channels: int = 3
     embed_dim: int = 128
     n_heads: int = 4
     n_layers: int = 4
@@ -65,11 +68,12 @@ class _PatchEncoder(nn.Module):
     per input patch.
     """
 
-    def __init__(self, embed_dim: int) -> None:
+    def __init__(self, embed_dim: int, in_channels: int = 3) -> None:
         super().__init__()
+        self.in_channels = in_channels
         c1, c2, c3 = 32, 64, 128
         self.features = nn.Sequential(
-            nn.Conv2d(3, c1, 3, stride=2, padding=1),
+            nn.Conv2d(in_channels, c1, 3, stride=2, padding=1),
             nn.GroupNorm(_group_count(c1), c1),
             nn.ReLU(inplace=True),
             nn.Conv2d(c1, c2, 3, stride=2, padding=1),
@@ -109,7 +113,9 @@ class TemporalTrackTransformer(nn.Module):
     def __init__(self, config: TemporalTransformerConfig) -> None:
         super().__init__()
         self.config = config
-        self.encoder = _PatchEncoder(embed_dim=config.embed_dim)
+        self.encoder = _PatchEncoder(
+            embed_dim=config.embed_dim, in_channels=config.in_channels,
+        )
         self.cls_token = nn.Parameter(torch.zeros(1, 1, config.embed_dim))
         self.pos_embed = nn.Parameter(
             torch.zeros(1, config.seq_len + 1, config.embed_dim),
@@ -132,16 +138,19 @@ class TemporalTrackTransformer(nn.Module):
         self.validity_head = nn.Linear(config.embed_dim, 1)
 
     def _prepare_input(self, x: torch.Tensor) -> torch.Tensor:
-        """(B, T, H, W, 3) uint8 or float → (B*T, 3, H, W) float32 in [0, 1]."""
-        if x.ndim != 5 or x.shape[-1] != 3:
-            msg = f"expected (B, T, H, W, 3), got {tuple(x.shape)}"
+        """(B, T, H, W, C) uint8 or float → (B*T, C, H, W) float32 in [0, 1]."""
+        in_channels = self.config.in_channels
+        if x.ndim != 5 or x.shape[-1] != in_channels:
+            msg = (
+                f"expected (B, T, H, W, {in_channels}), got {tuple(x.shape)}"
+            )
             raise ValueError(msg)
         if x.dtype == torch.uint8:
             x = x.to(torch.float32) / 255.0
         elif x.dtype != torch.float32:
             x = x.to(torch.float32)
         batch, seq, height, width, _ = x.shape
-        x = x.reshape(batch * seq, height, width, 3)
+        x = x.reshape(batch * seq, height, width, in_channels)
         return x.permute(0, 3, 1, 2).contiguous()
 
     def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:

@@ -68,6 +68,7 @@ class TemporalTransformerV2Config:
 
     seq_len: int = 16
     patch_size: int = 32
+    in_channels: int = 3
     embed_dim: int = 128
     n_heads: int = 4
     n_layers: int = 4
@@ -152,7 +153,9 @@ class TemporalTrackTransformerV2(nn.Module):
     def __init__(self, config: TemporalTransformerV2Config) -> None:
         super().__init__()
         self.config = config
-        self.encoder = _PatchEncoder(embed_dim=config.embed_dim)
+        self.encoder = _PatchEncoder(
+            embed_dim=config.embed_dim, in_channels=config.in_channels,
+        )
         self.aux = _AuxProjector(config.aux_dim, config.embed_dim)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, config.embed_dim))
         self.pos_embed = nn.Parameter(
@@ -182,15 +185,18 @@ class TemporalTrackTransformerV2(nn.Module):
             self.bbox_mask_head = None
 
     def _prepare_input(self, x: torch.Tensor) -> torch.Tensor:
-        if x.ndim != 5 or x.shape[-1] != 3:
-            msg = f"expected (B, T, H, W, 3), got {tuple(x.shape)}"
+        in_channels = self.config.in_channels
+        if x.ndim != 5 or x.shape[-1] != in_channels:
+            msg = (
+                f"expected (B, T, H, W, {in_channels}), got {tuple(x.shape)}"
+            )
             raise ValueError(msg)
         if x.dtype == torch.uint8:
             x = x.to(torch.float32) / 255.0
         elif x.dtype != torch.float32:
             x = x.to(torch.float32)
         batch, seq, height, width, _ = x.shape
-        x = x.reshape(batch * seq, height, width, 3)
+        x = x.reshape(batch * seq, height, width, in_channels)
         return x.permute(0, 3, 1, 2).contiguous()
 
     def forward(
