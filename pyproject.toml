@@ -84,9 +84,9 @@ explicit = true
 [tool.uv.sources]
 sapient = { path = "../sapient", editable = true }
 torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
-# MONDAY RE-PIN: swap to the git tag/main ref once test-site-protocol is on
-# main (weekend-autonomy guardrail: vendor from main/tag, not a loose path).
-test-site-protocol = { path = "../test-site-protocol", editable = true }
+# Pinned to the published tag (vendor from a tag, not a loose path) so it
+# resolves in CI -- matches how the backend vendors the shared protocol models.
+test-site-protocol = { git = "ssh://git@git.sensofusion.com/testsite/test-site-protocol.git", tag = "v0.1.0" }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
