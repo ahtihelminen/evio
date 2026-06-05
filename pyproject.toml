@@ -146,3 +146,7 @@ ignore = [
 # any open/grab failure is logged and ends capture rather than crashing the
 # runner, so the camera-grab boundary is wrapped in a blind except.
 "src/evio/recording/mono_capture.py" = ["BLE001"]
+# The JIT warm-up in __enter__ is best-effort: a numba compile failure must not
+# kill mono footage capture, which only reads raw frames, so it is wrapped in a
+# blind except.
+"src/evio/io/mono_camera.py" = ["BLE001"]
