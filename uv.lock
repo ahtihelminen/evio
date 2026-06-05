@@ -2,18 +2,39 @@ version = 1
 revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
-    "python_full_version >= '3.14' and sys_platform == 'darwin'",
-    "python_full_version < '3.14' and sys_platform == 'darwin'",
+    "python_full_version >= '3.14' and platform_machine != 's390x' and sys_platform == 'darwin'",
+    "python_full_version >= '3.14' and platform_machine == 's390x' and sys_platform == 'darwin'",
+    "python_full_version == '3.13.*' and platform_machine != 's390x' and sys_platform == 'darwin'",
+    "python_full_version < '3.13' and platform_machine != 's390x' and sys_platform == 'darwin'",
+    "python_full_version == '3.13.*' and platform_machine == 's390x' and sys_platform == 'darwin'",
+    "python_full_version < '3.13' and platform_machine == 's390x' and sys_platform == 'darwin'",
     "python_full_version >= '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux'",
-    "python_full_version < '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux'",
-    "python_full_version >= '3.14' and sys_platform == 'win32'",
-    "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux'",
-    "python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
-    "python_full_version < '3.14' and sys_platform == 'win32'",
-    "python_full_version < '3.14' and sys_platform == 'emscripten'",
-    "python_full_version < '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux'",
-    "python_full_version < '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version == '3.13.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "python_full_version < '3.13' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "python_full_version >= '3.14' and platform_machine != 's390x' and sys_platform == 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 's390x' and sys_platform == 'win32'",
+    "python_full_version >= '3.14' and platform_machine != 's390x' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.14' and platform_machine == 's390x' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.14' and platform_machine != 'aarch64' and platform_machine != 's390x' and sys_platform == 'linux'",
+    "python_full_version >= '3.14' and platform_machine == 's390x' and sys_platform == 'linux'",
+    "python_full_version >= '3.14' and platform_machine != 's390x' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 's390x' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version == '3.13.*' and platform_machine != 's390x' and sys_platform == 'win32'",
+    "python_full_version < '3.13' and platform_machine != 's390x' and sys_platform == 'win32'",
+    "python_full_version == '3.13.*' and platform_machine == 's390x' and sys_platform == 'win32'",
+    "python_full_version < '3.13' and platform_machine == 's390x' and sys_platform == 'win32'",
+    "python_full_version == '3.13.*' and platform_machine != 's390x' and sys_platform == 'emscripten'",
+    "python_full_version < '3.13' and platform_machine != 's390x' and sys_platform == 'emscripten'",
+    "python_full_version == '3.13.*' and platform_machine == 's390x' and sys_platform == 'emscripten'",
+    "python_full_version < '3.13' and platform_machine == 's390x' and sys_platform == 'emscripten'",
+    "python_full_version == '3.13.*' and platform_machine != 'aarch64' and platform_machine != 's390x' and sys_platform == 'linux'",
+    "python_full_version < '3.13' and platform_machine != 'aarch64' and platform_machine != 's390x' and sys_platform == 'linux'",
+    "python_full_version == '3.13.*' and platform_machine == 's390x' and sys_platform == 'linux'",
+    "python_full_version < '3.13' and platform_machine == 's390x' and sys_platform == 'linux'",
+    "python_full_version == '3.13.*' and platform_machine != 's390x' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version < '3.13' and platform_machine != 's390x' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version == '3.13.*' and platform_machine == 's390x' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version < '3.13' and platform_machine == 's390x' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
 ]
 
 [[package]]
@@ -613,6 +634,9 @@ ids = [
     { name = "ids-peak", marker = "sys_platform != 'darwin'" },
     { name = "ids-peak-ipl", marker = "sys_platform != 'darwin'" },
 ]
+openvino = [
+    { name = "openvino" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -626,6 +650,7 @@ requires-dist = [
     { name = "numba", specifier = ">=0.62.1" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "opencv-python", specifier = ">=4.11.0.86" },
+    { name = "openvino", marker = "extra == 'openvino'", specifier = ">=2025.0" },
     { name = "pandas", specifier = ">=2.3.3" },
     { name = "pyserial", specifier = ">=3.5" },
     { name = "pyside6", specifier = ">=6.10.1" },
@@ -639,7 +664,7 @@ requires-dist = [
     { name = "types-setuptools", marker = "extra == 'dev'" },
     { name = "websockets", specifier = ">=16.0" },
 ]
-provides-extras = ["ids", "data", "dev"]
+provides-extras = ["ids", "data", "openvino", "dev"]
 
 [[package]]
 name = "executing"
@@ -1960,6 +1985,42 @@ wheels = [
 ]
 
 [[package]]
+name = "openvino"
+version = "2026.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "openvino-telemetry" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8c/e5/4b8945f9cdef4273a608b013cf822edcc263e8560918c9776f9476f5f1b2/openvino-2026.2.0-21903-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:8ecf8a16cf893f51c5d13e8e6e9cf9bda52f29e1bbc0c24c8656696e1eae124a", size = 31171963, upload-time = "2026-05-28T09:03:40.584Z" },
+    { url = "https://files.pythonhosted.org/packages/e2/79/bd9fbb2e2b8a9ab629e00767aa2b7764f0d5bb8e2c57be620932cb31cd60/openvino-2026.2.0-21903-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:c0b35490c2b7041d4a3855563bfec1843c508d235a9a287d8e0526330878fcba", size = 58363572, upload-time = "2026-05-28T09:03:45.379Z" },
+    { url = "https://files.pythonhosted.org/packages/4b/35/bf0f472ded1fd2463c78e6f21c9f70a36e709750aec89a578f9c7d66d5ee/openvino-2026.2.0-21903-cp312-cp312-manylinux_2_35_aarch64.whl", hash = "sha256:57de704e6164902fb749f83674de7a441b45addeff22e9333f7252d782130569", size = 28362975, upload-time = "2026-05-28T09:03:48.669Z" },
+    { url = "https://files.pythonhosted.org/packages/63/4f/80400a0b506acf913ceeb1dccd7b7fd4424828feeea7d958f2d1577b88da/openvino-2026.2.0-21903-cp312-cp312-win_amd64.whl", hash = "sha256:fd9ba2eae04f76ea7266a461aa35b4e8bfd5408d732de96e88060ba9700792e0", size = 76169024, upload-time = "2026-05-28T09:03:53.251Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/30/2b046a34e5d909077996251d0b645e4886f1b5f4d751c88820529a1a6921/openvino-2026.2.0-21903-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:96acb618bf371312d23f2faf17794d316700fcb463011e574e2fedb434d003c3", size = 31172272, upload-time = "2026-05-28T09:03:56.828Z" },
+    { url = "https://files.pythonhosted.org/packages/22/a6/98ee692cfb10c27a7c624852ba9e2a02035427416ff266bcbe08f24c5f6e/openvino-2026.2.0-21903-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:0de579de9fa467a3fbe02cf40bef46cb6aa1c6065256b29707c355b7c51385e8", size = 58363356, upload-time = "2026-05-28T09:04:01.327Z" },
+    { url = "https://files.pythonhosted.org/packages/9a/95/4c652551ca08ac9f9534709b5b8dec5842ff8636e1f1f001389d65bca760/openvino-2026.2.0-21903-cp313-cp313-manylinux_2_35_aarch64.whl", hash = "sha256:c5eed7a4c886a161e36fb8f08c1e9500abd5fa7c6e6fce61dcd1c3548fffd460", size = 28369847, upload-time = "2026-05-28T09:04:04.633Z" },
+    { url = "https://files.pythonhosted.org/packages/34/01/2f63c58f2655845bbbb3d8fd7eff37f43bbe1837621f01d44572b20ab9f9/openvino-2026.2.0-21903-cp313-cp313-win_amd64.whl", hash = "sha256:1524d9f1b781acf87912169958d6691c2cc4fa37510d176ef34926da05c529bd", size = 76169114, upload-time = "2026-05-28T09:04:09.516Z" },
+    { url = "https://files.pythonhosted.org/packages/7b/a4/5bb947c3669a5e01d015dd91437f12a61e56c387960d6fc3846434150613/openvino-2026.2.0-21903-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:3d92721402e1ee00e232930e630fe96d2b5ca7af300ad8b5e6b8963b61b27c19", size = 31153192, upload-time = "2026-05-28T09:04:13.183Z" },
+    { url = "https://files.pythonhosted.org/packages/a6/52/271f128e817e666920ffc759549f5042b8b2ac9fec48248ed18e3d434c27/openvino-2026.2.0-21903-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:e822fded364c4935b3d852fb07c01c75c01a3e1adfa4c173cc9abee8c3c13695", size = 58365696, upload-time = "2026-05-28T09:04:17.624Z" },
+    { url = "https://files.pythonhosted.org/packages/1a/98/3a0985259739f72b755f73380fe07c704560d6064ada08bc0393a2842169/openvino-2026.2.0-21903-cp314-cp314-manylinux_2_35_aarch64.whl", hash = "sha256:930f500c19c7bd866b6ace9d2ae2a171fdabb8eb5c1219252a15c97dd98ecf92", size = 28376439, upload-time = "2026-05-28T09:04:20.845Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/15/b83574fe3a12f64f0917bc6ed1e66571a450cda3c01ed6f14f46243a6490/openvino-2026.2.0-21903-cp314-cp314-win_amd64.whl", hash = "sha256:5319d06b9e98dc00d5c164a68dd832e9f72a1091a715175d3d335d951a9e5aa6", size = 76171282, upload-time = "2026-05-28T09:04:25.581Z" },
+    { url = "https://files.pythonhosted.org/packages/18/df/6fcd4f4fd651a821452445fc46e61ce49aecfb2f1845d336e4391951f9c8/openvino-2026.2.0-21903-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:2994af8dca6ef425a1a3f7ce1a168494c9a30b228b6f46f100b6d95d7335c514", size = 31381302, upload-time = "2026-05-28T09:04:29.144Z" },
+    { url = "https://files.pythonhosted.org/packages/8b/e9/8cc292936ee85a100a2d0743e4a0a969a775bddbbb296dbdefc99928ac18/openvino-2026.2.0-21903-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:3ffdf1b1b18b10c84967acbe768a0b390cc59c695bbafb9a1b437f60efa0d9f7", size = 58409527, upload-time = "2026-05-28T09:04:33.345Z" },
+    { url = "https://files.pythonhosted.org/packages/77/1b/8389bae5d4d1c24c53321126b2454c001c74c0751bc5546042675e05eb98/openvino-2026.2.0-21903-cp314-cp314t-manylinux_2_35_aarch64.whl", hash = "sha256:b8f0b876e73d3cd1fa09d70834039227514073dd604f9796e439da001046fb75", size = 25519281, upload-time = "2026-05-28T09:04:36.382Z" },
+    { url = "https://files.pythonhosted.org/packages/4a/71/31dbf2238e2c249b662047159aba43a4f86792101c03b3c65865625cd903/openvino-2026.2.0-21903-cp314-cp314t-win_amd64.whl", hash = "sha256:d55fb289b41df099ad708e836c23e4bebda8248623fadf26e02d085ddd16865e", size = 76336598, upload-time = "2026-05-28T09:04:41.479Z" },
+]
+
+[[package]]
+name = "openvino-telemetry"
+version = "2025.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/71/8a/89d82f1a9d913fb266c2e6dc2f6030935db24b7152963a8db6c4f039787f/openvino_telemetry-2025.2.0.tar.gz", hash = "sha256:8bf8127218e51e99547bf38b8fb85a8b31c9bf96e6f3a82eb0b3b6a34155977c", size = 18894, upload-time = "2025-07-07T10:29:51.159Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3b/ac/5ab0ca0aa269ad3c73f7bfc3801b10e5f56f75a31bf68c1ae8bd51cf70a4/openvino_telemetry-2025.2.0-py3-none-any.whl", hash = "sha256:bcb667e83a44f202ecf4cfa49281715c6d7e21499daec04ff853b7f964833599", size = 25227, upload-time = "2025-07-07T10:29:50.189Z" },
+]
+
+[[package]]
 name = "packaging"
 version = "26.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2930,14 +2991,30 @@ name = "torch"
 version = "2.12.0"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "python_full_version >= '3.14' and sys_platform == 'darwin'",
-    "python_full_version < '3.14' and sys_platform == 'darwin'",
-    "python_full_version >= '3.14' and sys_platform == 'win32'",
-    "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
-    "python_full_version < '3.14' and sys_platform == 'win32'",
-    "python_full_version < '3.14' and sys_platform == 'emscripten'",
-    "python_full_version < '3.14' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine != 's390x' and sys_platform == 'darwin'",
+    "python_full_version >= '3.14' and platform_machine == 's390x' and sys_platform == 'darwin'",
+    "python_full_version == '3.13.*' and platform_machine != 's390x' and sys_platform == 'darwin'",
+    "python_full_version < '3.13' and platform_machine != 's390x' and sys_platform == 'darwin'",
+    "python_full_version == '3.13.*' and platform_machine == 's390x' and sys_platform == 'darwin'",
+    "python_full_version < '3.13' and platform_machine == 's390x' and sys_platform == 'darwin'",
+    "python_full_version >= '3.14' and platform_machine != 's390x' and sys_platform == 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 's390x' and sys_platform == 'win32'",
+    "python_full_version >= '3.14' and platform_machine != 's390x' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.14' and platform_machine == 's390x' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.14' and platform_machine != 's390x' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 's390x' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version == '3.13.*' and platform_machine != 's390x' and sys_platform == 'win32'",
+    "python_full_version < '3.13' and platform_machine != 's390x' and sys_platform == 'win32'",
+    "python_full_version == '3.13.*' and platform_machine == 's390x' and sys_platform == 'win32'",
+    "python_full_version < '3.13' and platform_machine == 's390x' and sys_platform == 'win32'",
+    "python_full_version == '3.13.*' and platform_machine != 's390x' and sys_platform == 'emscripten'",
+    "python_full_version < '3.13' and platform_machine != 's390x' and sys_platform == 'emscripten'",
+    "python_full_version == '3.13.*' and platform_machine == 's390x' and sys_platform == 'emscripten'",
+    "python_full_version < '3.13' and platform_machine == 's390x' and sys_platform == 'emscripten'",
+    "python_full_version == '3.13.*' and platform_machine != 's390x' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version < '3.13' and platform_machine != 's390x' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version == '3.13.*' and platform_machine == 's390x' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version < '3.13' and platform_machine == 's390x' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
 ]
 dependencies = [
     { name = "filelock", marker = "sys_platform != 'linux'" },
@@ -2967,9 +3044,14 @@ version = "2.12.0+cpu"
 source = { registry = "https://download.pytorch.org/whl/cpu" }
 resolution-markers = [
     "python_full_version >= '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux'",
-    "python_full_version < '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux'",
-    "python_full_version >= '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux'",
-    "python_full_version < '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux'",
+    "python_full_version == '3.13.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "python_full_version < '3.13' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "python_full_version >= '3.14' and platform_machine != 'aarch64' and platform_machine != 's390x' and sys_platform == 'linux'",
+    "python_full_version >= '3.14' and platform_machine == 's390x' and sys_platform == 'linux'",
+    "python_full_version == '3.13.*' and platform_machine != 'aarch64' and platform_machine != 's390x' and sys_platform == 'linux'",
+    "python_full_version < '3.13' and platform_machine != 'aarch64' and platform_machine != 's390x' and sys_platform == 'linux'",
+    "python_full_version == '3.13.*' and platform_machine == 's390x' and sys_platform == 'linux'",
+    "python_full_version < '3.13' and platform_machine == 's390x' and sys_platform == 'linux'",
 ]
 dependencies = [
     { name = "filelock", marker = "sys_platform == 'linux'" },

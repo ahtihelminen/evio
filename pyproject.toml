@@ -41,6 +41,14 @@ data = [
     "kagglehub>=0.3.0",    # Kaggle (Drone-vs-Bird)
 ]
 
+# iGPU inference backend: the Arc 140T on the field NUC runs the v2
+# transformer at FP16. The CPU plugin also works on macOS arm64, so the
+# export + parity test are developable off-rig. Install with
+# `uv pip install '.[openvino]'`.
+openvino = [
+    "openvino>=2025.0",
+]
+
 dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
@@ -130,3 +138,7 @@ ignore = [
 # Detection is best-effort overlay: any error trips a kill-switch and the
 # panorama keeps streaming, so the chain is wrapped in a blind except.
 "src/evio/streaming/live_detection.py" = ["BLE001"]
+# Worker-side detection is best-effort too: safe_update swallows any failure
+# so a detector bug disables detection for one camera instead of killing the
+# streaming/recording worker process.
+"src/evio/detection/live_camera.py" = ["BLE001"]
