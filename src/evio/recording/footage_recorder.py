@@ -28,6 +28,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -54,6 +55,7 @@ class FootageRecorder:
         height: int,
         window_us: int = 0,
         step_us: int = 0,
+        fsync_interval_s: float = 2.0,
         time_provider: _TimeFn | None = None,
     ) -> None:
         self._root = Path(root)
@@ -62,8 +64,10 @@ class FootageRecorder:
         self._height = height
         self._window_us = window_us
         self._step_us = step_us
+        self._fsync_interval_s = fsync_interval_s
         self._codec = Dt8Codec(width=width, height=height)
         self._now: _TimeFn = time_provider or time.time
+        self._last_fsync: float = self._now()
         # Per-process suffix so a re-run inside the same UTC hour writes a
         # new file instead of clobbering the previous one. HHMMSSZ of the
         # recorder's construction wall-clock; ambiguous only if two
@@ -141,6 +145,24 @@ class FootageRecorder:
         self._end_ts_ns = last_us * 1000
         if self._start_ts_ns is None:
             self._start_ts_ns = int(batch.timestamps[0]) * 1000
+        self._maybe_fsync()
+
+    def _maybe_fsync(self) -> None:
+        """Force buffered events to disk every `fsync_interval_s`.
+
+        The appliance has no UPS: on a power cut everything still in the
+        OS page cache is lost. Bounding the unsynced window to a couple of
+        seconds caps that loss; `recovery.recover_orphans` then re-indexes
+        the file (which never got a clean manifest entry) on next boot.
+        """
+        if self._file is None:
+            return
+        now = self._now()
+        if now - self._last_fsync < self._fsync_interval_s:
+            return
+        self._file.flush()
+        os.fsync(self._file.fileno())
+        self._last_fsync = now
 
     def _rotate(self, bucket: _Bucket) -> None:
         self._finalise_current()
@@ -160,6 +182,7 @@ class FootageRecorder:
         self._file = f
         self._file_path = path
         self._bucket = bucket
+        self._last_fsync = self._now()
         self._start_ts_ns = None
         self._end_ts_ns = 0
         self._object_ids = set()
@@ -169,6 +192,7 @@ class FootageRecorder:
         if self._file is None or self._file_path is None:
             return
         self._file.flush()
+        os.fsync(self._file.fileno())
         self._file.close()
         if self._start_ts_ns is None:
             self._file_path.unlink(missing_ok=True)

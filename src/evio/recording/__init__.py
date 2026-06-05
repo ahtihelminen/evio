@@ -24,10 +24,21 @@ from evio.recording.manifest import (
     ManifestEntry,
     iter_manifest,
 )
+from evio.recording.mono_capture import MonoFootageCapture
+from evio.recording.mono_footage_recorder import (
+    MONO_MAGIC,
+    MonoFootageRecorder,
+)
+from evio.recording.recovery import recover_mono_orphans, recover_orphans
 
 __all__ = [
     "DAT_FILE_HEADER",
+    "MONO_MAGIC",
     "FootageRecorder",
     "ManifestEntry",
+    "MonoFootageCapture",
+    "MonoFootageRecorder",
     "iter_manifest",
+    "recover_mono_orphans",
+    "recover_orphans",
 ]

@@ -142,3 +142,7 @@ ignore = [
 # so a detector bug disables detection for one camera instead of killing the
 # streaming/recording worker process.
 "src/evio/detection/live_camera.py" = ["BLE001"]
+# Mono-footage capture runs on a background thread against the IDS Peak SDK;
+# any open/grab failure is logged and ends capture rather than crashing the
+# runner, so the camera-grab boundary is wrapped in a blind except.
+"src/evio/recording/mono_capture.py" = ["BLE001"]
