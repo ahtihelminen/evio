@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import calendar
+import os
 import struct
 from pathlib import Path
 
@@ -100,6 +101,24 @@ def test_recover_ignores_foreign_file(tmp_path: Path) -> None:
 
 def test_recover_missing_root_is_noop(tmp_path: Path) -> None:
     assert recover_orphans(tmp_path / "does-not-exist") == []
+
+
+def test_recover_before_cutoff_skips_live_recorder_files(
+    tmp_path: Path,
+) -> None:
+    """`before` excludes files a concurrent recorder still owns (mtime >=)."""
+    day_dir = tmp_path / "event-0" / "2026-06-05"
+    orphan = _write_orphan(day_dir, "120000Z-CCC.dat", _orphan_bytes(5))
+    cutoff = 1_000_000.0
+    os.utime(orphan, (cutoff, cutoff))  # mtime exactly at the cutoff
+
+    # mtime >= before → treated as a live-recorder file, left untouched.
+    assert recover_orphans(tmp_path, before=cutoff) == []
+    assert not (day_dir / "manifest.jsonl").exists()
+
+    # A later boot with no live writer (no cutoff) re-indexes it.
+    assert recover_orphans(tmp_path) == [orphan]
+    assert len(list(iter_manifest(day_dir / "manifest.jsonl"))) == 1
 
 
 def test_periodic_fsync_flushes_to_disk_before_close(tmp_path: Path) -> None:

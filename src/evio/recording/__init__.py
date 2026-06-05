@@ -16,6 +16,10 @@ Retention + remote pull live in follow-ups; this first commit lands the
 write side.
 """
 
+from evio.recording.footage_admin import (
+    delete_footage_day,
+    list_footage_days,
+)
 from evio.recording.footage_recorder import (
     DAT_FILE_HEADER,
     FootageRecorder,
@@ -38,7 +42,9 @@ __all__ = [
     "ManifestEntry",
     "MonoFootageCapture",
     "MonoFootageRecorder",
+    "delete_footage_day",
     "iter_manifest",
+    "list_footage_days",
     "recover_mono_orphans",
     "recover_orphans",
 ]

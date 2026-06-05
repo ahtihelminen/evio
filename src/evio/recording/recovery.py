@@ -5,13 +5,19 @@ cleanly (`_finalise_current`). A power cut therefore leaves the in-flight
 `.dat` on disk but absent from `manifest.jsonl` — invisible to footage
 listing, retention sweeps, and the training-data fetcher.
 
-`recover_orphans` runs once at startup, before recording resumes. For each
-`.dat` under `<root>/<camera>/<date>/` missing from that day's manifest it
-validates the header, truncates any trailing partial DT8 record (the few
-bytes a power cut can leave half-written) back to the last whole 8-byte
-record, and appends a reconstructed `ManifestEntry`. Object-ids and the
-bias/scene capture block are lost with the recorder's in-memory state, so
-the recovered entry carries `{"recovered": True}` and no object-ids.
+`recover_orphans` runs at startup. For each `.dat` under
+`<root>/<camera>/<date>/` missing from that day's manifest it validates the
+header, truncates any trailing partial DT8 record (the few bytes a power cut
+can leave half-written) back to the last whole 8-byte record, and appends a
+reconstructed `ManifestEntry`. Object-ids and the bias/scene capture block
+are lost with the recorder's in-memory state, so the recovered entry carries
+`{"recovered": True}` and no object-ids.
+
+Re-hashing a multi-GB orphan is slow, so the runner runs this on a background
+thread while recording already proceeds. Pass `before=<process start time>`
+so files the live recorders are still writing (mtime at or after start) are
+skipped — only prior-run orphans get re-indexed, never a file another
+recorder owns.
 
 `recover_mono_orphans` is the frame-camera counterpart for `.mraw` files
 (see `mono_footage_recorder`): same idea, but the record stride is read
@@ -41,11 +47,14 @@ _HEADER_LEN = len(DAT_FILE_HEADER)
 _T32 = struct.Struct("<I")  # leading uint32 of each DT8 record (µs timestamp)
 
 
-def recover_orphans(root: Path) -> list[Path]:
+def recover_orphans(root: Path, *, before: float | None = None) -> list[Path]:
     """Re-index footage `.dat` files missing from their day manifest.
 
     Returns the paths re-indexed (a manifest entry appended). A missing
-    root, or a tree with nothing orphaned, yields `[]`.
+    root, or a tree with nothing orphaned, yields `[]`. `before` (an epoch
+    seconds cutoff) skips files modified at or after it: when recovery runs
+    concurrently with live recording, that excludes the files the current
+    run's recorders still own.
     """
     root = Path(root)
     if not root.is_dir():
@@ -57,6 +66,8 @@ def recover_orphans(root: Path) -> list[Path]:
         known = {entry.filename for entry in iter_manifest(manifest_path)}
         for dat in sorted(day_dir.glob("*.dat")):
             if dat.name in known:
+                continue
+            if before is not None and dat.stat().st_mtime >= before:
                 continue
             entry = _reindex(dat)
             if entry is not None:
@@ -112,11 +123,14 @@ def _reindex(path: Path) -> ManifestEntry | None:
 _MONO_HEADER_LEN = len(MONO_MAGIC) + MONO_GEOM.size
 
 
-def recover_mono_orphans(root: Path) -> list[Path]:
+def recover_mono_orphans(
+    root: Path, *, before: float | None = None,
+) -> list[Path]:
     """Re-index mono `.mraw` files missing from their day manifest.
 
     Frame-camera counterpart of `recover_orphans`. Returns the paths
     re-indexed; a missing root or a tree with nothing orphaned yields `[]`.
+    `before` skips files modified at or after it (the live recorder's own).
     """
     root = Path(root)
     if not root.is_dir():
@@ -128,6 +142,8 @@ def recover_mono_orphans(root: Path) -> list[Path]:
         known = {entry.filename for entry in iter_manifest(manifest_path)}
         for mraw in sorted(day_dir.glob("*.mraw")):
             if mraw.name in known:
+                continue
+            if before is not None and mraw.stat().st_mtime >= before:
                 continue
             entry = _reindex_mono(mraw)
             if entry is not None:
