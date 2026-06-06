@@ -251,9 +251,13 @@ def load_temporal_transformer_v3(
         )
         meta = json.loads(meta_path.read_text())
         config = TemporalTransformerV3Config(**meta["config"])
-    device = device or torch.device(
-        "mps" if torch.backends.mps.is_available() else "cpu",
-    )
+    if device is None:
+        if torch.xpu.is_available():
+            device = torch.device("xpu")
+        elif torch.backends.mps.is_available():
+            device = torch.device("mps")
+        else:
+            device = torch.device("cpu")
     model = TemporalTrackTransformerV3(config)
     state = torch.load(checkpoint_path, map_location=device, weights_only=True)
     model.load_state_dict(state)
