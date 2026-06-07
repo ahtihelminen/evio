@@ -62,6 +62,12 @@ class MonoFootageCapture:
         self._on_frame = on_frame
         self._source_factory = source_factory
         self._stop = threading.Event()
+        # `_recording` gates writes only; the read loop keeps grabbing
+        # frames so the IDS Peak source stays open and warm. Operator
+        # toggle (web UI /api/recording) flips this in lockstep with the
+        # event-camera recorders so both stop / both resume.
+        self._recording = threading.Event()
+        self._recording.set()
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
@@ -74,6 +80,18 @@ class MonoFootageCapture:
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout_s)
+
+    def set_recording(self, enabled: bool) -> None:
+        """Pause/resume writes without tearing down the camera source.
+
+        Mirrors the event-camera workers' recording toggle: the SDK
+        stream keeps running so resume is instant, but disk writes
+        stop while disabled. Idempotent.
+        """
+        if enabled:
+            self._recording.set()
+        else:
+            self._recording.clear()
 
     def _open_source(self) -> AbstractContextManager[FrameSource]:
         if self._source_factory is not None:
@@ -108,8 +126,9 @@ class MonoFootageCapture:
         try:
             while not self._stop.is_set():
                 frame = source.read(timeout_ms=self._read_timeout_ms)
-                recorder.write(frame, time.time_ns())
-                if self._on_frame is not None:
-                    self._on_frame()
+                if self._recording.is_set():
+                    recorder.write(frame, time.time_ns())
+                    if self._on_frame is not None:
+                        self._on_frame()
         finally:
             recorder.close()

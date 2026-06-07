@@ -74,3 +74,35 @@ def test_stop_without_start_is_safe(tmp_path: Path) -> None:
         root=tmp_path, source_factory=lambda: _FakeSource(4, 3),
     )
     capture.stop()
+
+
+def test_set_recording_pauses_writes_but_not_grabs(tmp_path: Path) -> None:
+    """set_recording(False) stops `on_frame` ticks and disk writes while
+    keeping the SDK source open. Verifies unified-recording-toggle: mono
+    pauses in lockstep with the event-camera workers.
+    """
+    count = {"n": 0}
+    saw_frame = threading.Event()
+
+    def on_frame() -> None:
+        count["n"] += 1
+        saw_frame.set()
+
+    capture = MonoFootageCapture(
+        root=tmp_path, camera_id="mono-0",
+        on_frame=on_frame,
+        source_factory=lambda: _FakeSource(4, 3),
+    )
+    capture.start()
+    assert saw_frame.wait(2.0)
+    capture.set_recording(False)
+    time.sleep(0.05)
+    pause_count = count["n"]
+    time.sleep(0.05)
+    assert count["n"] == pause_count, "writes leaked through pause"
+    capture.set_recording(True)
+    deadline = time.monotonic() + 2.0
+    while count["n"] == pause_count and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert count["n"] > pause_count, "resume did not re-enable writes"
+    capture.stop()
