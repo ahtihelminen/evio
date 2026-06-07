@@ -27,6 +27,7 @@ dependencies = [
     "torch>=2.6",
     "websockets>=16.0",
     "tensorboard>=2.20.0",
+    "h5py>=3.16.0",
 ]
 
 [project.optional-dependencies]
