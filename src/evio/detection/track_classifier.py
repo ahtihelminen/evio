@@ -95,10 +95,10 @@ def load_track_transformer(
             is_v3 = False
             is_v4 = False
 
-    if not is_v3 and device in ("auto", "openvino", "gpu"):
-        ov_bundle = _try_load_openvino(ckpt)
+    if device in ("auto", "openvino", "gpu"):
+        ov_bundle = _try_load_openvino(ckpt, is_v3=is_v3)
         if ov_bundle is not None:
-            return LoadedTransformer(ov_bundle, False, False, None)
+            return LoadedTransformer(ov_bundle, is_v3, is_v4, None)
 
     try:
         dev = (
@@ -122,13 +122,13 @@ def load_track_transformer(
     return LoadedTransformer(bundle, is_v3, is_v4, None)
 
 
-def _try_load_openvino(ckpt: Path) -> object | None:
-    """Load the v2 IR on the Arc iGPU, or None to fall back to torch.
+def _try_load_openvino(ckpt: Path, *, is_v3: bool) -> object | None:
+    """Load an Arc iGPU IR for v2/v3/v4, or None to fall back to torch.
 
-    Opt-in: export an IR next to the checkpoint with
-    ``scripts/export_transformer_openvino.py``. Returns None when the IR is
-    absent, openvino is not installed, or no Intel GPU is present, so dev
-    machines transparently keep the torch path.
+    Opt-in: export an IR with ``scripts/export_transformer_openvino.py
+    --checkpoint <ckpt>``. Returns None when the IR is absent, openvino
+    isn't installed, or no Intel GPU is present — dev machines
+    transparently stay on the torch path.
     """
     ir_path = ckpt.with_name(f"{ckpt.stem}_ov.xml")
     if not ir_path.exists():
@@ -136,15 +136,23 @@ def _try_load_openvino(ckpt: Path) -> object | None:
     try:
         from evio.detection.openvino_transformer import (
             load_openvino_transformer_v2,
+            load_openvino_transformer_v3,
         )
     except ImportError:
         return None
+    loader = (
+        load_openvino_transformer_v3 if is_v3
+        else load_openvino_transformer_v2
+    )
     try:
-        bundle = load_openvino_transformer_v2(ir_path, device="GPU")
+        bundle = loader(ir_path, device="GPU")
     except (RuntimeError, OSError) as exc:
         _log.info("OpenVINO GPU unavailable (%s); using torch", exc)
         return None
-    _log.info("loaded v2 transformer on Arc iGPU (OpenVINO): %s", ir_path)
+    variant = "v3/v4" if is_v3 else "v2"
+    _log.info(
+        "loaded %s transformer on Arc iGPU (OpenVINO): %s", variant, ir_path,
+    )
     return bundle
 
 
