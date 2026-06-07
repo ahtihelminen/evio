@@ -25,6 +25,11 @@ dependencies = [
     "pyyaml>=6.0.3",
     "sapient",
     "torch>=2.6",
+    # torch's +xpu wheels need triton-xpu, which is published only on the
+    # PyTorch xpu index (mapped in [tool.uv.sources]). uv applies sources to
+    # direct deps but not to this transitive one, so declare it directly,
+    # gated to linux — on macOS torch comes from PyPI and never needs it.
+    "triton-xpu; sys_platform == 'linux'",
     "websockets>=16.0",
     "tensorboard>=2.20.0",
     "h5py>=3.16.0",
@@ -64,18 +69,29 @@ build-backend = "hatchling.build"
 
 [tool.uv]
 default-groups = []
+# Resolve for 3.12 only (both the dev Mac and the field NUC run it). The XPU
+# torch wheels don't cover the open-ended `requires-python` range, so an
+# unconstrained universal resolve backtracks to a broken old +xpu build.
+environments = [
+    "sys_platform == 'darwin' and python_version == '3.12'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.12'",
+]
 
-# Torch ships multi-GB CUDA wheels by default on Linux; the field NUC is
-# CPU-only, so pull the CPU build there. macOS keeps the default PyPI wheel,
-# which already includes MPS support.
+# Torch ships multi-GB CUDA wheels by default on Linux; the field NUC has an
+# Intel Arc iGPU, so pull the XPU build there for GPU inference. macOS keeps
+# the default PyPI wheel, which already includes MPS support.
 [[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
+name = "pytorch-xpu"
+url = "https://download.pytorch.org/whl/xpu"
 explicit = true
 
 [tool.uv.sources]
 sapient = { path = "../sapient", editable = true }
-torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torch = [{ index = "pytorch-xpu", marker = "sys_platform == 'linux'" }]
+# triton-xpu (declared above as a direct linux dep) is published only here, not
+# on PyPI. Declaring it directly + this source pins the linux torch to the
+# >=2.10 line that depends on triton-xpu (older +xpu used pytorch-triton-xpu).
+triton-xpu = [{ index = "pytorch-xpu" }]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -144,3 +160,11 @@ ignore = [
 # so a detector bug disables detection for one camera instead of killing the
 # streaming/recording worker process.
 "src/evio/detection/live_camera.py" = ["BLE001"]
+# Mono-footage capture runs on a background thread against the IDS Peak SDK;
+# any open/grab failure is logged and ends capture rather than crashing the
+# runner, so the camera-grab boundary is wrapped in a blind except.
+"src/evio/recording/mono_capture.py" = ["BLE001"]
+# The JIT warm-up in __enter__ is best-effort: a numba compile failure must not
+# kill mono footage capture, which only reads raw frames, so it is wrapped in a
+# blind except.
+"src/evio/io/mono_camera.py" = ["BLE001"]
