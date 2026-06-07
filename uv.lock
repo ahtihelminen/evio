@@ -419,6 +419,8 @@ version = "1.3.1"
 source = { editable = "." }
 dependencies = [
     { name = "h5py", marker = "(python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version < '3.13' and sys_platform == 'darwin')" },
+    { name = "ids-peak", marker = "python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "ids-peak-ipl", marker = "python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "jupyter", marker = "(python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version < '3.13' and sys_platform == 'darwin')" },
     { name = "matplotlib", marker = "(python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version < '3.13' and sys_platform == 'darwin')" },
     { name = "numba", marker = "(python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version < '3.13' and sys_platform == 'darwin')" },
@@ -449,10 +451,6 @@ dev = [
     { name = "ruff", marker = "(python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version < '3.13' and sys_platform == 'darwin')" },
     { name = "types-setuptools", marker = "(python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version < '3.13' and sys_platform == 'darwin')" },
 ]
-ids = [
-    { name = "ids-peak", marker = "python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
-    { name = "ids-peak-ipl", marker = "python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
-]
 openvino = [
     { name = "openvino", marker = "(python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version < '3.13' and sys_platform == 'darwin')" },
 ]
@@ -462,8 +460,8 @@ requires-dist = [
     { name = "datasets", marker = "extra == 'data'", specifier = ">=3.0.0" },
     { name = "gdown", marker = "extra == 'data'", specifier = ">=5.2.0" },
     { name = "h5py", specifier = ">=3.16.0" },
-    { name = "ids-peak", marker = "sys_platform != 'darwin' and extra == 'ids'" },
-    { name = "ids-peak-ipl", marker = "sys_platform != 'darwin' and extra == 'ids'" },
+    { name = "ids-peak", marker = "sys_platform != 'darwin'" },
+    { name = "ids-peak-ipl", marker = "sys_platform != 'darwin'" },
     { name = "jupyter", specifier = ">=1.1.1" },
     { name = "kagglehub", marker = "extra == 'data'", specifier = ">=0.3.0" },
     { name = "matplotlib", specifier = ">=3.10.8" },
@@ -487,7 +485,7 @@ requires-dist = [
     { name = "types-setuptools", marker = "extra == 'dev'" },
     { name = "websockets", specifier = ">=16.0" },
 ]
-provides-extras = ["ids", "data", "openvino", "dev"]
+provides-extras = ["data", "openvino", "dev"]
 
 [[package]]
 name = "executing"

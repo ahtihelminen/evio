@@ -34,13 +34,15 @@ dependencies = [
     "tensorboard>=2.20.0",
     "h5py>=3.16.0",
     "openvino>=2026.2.0",
+    # IDS-peak mono camera SDK. Linux-only wheels; the marker filters out
+    # macOS dev machines. Now a default dep so a plain `uv sync` on a fresh
+    # NUC installs everything the systemd service needs — no `--extra ids`
+    # gotcha after a venv rebuild.
+    "ids-peak; platform_system != 'Darwin'",
+    "ids-peak-ipl; platform_system != 'Darwin'",
 ]
 
 [project.optional-dependencies]
-ids = [
-  "ids-peak; platform_system != 'Darwin'",
-  "ids-peak-ipl; platform_system != 'Darwin'",
-]
 
 # Dataset-acquisition tools: install with `uv pip install '.[data]'`.
 data = [
