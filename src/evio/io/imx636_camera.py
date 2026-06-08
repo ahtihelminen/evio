@@ -120,6 +120,30 @@ class Imx636CameraSource:
             self.cam.start()
             self._streaming = True
 
+    def read_env(self) -> dict[str, float]:
+        """Sample the on-chip environment: lux, die temperature, refractory.
+
+        Slow-cadence feedforward for the adaptive bias controller (regime
+        night decision + refr thermal pre-emption) and capture provenance.
+        Each read is an I2C/ADC transaction over USB that can time out
+        (``illumination``/``pixel_dead_time`` return -1) or, on an
+        unreachable device, raise; failures are skipped so a transient miss
+        just leaves the controller on its last good value. A -1 lux is
+        forwarded as-is — the controller treats negative lux as 'unknown'.
+        """
+        env: dict[str, float] = {}
+        if self.cam is None:
+            return env
+        with contextlib.suppress(RuntimeError):
+            env["lux"] = float(self.cam.illumination())
+        with contextlib.suppress(RuntimeError):
+            env["die_temp_c"] = float(self.cam.temperature())
+        with contextlib.suppress(RuntimeError):
+            dead = float(self.cam.pixel_dead_time())
+            if dead >= 0.0:
+                env["pixel_dead_time_us"] = dead
+        return env
+
     def __exit__(
         self,
         _exc_type: type[BaseException] | None,
