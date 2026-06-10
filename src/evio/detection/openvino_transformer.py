@@ -127,8 +127,113 @@ def export_v2_to_openvino(
     return xml_path
 
 
+class OpenVINOTransformerV3Bundle:
+    """OpenVINO backend for the v3/v4 dual-branch transformer.
+
+    Same call surface as :class:`TemporalTransformerV3Bundle.predict` so
+    it drops into :func:`predict_drone_probs` with no branch.
+    """
+
+    def __init__(self, compiled: ov.CompiledModel) -> None:
+        self._compiled = compiled
+        self._output = compiled.output(0)
+
+    def predict(
+        self,
+        patches: np.ndarray,
+        events: np.ndarray,
+        event_mask: np.ndarray,
+    ) -> dict[str, np.ndarray]:
+        norm_patches = _normalize_patches(patches)
+        events_f = np.ascontiguousarray(events, dtype=np.float32)
+        mask_bool = np.ascontiguousarray(event_mask, dtype=np.bool_)
+        logits = self._compiled(
+            [norm_patches, events_f, mask_bool],
+        )[self._output]
+        return {"drone_logits": np.asarray(logits, dtype=np.float32)}
+
+
+def load_openvino_transformer_v3(
+    ir_path: Path,
+    *,
+    device: str = "GPU",
+) -> OpenVINOTransformerV3Bundle:
+    """Compile a saved v3/v4 IR for ``device``.
+
+    ``device`` = ``GPU`` (Arc 140T), ``CPU``, or ``AUTO``. Raises if the
+    target device is unavailable so the caller can fall through to torch.
+    """
+    core = ov.Core()
+    model = core.read_model(Path(ir_path))
+    compiled = core.compile_model(model, device)
+    return OpenVINOTransformerV3Bundle(compiled)
+
+
+def export_v3_to_openvino(
+    checkpoint: Path,
+    output_dir: Path | None = None,
+) -> Path:
+    """Export a v3 or v4 checkpoint to an FP16 OpenVINO IR.
+
+    Works for both bidirectional v3 and causal/streaming v4 — same
+    model class, the meta sidecar selects the attention path. Exported
+    graph: patches ``(B, T, H, W, 3)`` (uint8 or float32), events
+    ``(B, E_max, 4)`` float32, event_mask ``(B, E_max)`` bool;
+    returns ``drone_logits`` ``(B, T)``. Batch axis is dynamic.
+    """
+    import torch
+    from torch import nn
+
+    from evio.detection.temporal_transformer_v3 import (
+        load_temporal_transformer_v3,
+    )
+
+    checkpoint = Path(checkpoint)
+    out_dir = Path(output_dir) if output_dir is not None else checkpoint.parent
+    bundle = load_temporal_transformer_v3(
+        checkpoint, device=torch.device("cpu"),
+    )
+
+    class _DroneLogits(nn.Module):
+        def __init__(self, inner: nn.Module) -> None:
+            super().__init__()
+            self.inner = inner
+
+        def forward(
+            self,
+            patches: torch.Tensor,
+            events: torch.Tensor,
+            event_mask: torch.Tensor,
+        ) -> torch.Tensor:
+            return self.inner(patches, events, event_mask)["drone_logits"]
+
+    wrapper = _DroneLogits(bundle.model).eval()
+    cfg = bundle.config
+    example_patches = torch.zeros(
+        1, cfg.seq_len, cfg.patch_size, cfg.patch_size, 3,
+    )
+    example_events = torch.zeros(1, cfg.e_max, cfg.event_in_dim)
+    example_mask = torch.ones(1, cfg.e_max, dtype=torch.bool)
+    example_inputs = (example_patches, example_events, example_mask)
+    traced = torch.jit.trace(wrapper, example_inputs, check_trace=False)
+    ov_model = ov.convert_model(traced, example_input=example_inputs)
+    ov_model.reshape({
+        0: ov.PartialShape(
+            [-1, cfg.seq_len, cfg.patch_size, cfg.patch_size, 3],
+        ),
+        1: ov.PartialShape([-1, cfg.e_max, cfg.event_in_dim]),
+        2: ov.PartialShape([-1, cfg.e_max]),
+    })
+    xml_path = out_dir / f"{checkpoint.stem}_ov.xml"
+    ov.save_model(ov_model, xml_path, compress_to_fp16=True)
+    return xml_path
+
+
 __all__ = [
     "OpenVINOTransformerV2Bundle",
+    "OpenVINOTransformerV3Bundle",
     "export_v2_to_openvino",
+    "export_v3_to_openvino",
     "load_openvino_transformer_v2",
+    "load_openvino_transformer_v3",
 ]

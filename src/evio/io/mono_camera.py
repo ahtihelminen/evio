@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from types import TracebackType
@@ -12,6 +13,8 @@ from ids_peak_ipl import ids_peak_ipl  # type: ignore
 
 from evio.core.events import EventsBatch
 from evio.core.generate_events import get_events_from_frames
+
+_log = logging.getLogger(__name__)
 
 
 def get_mono_camera_serials() -> list[str]:
@@ -101,10 +104,18 @@ class MonoCameraSource:
         self._allocate_buffers()
         self._start_acquisition()
 
-        # Warm up JIT once so first iter_events() yield doesn't pay compile cost
-        dummy_prev = np.zeros((self.height, self.width), dtype=np.uint8)
-        dummy_curr = np.zeros((self.height, self.width), dtype=np.uint8)
-        get_events_from_frames(dummy_prev, dummy_curr, 0, 8)
+        # Warm up the JIT kernels so the first iter_events() yield doesn't pay
+        # the compile cost. Footage capture only reads raw frames and never
+        # calls iter_events(), so a compile failure here must not be fatal.
+        try:
+            dummy_prev = np.zeros((self.height, self.width), dtype=np.uint8)
+            dummy_curr = np.zeros((self.height, self.width), dtype=np.uint8)
+            get_events_from_frames(dummy_prev, dummy_curr, 0, 8)
+        except Exception:
+            _log.warning(
+                "mono JIT warm-up failed; iter_events() will compile lazily",
+                exc_info=True,
+            )
 
         return self
 
