@@ -51,9 +51,9 @@ def get_frame(
     width: int = 1280,
     height: int = 720,
     *,
-    base_color: tuple[int, int, int] = (127, 127, 127),  # gray
-    on_color: tuple[int, int, int] = (255, 255, 255),  # white
-    off_color: tuple[int, int, int] = (0, 0, 0),  # black
+    base_color: tuple[int, int, int] = (0, 0, 0),  # black — stationary
+    on_color: tuple[int, int, int] = (0, 255, 0),  # green — brighter (BGR)
+    off_color: tuple[int, int, int] = (0, 0, 255),  # red — dimmer (BGR)
 ) -> np.ndarray:
     x_coords, y_coords, polarities_on = window
 
@@ -80,7 +80,7 @@ def draw_hud(
     pacer: Pacer,
     batch_range: BatchRange,
     *,
-    color: tuple[int, int, int] = (0, 0, 0),  # black by default
+    color: tuple[int, int, int] = (255, 255, 255),  # white on black base
 ) -> None:
     """Overlay timing info: wall time, recording time, and playback speed."""
     if pacer._t_start is None or pacer._e_start is None:
@@ -139,7 +139,7 @@ def draw_hud_stream(
     pacer: StreamingPacer,
     end_ts_us: int,
     *,
-    color: tuple[int, int, int] = (0, 0, 0),  # black by default
+    color: tuple[int, int, int] = (255, 255, 255),  # white on black base
 ) -> None:
     """Overlay timing info: wall time, recording time, and playback speed."""
     # If HUD clocks are not initialized yet, skip drawing

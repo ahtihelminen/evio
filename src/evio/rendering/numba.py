@@ -47,9 +47,9 @@ class NumbaEventRenderer:
         width: int,
         height: int,
         *,
-        base_color: tuple[int, int, int] = (127, 127, 127),
-        on_color: tuple[int, int, int] = (255, 255, 255),
-        off_color: tuple[int, int, int] = (0, 0, 0),
+        base_color: tuple[int, int, int] = (0, 0, 0),  # black — stationary
+        on_color: tuple[int, int, int] = (0, 255, 0),  # green — brighter
+        off_color: tuple[int, int, int] = (0, 0, 255),  # red — dimmer (BGR)
     ) -> None:
         self.width = width
         self.height = height

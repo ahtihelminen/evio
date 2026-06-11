@@ -71,9 +71,15 @@ def extract_event_patch(
     polarities_on = batch.polarities[mask] > 0
     width = x1 - x0
     height = y1 - y0
+    # Pin the legacy gray/white/black palette: signatures are grayscale
+    # cosine features, so the operator-facing palette must not silently
+    # move reid similarity scores (thresholds are tuned against this).
     frame = get_frame(
         window=(local_x, local_y, polarities_on),
         width=width, height=height,
+        base_color=(127, 127, 127),
+        on_color=(255, 255, 255),
+        off_color=(0, 0, 0),
     )
     return cv2.resize(frame, target_size, interpolation=cv2.INTER_AREA)
 
