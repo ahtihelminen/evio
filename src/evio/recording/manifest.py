@@ -60,3 +60,11 @@ def iter_manifest(manifest_path: Path) -> Iterator[ManifestEntry]:
             line = raw.strip()
             if line:
                 yield ManifestEntry.from_json(line)
+
+
+def entry_for_file(dat_path: Path) -> ManifestEntry | None:
+    """Manifest entry for one footage file, if its day-dir has one."""
+    for entry in iter_manifest(dat_path.parent / "manifest.jsonl"):
+        if entry.filename == dat_path.name:
+            return entry
+    return None
