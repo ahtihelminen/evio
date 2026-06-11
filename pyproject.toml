@@ -163,6 +163,10 @@ ignore = [
 # The emitter deliberately catches any subscriber exception to keep the
 # detection pipeline running when a downstream consumer misbehaves.
 "src/evio/detection/emitter.py" = ["BLE001"]
+# The deploy lifecycle's last-resort handler catches ANY unexpected failure
+# to revert + emit `reverted` -- a silent half-deployed node is the one
+# unacceptable outcome of a code deploy.
+"src/evio/edge/deploy.py" = ["BLE001"]
 # The GUI catches arbitrary exceptions from camera grab() / solver so a
 # transient failure surfaces in the UI rather than killing the session.
 "src/evio/calibration/gui.py" = ["BLE001"]
