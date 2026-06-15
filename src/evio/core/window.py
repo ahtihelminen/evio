@@ -146,3 +146,29 @@ class RollingWindowBatchProcessor:
             self._chunks.clear()
             self._head_offset = 0
             self._next_start_ts = None
+
+
+def drain_window_backlog(
+    window_queue: deque[EventsBatch],
+    current: EventsBatch,
+    max_backlog: int,
+) -> tuple[EventsBatch, list[EventsBatch], int]:
+    """Collapse a backed-up window queue down to its freshest window.
+
+    When a camera worker can't keep up with the window cadence (event
+    storm, slow detect/render tick), windows pile up and the displayed
+    frame drifts further behind real time every tick. This returns the
+    newest window (for the render/detect path) plus the stale windows the
+    caller must still record so footage stays lossless, and their summed
+    event count so the reported rate stays honest. It is a no-op —
+    returns ``current`` with no stale windows — until the queue depth
+    exceeds ``max_backlog``; ``max_backlog <= 0`` disables it entirely.
+    """
+    if max_backlog <= 0 or len(window_queue) <= max_backlog:
+        return current, [], 0
+    stale = [current]
+    while len(window_queue) > 1:
+        stale.append(window_queue.popleft())
+    newest = window_queue.popleft()
+    dropped = sum(int(b.timestamps.size) for b in stale)
+    return newest, stale, dropped
