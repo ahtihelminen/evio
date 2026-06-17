@@ -86,6 +86,15 @@ SLOW_MIN_SPACING_S = 60.0
 N_IDLE = 5  # fast loop idle evaluations before slow loop may act
 K_SLOW_REG_PER_LN = 2.5  # ~half the kappa model gain, conservative
 STEP_SLOW_MAX = 2
+# Speed ramp: while the largest per-polarity error ln(BGT/R_N) exceeds
+# RAMP_ERROR_LN the descent is far below budget, so it takes bigger steps at a
+# tighter cadence to reach useful sensitivity in seconds; it tapers back to the
+# gentle STEP_SLOW_MAX / SLOW_MIN_SPACING_S as the error closes on the deadband.
+# Each ramp step is still a judged, revertible trial, so an overshoot is caught
+# by the fast loop and reverted.
+RAMP_ERROR_LN = 1.5
+STEP_SLOW_MAX_RAMP = 8
+SLOW_RAMP_SPACING_S = 12.0
 JUDGE_WIN_S = 6.0
 SCENE_STATIONARY_WIN_S = 30.0
 SCENE_STATIONARY_MAX_COV = 0.5
