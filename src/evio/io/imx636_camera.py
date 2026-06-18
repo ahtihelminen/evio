@@ -215,18 +215,23 @@ class Imx636CameraSource:
             # Got fresh data — defer the empty timeout.
             last_data_ns = time.monotonic_ns()
 
-            buffer = self.decoded_queue.popleft()
-            if buffer.size == 0:
-                continue
-
-            batch = EventsBatch(
-                x_coords=buffer["x"].astype(np.int16, copy=False),
-                y_coords=buffer["y"].astype(np.int16, copy=False),
-                timestamps=buffer["t"].astype(np.int64, copy=False),
-                polarities=buffer["p"].astype(np.int8, copy=False),
-            )
-
-            if self._processor is None:
-                continue
-            for window in self._processor.process((batch,)):
-                self.window_queue.append(window)
+            # Drain EVERY decoded chunk now pending, not just one, so
+            # window_queue reflects the true backlog. Under a storm a single
+            # poll() fires the callback many times; processing one chunk per
+            # __next__ left the rest hidden in decoded_queue, where the
+            # worker's drop-to-latest (it only inspects window_queue) couldn't
+            # reach them and the displayed frame drifted seconds behind.
+            # Draining them all lets drain_window_backlog collapse to the
+            # freshest window (and record the stale ones).
+            while self.decoded_queue:
+                buffer = self.decoded_queue.popleft()
+                if buffer.size == 0 or self._processor is None:
+                    continue
+                batch = EventsBatch(
+                    x_coords=buffer["x"].astype(np.int16, copy=False),
+                    y_coords=buffer["y"].astype(np.int16, copy=False),
+                    timestamps=buffer["t"].astype(np.int64, copy=False),
+                    polarities=buffer["p"].astype(np.int8, copy=False),
+                )
+                for window in self._processor.process((batch,)):
+                    self.window_queue.append(window)
