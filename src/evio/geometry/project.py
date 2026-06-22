@@ -103,3 +103,47 @@ def pixel_to_world_az_el(
     mast_ray = camera_to_mast_rotation(extrinsics) @ cam_ray
     world_ray = _compass_yaw_matrix(mount.world_yaw_deg) @ mast_ray
     return ray_to_az_el(world_ray)
+
+
+def azel_to_ray(az_deg: float, el_deg: float) -> Vector3:
+    """Inverse of `ray_to_az_el`: world (az, el) -> unit ray in ENU."""
+    az, el = np.deg2rad(az_deg), np.deg2rad(el_deg)
+    cos_el = np.cos(el)
+    return np.array([cos_el * np.sin(az), cos_el * np.cos(az), np.sin(el)])
+
+
+def camera_ray_to_pixel(
+    ray: Vector3, intrinsics: CameraIntrinsics,
+) -> tuple[float, float] | None:
+    """Inverse of `pixel_to_camera_ray`: camera-frame ray -> pixel (u, v).
+
+    None when the ray is not in front of the camera (z <= 0).
+    """
+    if ray[2] <= 0.0:
+        return None
+    half_h = np.tan(np.deg2rad(intrinsics.h_fov_deg) / 2)
+    half_v = np.tan(np.deg2rad(intrinsics.v_fov_deg) / 2)
+    fx = (intrinsics.width_px / 2) / half_h
+    fy = (intrinsics.height_px / 2) / half_v
+    u = intrinsics.principal_x + fx * (ray[0] / ray[2])
+    v = intrinsics.principal_y + fy * (ray[1] / ray[2])
+    return float(u), float(v)
+
+
+def world_az_el_to_pixel(
+    az_deg: float,
+    el_deg: float,
+    intrinsics: CameraIntrinsics,
+    extrinsics: CameraExtrinsics,
+    mount: MountPose,
+) -> tuple[float, float] | None:
+    """Inverse of `pixel_to_world_az_el`: world (az, el) -> pixel (u, v).
+
+    None if the direction is behind this camera. The caller checks (u, v)
+    against the image bounds to decide whether the target is in frame. The
+    rotation matrices are orthonormal, so the inverse is the transpose.
+    """
+    world_ray = azel_to_ray(az_deg, el_deg)
+    mast_ray = _compass_yaw_matrix(mount.world_yaw_deg).T @ world_ray
+    cam_ray = camera_to_mast_rotation(extrinsics).T @ mast_ray
+    return camera_ray_to_pixel(cam_ray, intrinsics)
