@@ -11,3 +11,4 @@ __pycache__/
 AGENTS.md
 .claude/
 STATE.md
+config/flytbase.env
