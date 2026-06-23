@@ -60,3 +60,17 @@ def test_stale_windows_preserve_record_order() -> None:
     # current is oldest, then FIFO order — the caller records them in this
     # order so footage stays monotonic.
     assert [int(b.timestamps.size) for b in stale] == [9, 1, 2]
+
+
+def test_detect_windows_cover_every_window() -> None:
+    # Decouple invariant: the worker detects + records [*stale, freshest],
+    # which must be EVERY window this tick in FIFO order (oldest `current`
+    # first, then the queue) — a display-rate collapse drops the RENDER to
+    # the freshest but never skips the analytical detector on any window.
+    queue = deque([_batch(2), _batch(3), _batch(4)])
+    original = list(queue)
+    current = _batch(1)
+    newest, stale, _ = drain_window_backlog(queue, current, 1)
+    detect_windows = [*stale, newest]
+    assert detect_windows == [current, *original]
+    assert len(detect_windows) == 1 + len(original)
