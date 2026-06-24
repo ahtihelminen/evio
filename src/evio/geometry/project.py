@@ -147,3 +147,22 @@ def world_az_el_to_pixel(
     mast_ray = _compass_yaw_matrix(mount.world_yaw_deg).T @ world_ray
     cam_ray = camera_to_mast_rotation(extrinsics).T @ mast_ray
     return camera_ray_to_pixel(cam_ray, intrinsics)
+
+
+def apparent_half_extent_px(
+    span_m: float, range_m: float, intrinsics: CameraIntrinsics,
+) -> tuple[float, float]:
+    """Half (width, height) in px of a `span_m` object at `range_m`.
+
+    Uses the same pinhole focal lengths as the projection, so the box tracks
+    the camera's true scale (a centred object of size s at range r spans
+    fx*s/r px). Zero when range/span is non-positive.
+    """
+    if range_m <= 0 or span_m <= 0:
+        return 0.0, 0.0
+    half_fov_h = np.deg2rad(intrinsics.h_fov_deg) / 2
+    half_fov_v = np.deg2rad(intrinsics.v_fov_deg) / 2
+    fx = (intrinsics.width_px / 2) / np.tan(half_fov_h)
+    fy = (intrinsics.height_px / 2) / np.tan(half_fov_v)
+    half = 0.5 * span_m / range_m
+    return float(fx * half), float(fy * half)
