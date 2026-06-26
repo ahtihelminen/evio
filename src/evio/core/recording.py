@@ -26,22 +26,18 @@ class Recording:
     order: np.ndarray  # int32 permutation mapping sort order
 
 
-def open_dat_dt8(
-    path: str | Path,
-    *,
-    width: int,
-    height: int,
-    data_offset: int | None = None,
-) -> Recording:
-    """Minimal loader: memmap [(t32,u4),(w32,u4)], build stable time order.
+def memmap_dat_dt8(
+    path: str | Path, *, data_offset: int | None = None,
+) -> np.memmap:
+    """Memmap a DAT8 file's ``[(t32,u4),(w32,u4)]`` event records (lazy).
 
-    If data_offset is None, tries to auto-scan header lines starting with '%'.
+    Skips the leading ``%`` header lines + 2-byte type/size when
+    ``data_offset`` is None. Reads nothing beyond the header — the returned
+    memmap pages in event data only as it is indexed.
     """
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(path)
-
-    # --- header / offset ---
     off = 0
     if data_offset is None:
         with Path.open(path, "rb") as file:
@@ -52,8 +48,7 @@ def open_dat_dt8(
                     file.seek(pos)
                     break
                 file.readline()  # consume the header line
-            # two bytes: type + decoded size
-            type_b = file.read(1)
+            type_b = file.read(1)  # two bytes: type + decoded size
             size_b = file.read(1)
             if len(type_b) != 1 or len(size_b) != 1:
                 msg = "Invalid DAT header"
@@ -64,13 +59,34 @@ def open_dat_dt8(
             off = file.tell()
     else:
         off = int(data_offset)
+    return np.memmap(path, dtype=DT8, mode="r", offset=off)
 
-    events = np.memmap(path, dtype=DT8, mode="r", offset=off)
+
+def open_dat_dt8(
+    path: str | Path,
+    *,
+    width: int,
+    height: int,
+    data_offset: int | None = None,
+) -> Recording:
+    """Whole-file loader: memmap [(t32,u4),(w32,u4)], unwrap + time order.
+
+    Materialises every timestamp; for windowed replay see ``memmap_dat_dt8``
+    plus ``evio.io.multi_dat_replay`` which slices on demand.
+    """
+    events = memmap_dat_dt8(path, data_offset=data_offset)
 
     timestamps = events["t32"].astype(np.int64, copy=False)
     if timestamps.size == 0:
         msg = "No events"
         raise RuntimeError(msg)
+    # The DAT ``t32`` field is a 32-bit µs counter that wraps every 2**32 µs
+    # (~71.6 min). Events are stored in acquisition order, so each large
+    # backward jump marks a wrap; unwrap to a monotonic timeline before the
+    # sort (otherwise sorting interleaves pre- and post-wrap events and the
+    # wall-clock anchor breaks for any recording longer than one wrap period).
+    for wrap_idx in np.flatnonzero(np.diff(timestamps) < -(2 ** 31)):
+        timestamps[int(wrap_idx) + 1:] += 2 ** 32
     order = np.argsort(timestamps, kind="stable").astype(np.int32, copy=False)
     timestamps_sorted = timestamps[order]
     event_words = events["w32"]

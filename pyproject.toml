@@ -40,6 +40,8 @@ dependencies = [
     # gotcha after a venv rebuild.
     "ids-peak; platform_system != 'Darwin'",
     "ids-peak-ipl; platform_system != 'Darwin'",
+    "python-socketio[client]>=5.11",
+    "requests>=2.31",
 ]
 
 [project.optional-dependencies]
