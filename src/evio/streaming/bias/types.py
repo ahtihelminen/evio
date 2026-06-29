@@ -33,6 +33,7 @@ class Reason(StrEnum):
     PROBE = "probe"  # blink-probe raise (always reverted)
     REVERT = "revert"  # trial/probe revert to pre-state
     DITHER = "dither"  # PRBS dither around the setpoint
+    STUCK_MASK = "stuck_mask"  # DEM hardware pixel mask promote/probe/demote
 
 
 class Regime(StrEnum):
@@ -95,6 +96,10 @@ class PolaritySignals:
     pair_fraction: float
     active_pixels: int
     subsample_factor: int = 1
+    # Path-A DEM-mask nominations this window: (x, y, dominant_polarity)
+    # with dominant_polarity 1=ON, 0=OFF. Already gated worker-side on
+    # rate + single-polarity + spatial isolation + not-in-a-track-box.
+    stuck_candidates: tuple[tuple[int, int, int], ...] = ()
 
     def rejected_eps(self, polarity: Polarity) -> float:
         n = self.rejected_on if polarity is Polarity.ON else self.rejected_off
@@ -317,3 +322,7 @@ class TickResult:
     evidence: list[ProbeEvidence] = field(default_factory=list)
     records: list[dict] = field(default_factory=list)  # action-log rows
     status_lines: list[str] = field(default_factory=list)
+    # (serial, ("pixel_mask", slot, x, y, enabled)) DEM control messages.
+    # NOT BiasCommands — they never flow through the kernel or the
+    # ("bias", ...) worker path.
+    pixel_mask_msgs: list[tuple[str, tuple]] = field(default_factory=list)

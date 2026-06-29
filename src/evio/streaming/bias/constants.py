@@ -64,6 +64,30 @@ RATE_EMA_TAU_S = 10.0  # main-side R_N/R_S/R_hot EMAs
 SUBSAMPLE_ABOVE_EPS = 1_000_000.0  # estimator may 1/8-subsample above this
 SUBSAMPLE_FACTOR = 8
 
+# --- Stuck pixels: cold-start fast-flag + DEM-mask detection ----------------
+# A stuck oscillator is a far hotter, far more pathological thing than the
+# 100 ev/s noise-pool hot pixel (HOT_PX_RATE_EPS): the field cameras show
+# 1-10 fixed pixels at 54-400 kHz that are 99.8-99.9% of every event. Two
+# thresholds, kept separate from the noise-pool hot floor:
+#  * FAST_STUCK_RATE_EPS — an *instantaneous* per-pixel rate this high (no
+#    real sub-pixel drone sustains 20 kHz on ONE pixel) is excluded from the
+#    noise pool after only FAST_STUCK_SUSTAIN_S, shrinking the cold-start
+#    suppress transient (the t<HOT_SUSTAIN_S FastSuppressor clamp).
+#  * STUCK_MASK_EPS — the per-pixel hot-EMA floor (sustained STUCK_SUSTAIN_S)
+#    that nominates a pixel as a hardware DEM-mask candidate. Path-A also
+#    requires single-polarity dominance + spatial isolation, so a faint MOVING
+#    / rotating target can never qualify — but a HOVERING single-pixel glint
+#    CAN (isolated + single-polarity + pins 10 s). Live auto-masking is
+#    therefore HOLD-gated (controller ``enable_stuck_masking``, default off)
+#    until the periodicity / live-track veto lands; the P0 scan stays
+#    operator-vetted.
+FAST_STUCK_RATE_EPS = 20_000.0
+FAST_STUCK_SUSTAIN_S = 1.0
+STUCK_MASK_EPS = 2_000.0
+STUCK_SUSTAIN_S = 10.0
+STUCK_POLARITY_FRACTION = 0.95  # >= this share single-polarity (Path A)
+STUCK_MAX_CANDIDATES = 64  # cap the per-window candidate report (= DEM slots)
+
 # --- Blanking (controller never reads its own actuation transient) ----------
 T_BLANK_S: dict[str, float] = {
     "diff_on": 1.5,
@@ -95,6 +119,21 @@ STEP_SLOW_MAX = 2
 RAMP_ERROR_LN = 1.5
 STEP_SLOW_MAX_RAMP = 8
 SLOW_RAMP_SPACING_S = 12.0
+# Descent backstop: halt the servo from opening biases when the genuine
+# (hot-excluded) noise R_N has collapsed below the regime floor *because the
+# rate is concentrated in hot-excluded oscillators* (R_hot above the floor) —
+# opening further only blooms stuck pixels, not signal. This is NOT a "quiet
+# sky" brake: a genuinely clean low-noise sky (R_N low, R_hot ~0) must STILL
+# descend to maximum sensitivity for far / single-pixel drones (the speed
+# ramp). Mode-C re-tunes these per camera from the clean per-pixel noise
+# floor (clean cam 4110038334 is the cross-check).
+R_N_DESCENT_FLOOR_EPS: dict[str, float] = {
+    "clear_day": 2_000.0,
+    "overcast_day": 2_000.0,
+    "twilight": 4_000.0,
+    "rain_clutter": 5_000.0,
+    "low_light": 2_000.0,
+}
 JUDGE_WIN_S = 6.0
 SCENE_STATIONARY_WIN_S = 30.0
 SCENE_STATIONARY_MAX_COV = 0.5
@@ -108,6 +147,22 @@ EFFECTIVENESS_STRIKES = 2  # ... this many times consecutively => ineffective
 NOOP_BLIND_STEPS = 3  # blind steps while censored before the STORM jump
 STORM_DEESCALATE_FRACTION = 0.5
 STORM_DEESCALATE_S = 120.0
+
+# --- Stuck-pixel DEM registry (main-side policy) ----------------------------
+# The registry owns promote / active-demote-probe / slot allocation. DEM has
+# 64 per-pixel slots (imx636.PIXEL_MASK_SLOTS); the allocator dedupes (x, y)
+# and asserts the cap (the driver does not detect double-booking).
+DEM_MAX_SLOTS = 64
+STUCK_PROMOTE_TICKS = 2  # consecutive candidate ticks before a slot is taken
+STUCK_PROBE_PERIOD_S = 120.0  # cadence of the active unmask-and-observe probe
+# A masked pixel emits nothing (DEM-zeroed), so healing is learned by briefly
+# unmasking and watching. The probe window must outlast the candidate
+# re-detection latency (the worker needs ~STUCK_SUSTAIN_S to re-nominate a
+# still-stuck pixel), then the slot is re-masked regardless — it is never left
+# open indefinitely. A pixel that has not re-nominated for STUCK_UNSTICK_S of
+# masked life (confirmed by a clean probe) is released.
+STUCK_PROBE_WINDOW_S = 15.0
+STUCK_UNSTICK_S = 300.0
 
 # --- Regimes ------------------------------------------------------------------
 NIGHT_LUX = 10.0
