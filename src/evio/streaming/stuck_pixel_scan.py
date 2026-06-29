@@ -25,12 +25,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from .bias.constants import (
-    DEM_MAX_SLOTS,
-    STUCK_MASK_EPS,
-    STUCK_POLARITY_FRACTION,
-)
-
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -38,6 +32,12 @@ if TYPE_CHECKING:
 
     Camera = imx636.IMX636
 
+# Scan thresholds — mirror evio.streaming.bias.constants, kept LOCAL so this
+# driver-side diagnostic stands alone: it imports nothing from the autotuner,
+# so it drops onto a rig as just this file + the CLI wrapper.
+STUCK_MASK_EPS = 2_000.0  # per-pixel rate floor (ev/s) to be a candidate
+STUCK_POLARITY_FRACTION = 0.95  # >= this share single-polarity (Path A)
+DEM_MAX_SLOTS = 64  # = imx636.PIXEL_MASK_SLOTS
 # An isolated stuck pixel's neighbours read at least this many times lower.
 ISOLATION_FACTOR = 10.0
 # AFK notch around the mains harmonic (31-55 Hz is valid: periods 252 != 142,
