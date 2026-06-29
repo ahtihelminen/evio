@@ -20,6 +20,7 @@ import contextlib
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import TracebackType
 from typing import Any
 
@@ -68,6 +69,13 @@ class Imx636CameraSource:
     # value (e.g. 1_000_000 = 1 M ev/sec/cam) for high-clutter scenes
     # where downstream consumers can't keep up.
     erc_event_rate: int = 0
+    # Operator-vetted DEM masks (written by `scan_stuck_pixels.py --apply`) are
+    # re-programmed at open: the on-sensor DEM is volatile and lost on close,
+    # so a mask applied by the standalone scan would never reach the live run
+    # without this. None -> the default config/dem_masks/ dir. Only the
+    # explicit applied-mask manifest is reloaded, never the raw candidate
+    # inventory (that would auto-mask unvetted pixels — the HOLD gate forbids).
+    dem_mask_dir: Path | None = None
 
     cam: Any = field(init=False, default=None)
     width: int = field(init=False, default=0)
@@ -113,7 +121,33 @@ class Imx636CameraSource:
             erc.enabled = True
             erc.event_rate = int(self.erc_event_rate)
             self.cam.set_erc(erc)
+        self._reload_dem_masks()
         return self
+
+    def _reload_dem_masks(self) -> None:
+        """Re-program the operator-vetted DEM masks for this serial, if any."""
+        if self.cam is None or self.serial.startswith("event-"):
+            return
+        mask_dir = self.dem_mask_dir or Path("config/dem_masks")
+        path = mask_dir / f"{self.serial}.json"
+        if not path.exists():
+            return
+        import json
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        masks = data.get("masks", [])
+        applied = 0
+        for slot, m in enumerate(masks[:64]):
+            with contextlib.suppress(RuntimeError, ValueError, AttributeError,
+                                     KeyError):
+                self.cam.set_pixel_mask(
+                    slot, imx636.PixelMask(int(m["x"]), int(m["y"]), True))
+                applied += 1
+        if applied:
+            print(f"[imx636] reloaded {applied} DEM mask(s) for {self.serial}",
+                  flush=True)
 
     def _ensure_streaming(self) -> None:
         if not self._streaming and self.cam is not None:
