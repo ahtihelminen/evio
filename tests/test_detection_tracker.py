@@ -17,6 +17,7 @@ def _det(
     vy: float = 0.0,
     m_coh: float = 0.8,
     patch: np.ndarray | None = None,
+    embedding: np.ndarray | None = None,
 ) -> Detection:
     return Detection(
         x0=int(cx - half), y0=int(cy - half),
@@ -25,7 +26,7 @@ def _det(
         m_coh=m_coh, best_psr=1.0, event_count=100,
         bg_class=0, row_start=0, row_end=1, col_start=0, col_end=1,
         z_score=3.0, camera_id="cam",
-        patch=patch,
+        patch=patch, embedding=embedding,
     )
 
 
@@ -33,6 +34,13 @@ def _patch(seed: int) -> np.ndarray:
     """A deterministic uint8 BGR patch."""
     rng = np.random.default_rng(seed)
     return rng.integers(0, 255, (32, 32, 3), dtype=np.uint8)
+
+
+def _embedding(seed: int) -> np.ndarray:
+    """A deterministic unit-norm 128-D embedding (mimics the v4 ReID head)."""
+    rng = np.random.default_rng(seed)
+    vec = rng.standard_normal(128).astype(np.float32)
+    return vec / np.linalg.norm(vec)
 
 
 def test_first_window_spawns_fresh_tracks() -> None:
@@ -256,6 +264,61 @@ def test_reid_dormant_timeout_drops_old_tracks() -> None:
     assert tracker.dormant_track_count == 1
     tracker.update([], now_us=200_000)
     assert tracker.dormant_track_count == 0
+
+
+# ---------------- Phase 2: learned-embedding re-id ----------------
+
+
+def test_reid_embedding_resurrects_track_id_on_similar_embedding() -> None:
+    """With reid_use_embedding, the learned embedding drives resurrection."""
+    tracker = TrackManager(TrackManagerConfig(
+        confirm_after_hits=1, max_miss_frames=1,
+        reid_enabled=True, reid_use_embedding=True,
+        reid_embedding_threshold=0.5,
+    ))
+    emb = _embedding(13)
+    first = tracker.update([_det(100, 100, embedding=emb)], now_us=0)
+    tracker.update([_det(100, 100, embedding=emb)], now_us=10_000)
+    original_id = first[0].track_id
+    tracker.update([], now_us=20_000)
+    tracker.update([], now_us=30_000)
+    assert tracker.dormant_track_count == 1
+    out = tracker.update([_det(500, 500, embedding=emb)], now_us=40_000)
+    assert out[0].track_id == original_id
+    assert tracker.dormant_track_count == 0
+
+
+def test_reid_embedding_spawns_new_id_on_orthogonal_embedding() -> None:
+    """A near-orthogonal embedding stays below the floor → fresh id."""
+    tracker = TrackManager(TrackManagerConfig(
+        confirm_after_hits=1, max_miss_frames=1,
+        reid_enabled=True, reid_use_embedding=True,
+        reid_embedding_threshold=0.5,
+    ))
+    first = tracker.update([_det(100, 100, embedding=_embedding(1))], now_us=0)
+    tracker.update([_det(100, 100, embedding=_embedding(1))], now_us=10_000)
+    tracker.update([], now_us=20_000)
+    tracker.update([], now_us=30_000)
+    out = tracker.update(
+        [_det(500, 500, embedding=_embedding(99))], now_us=40_000,
+    )
+    assert out[0].track_id != first[0].track_id
+
+
+def test_reid_embedding_falls_back_to_patch_during_warmup() -> None:
+    """reid_use_embedding=True but a detection carries no embedding yet: the
+    patch signature still drives the match (the classify-ring warm-up case)."""
+    tracker = TrackManager(TrackManagerConfig(
+        confirm_after_hits=1, match_iou_threshold=0.2,
+        reid_enabled=True, reid_use_embedding=True,
+        reid_similarity_threshold=0.5, reid_embedding_threshold=0.5,
+    ))
+    sig_patch = _patch(21)
+    first = tracker.update([_det(100, 100, patch=sig_patch)], now_us=0)
+    # IoU misses (500 px away), no embedding present → patch fallback matches.
+    second = tracker.update([_det(600, 600, patch=sig_patch)], now_us=10_000)
+    assert first[0].track_id == second[0].track_id
+    assert tracker.active_track_count == 1
 
 
 # ---------------- Fix 1: spawn-density suppressor ----------------

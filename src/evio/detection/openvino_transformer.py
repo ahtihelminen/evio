@@ -131,12 +131,17 @@ class OpenVINOTransformerV3Bundle:
     """OpenVINO backend for the v3/v4 dual-branch transformer.
 
     Same call surface as :class:`TemporalTransformerV3Bundle.predict` so
-    it drops into :func:`predict_drone_probs` with no branch.
+    it drops into :func:`predict_drone_probs` with no branch. The graph
+    emits TWO outputs — ``drone_logits`` ``(B, T)`` and the L2-normalised
+    ReID ``embeddings`` ``(B, T, embed_dim)`` — so the learned-association
+    arm (Phase 2) can read the same embedding the torch backend produces.
     """
 
     def __init__(self, compiled: ov.CompiledModel) -> None:
         self._compiled = compiled
-        self._output = compiled.output(0)
+        # Output order matches the export wrapper's tuple: (logits, embeddings).
+        self._logits = compiled.output(0)
+        self._embeddings = compiled.output(1)
 
     def predict(
         self,
@@ -147,10 +152,10 @@ class OpenVINOTransformerV3Bundle:
         norm_patches = _normalize_patches(patches)
         events_f = np.ascontiguousarray(events, dtype=np.float32)
         mask_bool = np.ascontiguousarray(event_mask, dtype=np.bool_)
-        logits = self._compiled(
-            [norm_patches, events_f, mask_bool],
-        )[self._output]
-        return {"drone_logits": np.asarray(logits, dtype=np.float32)}
+        result = self._compiled([norm_patches, events_f, mask_bool])
+        logits = np.asarray(result[self._logits], dtype=np.float32)
+        embeddings = np.asarray(result[self._embeddings], dtype=np.float32)
+        return {"drone_logits": logits, "embeddings": embeddings}
 
 
 def load_openvino_transformer_v3(
@@ -178,8 +183,11 @@ def export_v3_to_openvino(
     Works for both bidirectional v3 and causal/streaming v4 — same
     model class, the meta sidecar selects the attention path. Exported
     graph: patches ``(B, T, H, W, 3)`` (uint8 or float32), events
-    ``(B, E_max, 4)`` float32, event_mask ``(B, E_max)`` bool;
-    returns ``drone_logits`` ``(B, T)``. Batch axis is dynamic.
+    ``(B, E_max, 4)`` float32, event_mask ``(B, E_max)`` bool; returns
+    ``drone_logits`` ``(B, T)`` AND the L2-normalised ReID ``embeddings``
+    ``(B, T, embed_dim)`` (already computed by the model — the live drone
+    path ignores it; the Phase-2 learned-association arm consumes it).
+    Batch axis is dynamic.
     """
     import torch
     from torch import nn
@@ -194,7 +202,7 @@ def export_v3_to_openvino(
         checkpoint, device=torch.device("cpu"),
     )
 
-    class _DroneLogits(nn.Module):
+    class _LogitsAndEmbeddings(nn.Module):
         def __init__(self, inner: nn.Module) -> None:
             super().__init__()
             self.inner = inner
@@ -204,10 +212,11 @@ def export_v3_to_openvino(
             patches: torch.Tensor,
             events: torch.Tensor,
             event_mask: torch.Tensor,
-        ) -> torch.Tensor:
-            return self.inner(patches, events, event_mask)["drone_logits"]
+        ) -> tuple[torch.Tensor, torch.Tensor]:
+            out = self.inner(patches, events, event_mask)
+            return out["drone_logits"], out["embeddings"]
 
-    wrapper = _DroneLogits(bundle.model).eval()
+    wrapper = _LogitsAndEmbeddings(bundle.model).eval()
     cfg = bundle.config
     example_patches = torch.zeros(
         1, cfg.seq_len, cfg.patch_size, cfg.patch_size, 3,

@@ -57,8 +57,18 @@ class Detection:
     # back to its dormant track. None means caller didn't extract one;
     # tracker falls back to legacy spawn behaviour.
     patch: np.ndarray | None = None
+    # Learned L2-normed ReID embedding (v3/v4 transformer head). When the
+    # tracker runs with `reid_use_embedding`, this replaces the raw-patch
+    # signature for appearance matching; None falls back to `patch` (a track
+    # is blind to its own embedding until its classify ring fills).
+    embedding: np.ndarray | None = None
     # Sub-pixel center. When populated, the tracker uses these instead of
     # the integer-bbox midpoint, enabling detectors that localise finer
     # than one pixel (Gaussian-fit, CenterNet offset, IWE quadratic fit).
     cx: float | None = None
     cy: float | None = None
+    # Soft R1 confidence in [0, 1] (0b R1 hardening): sigmoid((m_coh-c)/s).
+    # When populated, the consumer-side keep-gate (`evio.detection.r1_gate`)
+    # keeps a weak candidate that overlaps a live track's predicted ROI
+    # instead of R1 hard-dropping it, so one dropout window is non-fatal.
+    cand_conf: float | None = None

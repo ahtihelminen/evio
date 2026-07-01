@@ -29,9 +29,11 @@ from sapient.messages import new_ulid
 
 from evio.detection.persistence import PersistenceGateConfig, PersistenceMap
 from evio.detection.reid import (
+    EmbeddingBuffer,
     SignatureBuffer,
     cosine_similarity,
     normalize_patch,
+    unit_normalize,
 )
 from evio.detection.spawn_density import SpawnDensityConfig, SpawnDensityMap
 
@@ -55,6 +57,7 @@ class _Track:
     age_frames: int = 1
     miss_count: int = 0
     signature: SignatureBuffer = field(default_factory=SignatureBuffer)
+    embedding: EmbeddingBuffer = field(default_factory=EmbeddingBuffer)
     # Velocity-coherence accumulator used by the F1 confirmation rule.
     # `speed_samples` stores observed speeds (px/s); `path_history` is the
     # last N centroids for the straightness measure.
@@ -68,14 +71,16 @@ class _DormantTrack:
     re-ID dormant pool so an occluded-then-reappearing drone can resurrect
     its original track_id instead of getting a fresh one.
 
-    ``signature`` is populated only when ``reid_enabled`` is set; the F1.5
-    spatial-only dormant pool uses ``last_state`` + ``last_cov`` to do a
-    motion-extrapolated Mahalanobis match (no appearance), so the
-    signature can be ``None`` for purely classical reuse.
+    ``signature`` (raw-patch) and ``embedding`` (learned v4 ReID) are the
+    appearance features frozen at eviction; both are populated only when
+    ``reid_enabled`` is set. The F1.5 spatial-only dormant pool uses
+    ``last_state`` + ``last_cov`` for a motion-extrapolated Mahalanobis match
+    (no appearance), so both can be ``None`` for purely classical reuse.
     """
 
     track_id: str
     signature: NDArray[np.float32] | None
+    embedding: NDArray[np.float32] | None
     last_seen_us: int
     last_bbox: tuple[int, int, int, int]
     last_state: NDArray[np.float64]  # [cx, cy, vx, vy] at eviction time
@@ -114,6 +119,14 @@ class TrackManagerConfig:
     reid_similarity_threshold: float = 0.9
     reid_dormant_timeout_s: float = 10.0
     reid_signature_buffer: int = 10
+    # Phase-2 learned re-ID: when set, the appearance match uses the v4
+    # transformer's L2-normed embedding (``Detection.embedding``) instead of
+    # the raw-patch signature, falling back to the patch on any detection
+    # that carries no embedding. The learned embedding lives in a different
+    # space than the grayscale patch, so it gets its own cosine floor (a
+    # contrastive embedding's same-id cosine sits lower than the patch's).
+    reid_use_embedding: bool = False
+    reid_embedding_threshold: float = 0.5
 
     # ---- F1: persistence-gate + Mahalanobis-first matching ----
     # Enable the persistent-cluster suppression map.  Detections in cells
@@ -248,6 +261,30 @@ class TrackManager:
     @property
     def dormant_resurrections(self) -> int:
         return self._dormant_resurrections
+
+    def live_boxes(
+        self, *, confirmed_only: bool = True,
+    ) -> list[tuple[int, int, int, int]]:
+        """Current bbox of each live track — the R1 keep-hysteresis ROI set.
+
+        Read-only; lets the consumer-side R1 gate (`evio.detection.r1_gate`,
+        0b) rescue a weak candidate that overlaps a track the tracker already
+        holds. ``confirmed_only`` restricts to tracks past
+        ``confirm_after_hits``.
+        """
+        boxes: list[tuple[int, int, int, int]] = []
+        for track in self._tracks.values():
+            if (
+                confirmed_only
+                and track.age_frames < self._cfg.confirm_after_hits
+            ):
+                continue
+            cx, cy = float(track.x[0]), float(track.x[1])
+            boxes.append((
+                int(cx - track.half_width), int(cy - track.half_height),
+                int(cx + track.half_width), int(cy + track.half_height),
+            ))
+        return boxes
 
     def update(
         self, detections: list[Detection], now_us: int,
@@ -421,25 +458,64 @@ class TrackManager:
             return base
         return base * self._cfg.adaptive_gate_widen_factor
 
+    def _det_feature(
+        self, det: Detection,
+    ) -> tuple[NDArray[np.float32] | None, bool]:
+        """Appearance feature for matching + which space it lives in.
+
+        Prefers the learned v4 embedding when ``reid_use_embedding`` is set
+        and the detection carries one; otherwise falls back to the raw-patch
+        signature so re-id keeps working through the classify-ring warm-up.
+        The bool says ``is_embedding`` so the caller picks the matching cosine
+        floor and compares against the matching track buffer.
+        """
+        if self._cfg.reid_use_embedding and det.embedding is not None:
+            return unit_normalize(det.embedding), True
+        if det.patch is not None:
+            return normalize_patch(det.patch), False
+        return None, False
+
+    def _reid_threshold(self, *, is_embedding: bool) -> float:
+        return (
+            self._cfg.reid_embedding_threshold if is_embedding
+            else self._cfg.reid_similarity_threshold
+        )
+
+    def _best_match(
+        self,
+        det_vec: NDArray[np.float32],
+        candidates: list[_Track],
+        *,
+        is_embedding: bool,
+    ) -> tuple[_Track | None, float]:
+        """Most appearance-similar candidate + cosine, in the chosen space."""
+        best_sim = -1.0
+        best_track: _Track | None = None
+        for track in candidates:
+            buf = track.embedding if is_embedding else track.signature
+            track_vec = buf.signature()
+            if track_vec is None:
+                continue
+            sim = cosine_similarity(det_vec, track_vec)
+            if sim > best_sim:
+                best_sim = sim
+                best_track = track
+        return best_track, best_sim
+
     def _tiebreak_by_signature(
         self,
         det: Detection,
         gated: list[tuple[float, _Track]],
     ) -> _Track | None:
-        """Cosine similarity tiebreaker, only invoked when ≥2 tracks gate."""
-        if not self._cfg.reid_enabled or det.patch is None:
+        """Appearance tiebreaker, only invoked when ≥2 tracks gate."""
+        if not self._cfg.reid_enabled:
             return None
-        det_sig = normalize_patch(det.patch)
-        best_sim = -1.0
-        best_track: _Track | None = None
-        for _, track in gated:
-            track_sig = track.signature.signature()
-            if track_sig is None:
-                continue
-            sim = cosine_similarity(det_sig, track_sig)
-            if sim > best_sim:
-                best_sim = sim
-                best_track = track
+        det_vec, is_embedding = self._det_feature(det)
+        if det_vec is None:
+            return None
+        best_track, _ = self._best_match(
+            det_vec, [t for _, t in gated], is_embedding=is_embedding,
+        )
         return best_track
 
     def _match_by_iou(
@@ -458,24 +534,16 @@ class TrackManager:
     def _match_by_signature(
         self, det: Detection, candidates: list[_Track],
     ) -> _Track | None:
-        if (
-            not self._cfg.reid_enabled
-            or det.patch is None
-            or not candidates
-        ):
+        if not self._cfg.reid_enabled or not candidates:
             return None
-        det_sig = normalize_patch(det.patch)
-        best_sim = self._cfg.reid_similarity_threshold
-        best_track: _Track | None = None
-        for track in candidates:
-            track_sig = track.signature.signature()
-            if track_sig is None:
-                continue
-            sim = cosine_similarity(det_sig, track_sig)
-            if sim > best_sim:
-                best_sim = sim
-                best_track = track
-        return best_track
+        det_vec, is_embedding = self._det_feature(det)
+        if det_vec is None:
+            return None
+        best_track, best_sim = self._best_match(
+            det_vec, candidates, is_embedding=is_embedding,
+        )
+        threshold = self._reid_threshold(is_embedding=is_embedding)
+        return best_track if best_sim > threshold else None
 
     def _predicted_bbox(
         self, track: _Track,
@@ -517,8 +585,7 @@ class TrackManager:
         track.last_seen_us = now_us
         track.age_frames += 1
         track.miss_count = 0
-        if self._cfg.reid_enabled and det.patch is not None:
-            track.signature.add(det.patch)
+        self._add_appearance(track, det)
         # F1 velocity-coherence accumulator: keep N most-recent speeds +
         # centroids so the confirmation gate sees a stable history.
         speed = math.hypot(det.vx_px_s, det.vy_px_s)
@@ -551,11 +618,22 @@ class TrackManager:
             signature=SignatureBuffer(
                 capacity=self._cfg.reid_signature_buffer,
             ),
+            embedding=EmbeddingBuffer(
+                capacity=self._cfg.reid_signature_buffer,
+            ),
         )
-        if self._cfg.reid_enabled and det.patch is not None:
-            track.signature.add(det.patch)
+        self._add_appearance(track, det)
         self._tracks[track.track_id] = track
         return track
+
+    def _add_appearance(self, track: _Track, det: Detection) -> None:
+        """Append this detection's appearance to the track's re-id buffers."""
+        if not self._cfg.reid_enabled:
+            return
+        if det.patch is not None:
+            track.signature.add(det.patch)
+        if det.embedding is not None:
+            track.embedding.add(det.embedding)
 
     def _resurrect_or_spawn(
         self, det: Detection, now_us: int,
@@ -576,12 +654,8 @@ class TrackManager:
             if resurrected is not None:
                 return resurrected
 
-        # Legacy cosine-based Re-ID (kept for backwards compatibility).
-        if (
-            self._cfg.reid_enabled
-            and det.patch is not None
-            and self._dormant
-        ):
+        # Appearance-based Re-ID: learned embedding when present, else patch.
+        if self._cfg.reid_enabled and self._dormant:
             resurrected = self._match_dormant_appearance(det, now_us)
             if resurrected is not None:
                 return resurrected
@@ -657,17 +731,18 @@ class TrackManager:
     def _match_dormant_appearance(
         self, det: Detection, now_us: int,
     ) -> _Track | None:
-        """Legacy cosine-similarity dormant resurrection."""
+        """Resurrect a dormant track by appearance: embedding or patch."""
+        det_vec, is_embedding = self._det_feature(det)
+        if det_vec is None:
+            return None
         timeout_us = int(self._cfg.reid_dormant_timeout_s * 1_000_000)
-        det_sig = normalize_patch(det.patch)
-        best_sim = self._cfg.reid_similarity_threshold
+        best_sim = self._reid_threshold(is_embedding=is_embedding)
         best_tid: str | None = None
         for tid, dormant in self._dormant.items():
-            if dormant.signature is None:
+            dvec = dormant.embedding if is_embedding else dormant.signature
+            if dvec is None or now_us - dormant.last_seen_us > timeout_us:
                 continue
-            if now_us - dormant.last_seen_us > timeout_us:
-                continue
-            sim = cosine_similarity(det_sig, dormant.signature)
+            sim = cosine_similarity(det_vec, dvec)
             if sim > best_sim:
                 best_sim = sim
                 best_tid = tid
@@ -702,14 +777,11 @@ class TrackManager:
                 dormant_active
                 and track.age_frames >= self._cfg.confirm_after_hits
             ):
-                sig = (
-                    track.signature.signature()
-                    if self._cfg.reid_enabled
-                    else None
-                )
+                reid = self._cfg.reid_enabled
                 self._dormant[tid] = _DormantTrack(
                     track_id=tid,
-                    signature=sig,
+                    signature=track.signature.signature() if reid else None,
+                    embedding=track.embedding.signature() if reid else None,
                     last_seen_us=track.last_seen_us,
                     last_bbox=(
                         int(track.x[0] - track.half_width),

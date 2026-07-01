@@ -21,6 +21,11 @@ from evio.detection.temporal_transformer_v2 import (
     TemporalTransformerV2Config,
     load_temporal_transformer_v2,
 )
+from evio.detection.temporal_transformer_v3 import (
+    TemporalTrackTransformerV3,
+    TemporalTransformerV3Config,
+    load_temporal_transformer_v3,
+)
 
 ovt = pytest.importorskip("evio.detection.openvino_transformer")
 
@@ -70,3 +75,45 @@ def test_openvino_rejects_aux(tmp_path: Path) -> None:
     aux = np.zeros((1, 16, 12), dtype=np.float32)
     with pytest.raises(ValueError, match="aux"):
         ov_bundle.predict(patches, aux)
+
+
+def _write_random_v3_checkpoint(tmp_path: Path) -> Path:
+    config = TemporalTransformerV3Config()
+    model = TemporalTrackTransformerV3(config).eval()
+    ckpt = tmp_path / "v3.pt"
+    torch.save(model.state_dict(), ckpt)
+    meta = {"config": dataclasses.asdict(config)}  # e_max present -> v3 route
+    ckpt.with_name("v3_meta.json").write_text(json.dumps(meta))
+    return ckpt
+
+
+def test_openvino_v3_matches_torch_with_embeddings(tmp_path: Path) -> None:
+    """v3/v4 export: both drone_logits AND the ReID embeddings match torch."""
+    ckpt = _write_random_v3_checkpoint(tmp_path)
+    ir_path = ovt.export_v3_to_openvino(ckpt, tmp_path)
+
+    cpu = torch.device("cpu")
+    torch_bundle = load_temporal_transformer_v3(ckpt, device=cpu)
+    ov_bundle = ovt.load_openvino_transformer_v3(ir_path, device="CPU")
+    cfg = torch_bundle.config
+
+    rng = np.random.default_rng(0)
+    ps = cfg.patch_size
+    patches = rng.integers(0, 256, (3, cfg.seq_len, ps, ps, 3), dtype=np.uint8)
+    events = rng.standard_normal(
+        (3, cfg.e_max, cfg.event_in_dim),
+    ).astype(np.float32)
+    mask = np.ones((3, cfg.e_max), dtype=np.bool_)
+
+    torch_out = torch_bundle.predict(patches, events, mask)
+    ov_out = ov_bundle.predict(patches, events, mask)
+
+    assert ov_out["drone_logits"].shape == (3, cfg.seq_len)
+    assert ov_out["embeddings"].shape == torch_out["embeddings"].shape
+    np.testing.assert_allclose(
+        ov_out["drone_logits"], torch_out["drone_logits"],
+        atol=5e-2, rtol=2e-2,
+    )
+    np.testing.assert_allclose(
+        ov_out["embeddings"], torch_out["embeddings"], atol=5e-2, rtol=2e-2,
+    )
