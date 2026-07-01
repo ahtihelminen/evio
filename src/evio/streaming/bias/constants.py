@@ -74,18 +74,20 @@ SUBSAMPLE_FACTOR = 8
 #    noise pool after only FAST_STUCK_SUSTAIN_S, shrinking the cold-start
 #    suppress transient (the t<HOT_SUSTAIN_S FastSuppressor clamp).
 #  * STUCK_MASK_EPS — the per-pixel hot-EMA floor (sustained STUCK_SUSTAIN_S)
-#    that nominates a pixel as a hardware DEM-mask candidate. Path-A also
-#    requires single-polarity dominance + spatial isolation, so a faint MOVING
-#    / rotating target can never qualify — but a HOVERING single-pixel glint
-#    CAN (isolated + single-polarity + pins 10 s). Live auto-masking is
-#    therefore HOLD-gated (controller ``enable_stuck_masking``, default off)
-#    until the periodicity / live-track veto lands; the P0 scan stays
-#    operator-vetted.
+#    that nominates a pixel as a hardware DEM-mask candidate. The discriminator
+#    that makes auto-masking safe is polarity purity: a real stuck pixel locks
+#    to ONE polarity (operator profiling: 99.8-99.9% single-polarity), while
+#    any real signal — a hovering glint, a faint mover, a rotor — mixes
+#    polarity and stays at/below 99%. So nomination also requires spatial
+#    isolation AND single-polarity > STUCK_POLARITY_FRACTION, and that gate is
+#    sufficient to mask directly — no periodicity / live-track veto is needed.
 FAST_STUCK_RATE_EPS = 20_000.0
 FAST_STUCK_SUSTAIN_S = 1.0
 STUCK_MASK_EPS = 2_000.0
 STUCK_SUSTAIN_S = 10.0
-STUCK_POLARITY_FRACTION = 0.95  # >= this share single-polarity (Path A)
+# A pixel is stuck iff strictly MORE than this share of its events are the
+# dominant polarity (operator rule: "99% or lower is not stuck, above is").
+STUCK_POLARITY_FRACTION = 0.99
 STUCK_MAX_CANDIDATES = 64  # cap the per-window candidate report (= DEM slots)
 
 # --- Blanking (controller never reads its own actuation transient) ----------

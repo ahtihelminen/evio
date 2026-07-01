@@ -4,10 +4,10 @@ Pulls a static-scene capture off one IMX636, counts the per-pixel ON/OFF
 rate, and nominates the fixed hot oscillators that flood the field cameras.
 A pixel is a candidate iff, over the capture, it is (1) at/above
 ``STUCK_MASK_EPS``, (2) spatially isolated (every 8-neighbour an order of
-magnitude quieter), and (3) single-polarity (>= ``STUCK_POLARITY_FRACTION``
-one polarity) -- the same Path-A gates the live autotuner uses, run
-conservatively here so an operator vets each coordinate before any hardware
-mask is applied.
+magnitude quieter), and (3) single-polarity (strictly above
+``STUCK_POLARITY_FRACTION`` one polarity) -- the same Path-A gates the live
+autotuner uses, run conservatively here so an operator vets each coordinate
+before any hardware mask is applied.
 
 Every candidate carries its raw ``event_count`` and the scan's measured
 ``elapsed_s``; the true rate is ``event_count / elapsed_s``. Recording both
@@ -41,7 +41,9 @@ if TYPE_CHECKING:
 # driver-side diagnostic stands alone: it imports nothing from the autotuner,
 # so it drops onto a rig as just this file + the CLI wrapper.
 STUCK_MASK_EPS = 2_000.0  # per-pixel rate floor (ev/s) to be a candidate
-STUCK_POLARITY_FRACTION = 0.95  # >= this share single-polarity (Path A)
+# Stuck iff strictly MORE than this share is single-polarity (Path A). Kept
+# numerically identical to bias.constants.STUCK_POLARITY_FRACTION.
+STUCK_POLARITY_FRACTION = 0.99
 DEM_MAX_SLOTS = 64  # = imx636.PIXEL_MASK_SLOTS
 ISOLATION_FACTOR = 10.0  # an isolated pixel's neighbours read >= this lower
 # AFK notch around the mains harmonic (31-55 Hz is valid; NOT 50-120 Hz, which
@@ -128,8 +130,8 @@ def _candidates(
         on_count, off_count = int(on2d[y, x]), int(off2d[y, x])
         total = on_count + off_count
         fraction = max(on_count, off_count) / max(total, 1)
-        if fraction < STUCK_POLARITY_FRACTION:
-            continue  # balanced: Path A does not mask it (operator review)
+        if fraction <= STUCK_POLARITY_FRACTION:
+            continue  # 99% or lower is not stuck; only strictly-above masks
         out.append(StuckCandidate(
             x=x, y=y, event_count=total, rate_eps=float(rate[y, x]),
             polarity_fraction=fraction,
@@ -269,21 +271,26 @@ def write_inventory(path: Path, inventory: dict) -> None:
 def write_applied_masks(
     path: Path, serial: str, applied: list[StuckCandidate], applied_at: str,
 ) -> None:
-    """Persist the operator-vetted DEM masks so the live run re-applies them.
+    """Persist the operator-vetted DEM masks as the durable config (schema v2).
 
     The on-sensor DEM is volatile (lost when the scan closes the camera), so
     ``--apply`` alone never reaches ``run_ops``; ``Imx636CameraSource`` reloads
-    THIS manifest at open. Distinct from the raw inventory of candidates.
+    THIS manifest at open. Same schema the live autotuner round-trips
+    (``config/dem_masks/<serial>.json``): factory masks take slots 0..N-1 and
+    are tagged ``source: "factory"`` so the autotuner's auto masks slot after
+    them. Distinct from the raw inventory of candidates.
     """
     import json
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({
         "serial": serial,
-        "applied_at": applied_at,
+        "schema_version": 2,
+        "updated_at": applied_at,
         "masks": [
             {"slot": slot, "x": c.x, "y": c.y,
              "dominant_polarity": "ON" if c.polarity else "OFF",
-             "rate_eps": round(c.rate_eps)}
+             "rate_eps": round(c.rate_eps),
+             "source": "factory", "first_masked": applied_at}
             for slot, c in enumerate(applied)
         ],
     }, indent=2) + "\n")

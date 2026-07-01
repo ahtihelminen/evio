@@ -69,12 +69,11 @@ class Imx636CameraSource:
     # value (e.g. 1_000_000 = 1 M ev/sec/cam) for high-clutter scenes
     # where downstream consumers can't keep up.
     erc_event_rate: int = 0
-    # Operator-vetted DEM masks (written by `scan_stuck_pixels.py --apply`) are
-    # re-programmed at open: the on-sensor DEM is volatile and lost on close,
-    # so a mask applied by the standalone scan would never reach the live run
-    # without this. None -> the default config/dem_masks/ dir. Only the
-    # explicit applied-mask manifest is reloaded, never the raw candidate
-    # inventory (that would auto-mask unvetted pixels — the HOLD gate forbids).
+    # DEM masks are calibration data, stored per serial in config/dem_masks/
+    # <serial>.json (factory-vetted by `scan_stuck_pixels.py --apply`, then
+    # maintained by the live autotuner). The on-sensor DEM is volatile (lost on
+    # close), so this manifest is re-programmed at every open — that reload IS
+    # the mask persistence mechanism. None -> the default config/dem_masks/ dir.
     dem_mask_dir: Path | None = None
 
     cam: Any = field(init=False, default=None)
@@ -139,7 +138,11 @@ class Imx636CameraSource:
             return
         masks = data.get("masks", [])
         applied = 0
-        for slot, m in enumerate(masks[:64]):
+        for idx, m in enumerate(masks[:64]):
+            # Program each pixel into its stored DEM slot (one stable slot map,
+            # shared with the main-process registry); fall back to the list
+            # index for a v1 manifest that predates the slot field.
+            slot = int(m.get("slot", idx))
             with contextlib.suppress(RuntimeError, ValueError, AttributeError,
                                      KeyError):
                 self.cam.set_pixel_mask(
