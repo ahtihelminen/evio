@@ -89,3 +89,61 @@ def test_cadence_never_scores_before_ring_fills(
     clf, calls = _clf(1, monkeypatch)
     _run(clf, SEQ_LEN - 1)  # ring not full yet
     assert calls["n"] == 0
+
+
+class _FakeStatefulBundle:
+    """Records the h_in fed each predict; returns h_out = h_in + 1."""
+
+    stateful = True
+    _state_dim = 8
+
+    def __init__(self) -> None:
+        self.seen_h: list[np.ndarray] = []
+
+    def predict(
+        self, patches: np.ndarray, events: object, mask: object,
+        h_in: np.ndarray,
+    ) -> dict[str, np.ndarray]:
+        self.seen_h.append(np.asarray(h_in).copy())
+        n = patches.shape[0]
+        return {
+            "drone_logits": np.full((n, SEQ_LEN), 2.0, dtype=np.float32),
+            "h_track": (h_in + 1.0).astype(np.float32),
+        }
+
+
+def test_stateful_classifier_threads_h_track_per_track() -> None:
+    clf = TrackTransformerClassifier(
+        Path("/nonexistent.pt"), classify_cadence=1,
+    )
+    fb = _FakeStatefulBundle()
+    clf._bundle = fb
+    clf._is_v3 = False
+    clf._is_v4 = False
+    clf._stateful = True
+    clf._state_dim = 8
+    # Fill the ring + score across a few windows.
+    for _ in range(SEQ_LEN + 2):
+        clf.classify("cam", [_det("a")], _batch())
+    # First score sees zeros (new track); state then threads h_out=h_in+1.
+    assert np.allclose(fb.seen_h[0], 0.0)
+    assert np.allclose(fb.seen_h[1], 1.0)
+    assert np.allclose(fb.seen_h[2], 2.0)
+    assert np.allclose(clf._state[("cam", "a")], fb.seen_h[-1] + 1.0)
+
+
+def test_stateful_classifier_prunes_state() -> None:
+    clf = TrackTransformerClassifier(
+        Path("/nonexistent.pt"), classify_cadence=1, stale_ticks=2,
+    )
+    clf._bundle = _FakeStatefulBundle()
+    clf._is_v3 = False
+    clf._is_v4 = False
+    clf._stateful = True
+    clf._state_dim = 8
+    for _ in range(SEQ_LEN + 1):
+        clf.classify("cam", [_det("a")], _batch())
+    assert ("cam", "a") in clf._state
+    for _ in range(5):  # track absent > stale_ticks -> pruned
+        clf.classify("cam", [_det("b")], _batch())
+    assert ("cam", "a") not in clf._state

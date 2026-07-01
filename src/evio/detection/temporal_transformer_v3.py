@@ -579,11 +579,17 @@ class TemporalTransformerV3Bundle:
         patches: np.ndarray,
         events: np.ndarray,
         event_mask: np.ndarray,
+        h_in: np.ndarray | None = None,
     ) -> dict[str, np.ndarray]:
         x = torch.from_numpy(np.ascontiguousarray(patches)).to(self.device)
         e = torch.from_numpy(np.ascontiguousarray(events)).to(self.device)
         m = torch.from_numpy(np.ascontiguousarray(event_mask)).to(self.device)
-        out = self.model(x, e, m)
+        h = (
+            torch.from_numpy(np.ascontiguousarray(h_in, dtype=np.float32))
+            .to(self.device)
+            if h_in is not None else None
+        )
+        out = self.model(x, e, m, h_in=h)
         return {
             k: v.detach().cpu().numpy().astype(np.float32)
             for k, v in out.items()
