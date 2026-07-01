@@ -83,8 +83,18 @@ SUBSAMPLE_FACTOR = 8
 #    sufficient to mask directly — no periodicity / live-track veto is needed.
 FAST_STUCK_RATE_EPS = 20_000.0
 FAST_STUCK_SUSTAIN_S = 1.0
-STUCK_MASK_EPS = 2_000.0
+STUCK_MASK_EPS = 2_000.0  # scan-tool / provenance floor (static-scene P0 scan)
 STUCK_SUSTAIN_S = 10.0
+# Live-masking rate floor is RELATIVE to the ambient per-pixel noise, so it
+# tracks the autotuner's operating point: a stuck pixel the autotuner has
+# throttled (high refractory) still stands out as a >>ambient outlier, and a
+# busy scene raises the floor so ordinary noise is never masked. Nominate iff
+# the pixel's hot-EMA exceeds max(STUCK_MASK_EPS_MIN, STUCK_AMBIENT_FACTOR x
+# ambient_per_pixel_eps). The old fixed 2 kev/s floor missed stuck pixels the
+# autotuner had throttled below it (opsnuc-r 2026-07-01: single-pol isolated
+# pixels sat at ~1 kev/s, below 2 kev/s, so nothing on the flooded cams masked).
+STUCK_MASK_EPS_MIN = 300.0
+STUCK_AMBIENT_FACTOR = 30.0
 # A pixel is stuck iff strictly MORE than this share of its events are the
 # dominant polarity (operator rule: "99% or lower is not stuck, above is").
 STUCK_POLARITY_FRACTION = 0.99
