@@ -59,6 +59,28 @@ class TemporalTransformerV3Config:
     # forward is byte-identical and existing checkpoints load unchanged.
     state_enabled: bool = False
     state_dim: int = 256
+    # State-cell type: "gru" (nn.GRUCell, gated) or "lru" (diagonal linear
+    # recurrence — gate-free, exports to OV as elementwise ops → cheaper/cleaner
+    # on the Arc; same (x, h) -> h call surface).
+    state_cell: str = "gru"
+
+
+class _LRUCell(nn.Module):
+    """Diagonal linear-recurrent state cell: ``h = a*h + (1-a)*W x``, a∈(0,1).
+
+    A gate-free alternative to :class:`torch.nn.GRUCell` with the same
+    ``(x, h) -> h`` surface. The recurrence is elementwise, so it exports to
+    OpenVINO as sigmoid/mul/add (no gate matmuls) and runs cheaper on the Arc.
+    """
+
+    def __init__(self, in_dim: int, state_dim: int) -> None:
+        super().__init__()
+        self.in_proj = nn.Linear(in_dim, state_dim)
+        self.log_decay = nn.Parameter(torch.zeros(state_dim))
+
+    def forward(self, x: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
+        a = torch.sigmoid(self.log_decay)
+        return a * h + (1.0 - a) * self.in_proj(x)
 
 
 class _StreamingMHA(nn.Module):
@@ -352,8 +374,10 @@ class TemporalTrackTransformerV3(nn.Module):
         # R5 explicit-state cell — created only when enabled so v3/v4
         # checkpoints (no state params) still load strict=True.
         if config.state_enabled:
-            self.state_cell: nn.GRUCell | None = nn.GRUCell(
-                config.embed_dim, config.state_dim,
+            self.state_cell: nn.Module | None = (
+                _LRUCell(config.embed_dim, config.state_dim)
+                if config.state_cell == "lru"
+                else nn.GRUCell(config.embed_dim, config.state_dim)
             )
             self.state_proj: nn.Linear | None = nn.Linear(
                 config.state_dim, config.embed_dim,
