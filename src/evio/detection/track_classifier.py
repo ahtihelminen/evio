@@ -200,6 +200,7 @@ class TrackTransformerClassifier:
         device: str = "auto",
         window_us: int = 10_000,
         stale_ticks: int = 300,
+        classify_cadence: int = 1,
     ) -> None:
         loaded = load_track_transformer(ckpt, device)
         self._bundle = loaded.bundle
@@ -208,11 +209,18 @@ class TrackTransformerClassifier:
         self.load_warning = loaded.load_warning
         self._window_us = window_us
         self._stale_ticks = stale_ticks
+        # Re-score each mature track at most once per `classify_cadence`
+        # windows (verdict held sticky between). 1 = every window (default,
+        # unchanged); higher divides the transformer's per-window load so a
+        # heavy model (v4's 1024-token event attention) stays real-time at
+        # 6-cam on the Arc — E0 Sub-gate A: v4 needs cadence >= ~14.
+        self._classify_cadence = max(1, classify_cadence)
         self._patch_rings: dict[tuple[str, str], deque[np.ndarray]] = {}
         self._bbox_rings: dict[tuple[str, str], deque[tuple[_Bbox, int]]] = {}
         self._batch_rings: dict[str, deque[EventsBatch]] = {}
         self._verdicts: dict[tuple[str, str], float] = {}
         self._seen_tick: dict[tuple[str, str], int] = {}
+        self._scored_tick: dict[tuple[str, str], int] = {}
         self._tick = 0
 
     @property
@@ -270,6 +278,7 @@ class TrackTransformerClassifier:
             (serial, tid)
             for tid in dict.fromkeys(d.track_id for d in tracked if d.track_id)
             if len(self._patch_rings.get((serial, tid), ())) == SEQ_LEN
+            and self._is_due((serial, tid))
         ]
         if not ready:
             return
@@ -287,6 +296,12 @@ class TrackTransformerClassifier:
         )
         for key, prob in zip(ready, probs, strict=True):
             self._verdicts[key] = float(prob)
+            self._scored_tick[key] = self._tick
+
+    def _is_due(self, key: tuple[str, str]) -> bool:
+        """True if `key` has never been scored or its cadence has elapsed."""
+        last = self._scored_tick.get(key)
+        return last is None or self._tick - last >= self._classify_cadence
 
     def _build_event_batch(
         self, serial: str, ready: list[tuple[str, str]],
@@ -322,6 +337,7 @@ class TrackTransformerClassifier:
             self._patch_rings.pop(key, None)
             self._bbox_rings.pop(key, None)
             self._verdicts.pop(key, None)
+            self._scored_tick.pop(key, None)
 
 
 def _concat_batches(batches: tuple[EventsBatch, ...]) -> EventsBatch:
