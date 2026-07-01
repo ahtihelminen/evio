@@ -51,6 +51,14 @@ class TemporalTransformerV3Config:
     event_in_dim: int = 4
     enable_bbox_mask_head: bool = True
     causal: bool = False  # v4: causal attention mask + per-track K/V cacheable
+    # R5: explicit per-track recurrent state (h_track). When enabled the model
+    # takes an extra ``h_in`` and returns ``h_track`` (h_out), a fixed-size
+    # state carried across windows by the caller — the deployable alternative
+    # to the per-window dense event attention (E0 Sub-gate B validated the
+    # (B, state_dim) f32 in/out round-trips on the Arc). Default off = the v3/v4
+    # forward is byte-identical and existing checkpoints load unchanged.
+    state_enabled: bool = False
+    state_dim: int = 256
 
 
 class _StreamingMHA(nn.Module):
@@ -341,6 +349,18 @@ class TemporalTrackTransformerV3(nn.Module):
             config.embed_dim, config.embedding_dim,
         )
         self.validity_head = nn.Linear(config.embed_dim, 1)
+        # R5 explicit-state cell — created only when enabled so v3/v4
+        # checkpoints (no state params) still load strict=True.
+        if config.state_enabled:
+            self.state_cell: nn.GRUCell | None = nn.GRUCell(
+                config.embed_dim, config.state_dim,
+            )
+            self.state_proj: nn.Linear | None = nn.Linear(
+                config.state_dim, config.embed_dim,
+            )
+        else:
+            self.state_cell = None
+            self.state_proj = None
         if config.enable_bbox_mask_head:
             self.bbox_mask_head: _BboxMaskHead | None = _BboxMaskHead(
                 config.embed_dim, config.patch_size,
@@ -427,6 +447,7 @@ class TemporalTrackTransformerV3(nn.Module):
         patches: torch.Tensor,
         events: torch.Tensor,
         event_mask: torch.Tensor,
+        h_in: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
         batch, seq = patches.shape[0], patches.shape[1]
         device = patches.device
@@ -484,6 +505,21 @@ class TemporalTrackTransformerV3(nn.Module):
         cls_out = z[:, 0]
         frame_out = z[:, 1: 1 + seq]
 
+        # R5: update the per-track state from this window's CLS summary and
+        # condition the heads on the accumulated state (additive, so head dims
+        # are unchanged). h_track rides out to the caller for the next window.
+        h_out: torch.Tensor | None = None
+        if self.state_cell is not None and self.state_proj is not None:
+            if h_in is None:
+                h_in = torch.zeros(
+                    batch, self.config.state_dim, device=device,
+                    dtype=cls_out.dtype,
+                )
+            h_out = self.state_cell(cls_out, h_in)
+            cond = self.state_proj(h_out)
+            frame_out = frame_out + cond.unsqueeze(1)
+            cls_out = cls_out + cond
+
         out: dict[str, torch.Tensor] = {
             "drone_logits": self.drone_head(frame_out).squeeze(-1),
             "embeddings": torch_F.normalize(
@@ -491,6 +527,8 @@ class TemporalTrackTransformerV3(nn.Module):
             ),
             "validity": self.validity_head(cls_out).squeeze(-1),
         }
+        if h_out is not None:
+            out["h_track"] = h_out
         if self.bbox_mask_head is not None:
             out["bbox_mask"] = self.bbox_mask_head(frame_out)
         return out

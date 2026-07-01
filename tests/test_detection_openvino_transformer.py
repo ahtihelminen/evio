@@ -117,3 +117,52 @@ def test_openvino_v3_matches_torch_with_embeddings(tmp_path: Path) -> None:
     np.testing.assert_allclose(
         ov_out["embeddings"], torch_out["embeddings"], atol=5e-2, rtol=2e-2,
     )
+
+
+def _write_random_r5_checkpoint(tmp_path: Path) -> Path:
+    config = TemporalTransformerV3Config(
+        seq_len=8, e_max=64, n_layers=2, state_enabled=True, state_dim=32,
+    )
+    model = TemporalTrackTransformerV3(config).eval()
+    ckpt = tmp_path / "r5.pt"
+    torch.save(model.state_dict(), ckpt)
+    ckpt.with_name("r5_meta.json").write_text(
+        json.dumps({"config": dataclasses.asdict(config)}),
+    )
+    return ckpt
+
+
+def test_openvino_r5_stateful_matches_torch(tmp_path: Path) -> None:
+    """R5 export: drone_logits, embeddings AND h_track match torch, and the
+    IR is stateful (4 inputs / 3 outputs — h_in threads to h_out)."""
+    ckpt = _write_random_r5_checkpoint(tmp_path)
+    ir_path = ovt.export_v3_to_openvino(ckpt, tmp_path)
+
+    cpu = torch.device("cpu")
+    torch_bundle = load_temporal_transformer_v3(ckpt, device=cpu)
+    ov_bundle = ovt.load_openvino_transformer_v3(ir_path, device="CPU")
+    assert ov_bundle.stateful
+    cfg = torch_bundle.config
+
+    rng = np.random.default_rng(0)
+    ps = cfg.patch_size
+    b = 3
+    patches = rng.integers(0, 256, (b, cfg.seq_len, ps, ps, 3), dtype=np.uint8)
+    events = rng.standard_normal(
+        (b, cfg.e_max, cfg.event_in_dim),
+    ).astype(np.float32)
+    mask = np.ones((b, cfg.e_max), dtype=np.bool_)
+    h_in = rng.standard_normal((b, cfg.state_dim)).astype(np.float32)
+
+    with torch.no_grad():
+        torch_out = torch_bundle.model(
+            torch.from_numpy(patches), torch.from_numpy(events),
+            torch.from_numpy(mask), torch.from_numpy(h_in),
+        )
+    ov_out = ov_bundle.predict(patches, events, mask, h_in)
+
+    assert ov_out["h_track"].shape == (b, cfg.state_dim)
+    for key in ("drone_logits", "embeddings", "h_track"):
+        np.testing.assert_allclose(
+            ov_out[key], torch_out[key].numpy(), atol=5e-2, rtol=2e-2,
+        )

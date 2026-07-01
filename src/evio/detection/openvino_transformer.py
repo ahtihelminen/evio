@@ -139,23 +139,51 @@ class OpenVINOTransformerV3Bundle:
 
     def __init__(self, compiled: ov.CompiledModel) -> None:
         self._compiled = compiled
-        # Output order matches the export wrapper's tuple: (logits, embeddings).
+        # Output order matches the export wrapper's tuple: (logits, embeddings)
+        # + h_track when the graph is stateful (R5). A stateful IR has a 4th
+        # input (h_in) and a 3rd output (h_out).
         self._logits = compiled.output(0)
         self._embeddings = compiled.output(1)
+        self._stateful = len(compiled.inputs) == 4
+        self._state_out = compiled.output(2) if self._stateful else None
+        self._state_dim = (
+            compiled.inputs[3].get_partial_shape()[1].get_length()
+            if self._stateful else 0
+        )
+
+    @property
+    def stateful(self) -> bool:
+        return self._stateful
 
     def predict(
         self,
         patches: np.ndarray,
         events: np.ndarray,
         event_mask: np.ndarray,
+        h_in: np.ndarray | None = None,
     ) -> dict[str, np.ndarray]:
         norm_patches = _normalize_patches(patches)
         events_f = np.ascontiguousarray(events, dtype=np.float32)
         mask_bool = np.ascontiguousarray(event_mask, dtype=np.bool_)
-        result = self._compiled([norm_patches, events_f, mask_bool])
-        logits = np.asarray(result[self._logits], dtype=np.float32)
-        embeddings = np.asarray(result[self._embeddings], dtype=np.float32)
-        return {"drone_logits": logits, "embeddings": embeddings}
+        inputs: list[np.ndarray] = [norm_patches, events_f, mask_bool]
+        if self._stateful:
+            if h_in is None:
+                h_in = np.zeros(
+                    (norm_patches.shape[0], self._state_dim), dtype=np.float32,
+                )
+            inputs.append(np.ascontiguousarray(h_in, dtype=np.float32))
+        result = self._compiled(inputs)
+        out = {
+            "drone_logits": np.asarray(result[self._logits], dtype=np.float32),
+            "embeddings": np.asarray(
+                result[self._embeddings], dtype=np.float32,
+            ),
+        }
+        if self._state_out is not None:
+            out["h_track"] = np.asarray(
+                result[self._state_out], dtype=np.float32,
+            )
+        return out
 
 
 def load_openvino_transformer_v3(
@@ -202,6 +230,8 @@ def export_v3_to_openvino(
         checkpoint, device=torch.device("cpu"),
     )
 
+    cfg = bundle.config
+
     class _LogitsAndEmbeddings(nn.Module):
         def __init__(self, inner: nn.Module) -> None:
             super().__init__()
@@ -216,23 +246,47 @@ def export_v3_to_openvino(
             out = self.inner(patches, events, event_mask)
             return out["drone_logits"], out["embeddings"]
 
-    wrapper = _LogitsAndEmbeddings(bundle.model).eval()
-    cfg = bundle.config
+    class _StatefulWrapper(nn.Module):
+        """R5: threads h_track as a 4th input and 3rd output."""
+
+        def __init__(self, inner: nn.Module) -> None:
+            super().__init__()
+            self.inner = inner
+
+        def forward(
+            self,
+            patches: torch.Tensor,
+            events: torch.Tensor,
+            event_mask: torch.Tensor,
+            h_in: torch.Tensor,
+        ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            out = self.inner(patches, events, event_mask, h_in)
+            return out["drone_logits"], out["embeddings"], out["h_track"]
+
     example_patches = torch.zeros(
         1, cfg.seq_len, cfg.patch_size, cfg.patch_size, 3,
     )
     example_events = torch.zeros(1, cfg.e_max, cfg.event_in_dim)
     example_mask = torch.ones(1, cfg.e_max, dtype=torch.bool)
-    example_inputs = (example_patches, example_events, example_mask)
-    traced = torch.jit.trace(wrapper, example_inputs, check_trace=False)
-    ov_model = ov.convert_model(traced, example_input=example_inputs)
-    ov_model.reshape({
+    example_inputs: tuple[torch.Tensor, ...] = (
+        example_patches, example_events, example_mask,
+    )
+    reshape: dict[int, ov.PartialShape] = {
         0: ov.PartialShape(
             [-1, cfg.seq_len, cfg.patch_size, cfg.patch_size, 3],
         ),
         1: ov.PartialShape([-1, cfg.e_max, cfg.event_in_dim]),
         2: ov.PartialShape([-1, cfg.e_max]),
-    })
+    }
+    if cfg.state_enabled:
+        wrapper: nn.Module = _StatefulWrapper(bundle.model).eval()
+        example_inputs = (*example_inputs, torch.zeros(1, cfg.state_dim))
+        reshape[3] = ov.PartialShape([-1, cfg.state_dim])
+    else:
+        wrapper = _LogitsAndEmbeddings(bundle.model).eval()
+    traced = torch.jit.trace(wrapper, example_inputs, check_trace=False)
+    ov_model = ov.convert_model(traced, example_input=example_inputs)
+    ov_model.reshape(reshape)
     xml_path = out_dir / f"{checkpoint.stem}_ov.xml"
     ov.save_model(ov_model, xml_path, compress_to_fp16=True)
     return xml_path
