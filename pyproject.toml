@@ -160,6 +160,10 @@ ignore = [
 "scripts/predecode_event_caches.py" = ["E402"]
 "scripts/extract_rain_84.py" = ["E402"]
 "scripts/extract_fred_neg.py" = ["E402"]
+# run_ops applies the same BLAS/numexpr thread caps before numpy import so the
+# per-camera forked workers don't each spawn an all-core pool and pin the
+# P-cores; that requires statements before the imports, which E402 forbids.
+"scripts/run_ops.py" = ["E402"]
 # The emitter deliberately catches any subscriber exception to keep the
 # detection pipeline running when a downstream consumer misbehaves.
 "src/evio/detection/emitter.py" = ["BLE001"]
