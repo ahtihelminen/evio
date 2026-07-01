@@ -205,8 +205,15 @@ def load_openvino_transformer_v3(
 def export_v3_to_openvino(
     checkpoint: Path,
     output_dir: Path | None = None,
+    *,
+    e_max: int | None = None,
 ) -> Path:
     """Export a v3 or v4 checkpoint to an FP16 OpenVINO IR.
+
+    ``e_max`` overrides the exported event-token count (default = the
+    checkpoint's ``cfg.e_max``). The event encoder/attention have no
+    fixed-E parameters, so a model trained at 1024 can export a cheaper
+    256-token graph — the R5 latency win (fewer tokens → cheaper attention).
 
     Works for both bidirectional v3 and causal/streaming v4 — same
     model class, the meta sidecar selects the attention path. Exported
@@ -263,11 +270,12 @@ def export_v3_to_openvino(
             out = self.inner(patches, events, event_mask, h_in)
             return out["drone_logits"], out["embeddings"], out["h_track"]
 
+    emax = e_max or cfg.e_max
     example_patches = torch.zeros(
         1, cfg.seq_len, cfg.patch_size, cfg.patch_size, 3,
     )
-    example_events = torch.zeros(1, cfg.e_max, cfg.event_in_dim)
-    example_mask = torch.ones(1, cfg.e_max, dtype=torch.bool)
+    example_events = torch.zeros(1, emax, cfg.event_in_dim)
+    example_mask = torch.ones(1, emax, dtype=torch.bool)
     example_inputs: tuple[torch.Tensor, ...] = (
         example_patches, example_events, example_mask,
     )
@@ -275,8 +283,8 @@ def export_v3_to_openvino(
         0: ov.PartialShape(
             [-1, cfg.seq_len, cfg.patch_size, cfg.patch_size, 3],
         ),
-        1: ov.PartialShape([-1, cfg.e_max, cfg.event_in_dim]),
-        2: ov.PartialShape([-1, cfg.e_max]),
+        1: ov.PartialShape([-1, emax, cfg.event_in_dim]),
+        2: ov.PartialShape([-1, emax]),
     }
     if cfg.state_enabled:
         wrapper: nn.Module = _StatefulWrapper(bundle.model).eval()
