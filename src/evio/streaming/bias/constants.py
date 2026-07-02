@@ -32,8 +32,8 @@ BOX_HI = 25
 
 # --- Budgets (the "noise level we want", ev/s per camera; plan §16.6) -------
 DEFAULT_BUDGETS_EPS: dict[str, float] = {
-    "clear_day": 150_000.0,
-    "overcast_day": 150_000.0,
+    "clear_day": 75_000.0,     # total per camera; per-polarity = /2 = 37.5k
+    "overcast_day": 75_000.0,  # lowered from 150k (Elia, 2026-07-01)
     "twilight": 250_000.0,  # IMX636 noise peaks near 3-5 lx on-chip (dusk)
     "rain_clutter": 100_000.0,
     "low_light": 120_000.0,
