@@ -325,20 +325,31 @@ class Imx636CameraSource:
         last_data_ns = time.monotonic_ns()
 
         while True:
-            if self.window_queue:
-                return self.window_queue.popleft()
-
-            # Pump poll() until the CD callback delivers at least one chunk
-            # OR we've been idle for a full window with no new data.
-            while not self.decoded_queue:
+            # Drain the driver pipe COMPLETELY before returning anything.
+            # poll() consumes ONE ready slot per call, and the async reader
+            # STALLS when its ring fills — the ring is only SLOTS x 20 ms
+            # deep in TIME at low rates, so a consumer that returns
+            # per-window while slots sit parked lets the device FIFO shed
+            # the stream on-chip (2026-07-02: ~95% of all events lost this
+            # way; the recorded stream was 4 ms islands every ~200 ms).
+            # Draining every call keeps the ring empty no matter how slowly
+            # the worker loop ticks; the windows queue absorbs the backlog
+            # and drain_window_backlog still records every stale window.
+            while True:
                 r = self.cam.poll()
                 if r < 0:
                     msg = "imx636: USB error from poll()"
                     raise RuntimeError(msg)
+                if r != 1:
+                    break
+
+            if not self.decoded_queue and not self.window_queue:
                 if time.monotonic_ns() - last_data_ns >= idle_budget_ns:
                     return _empty_batch()
-            # Got fresh data — defer the empty timeout.
-            last_data_ns = time.monotonic_ns()
+                continue
+            if self.decoded_queue:
+                # Got fresh data — defer the empty timeout.
+                last_data_ns = time.monotonic_ns()
 
             # Drain EVERY decoded chunk now pending, not just one, so
             # window_queue reflects the true backlog. Under a storm a single
@@ -360,3 +371,6 @@ class Imx636CameraSource:
                 )
                 for window in self._processor.process((batch,)):
                     self.window_queue.append(window)
+
+            if self.window_queue:
+                return self.window_queue.popleft()
