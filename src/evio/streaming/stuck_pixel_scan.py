@@ -50,7 +50,7 @@ DEM_MAX_SLOTS = 64  # = imx636.PIXEL_MASK_SLOTS
 # above). The fixed 2k floor misses stuck pixels the autotuner has already
 # throttled; the boot scan instead floors at a multiple of the scene's own
 # ambient per-pixel rate.
-STUCK_MASK_EPS_MIN = 300.0
+STUCK_MASK_EPS_MIN = 2_000.0
 STUCK_AMBIENT_FACTOR = 30.0
 HOT_PX_RATE_EPS = 100.0  # ambient pool = active pixels at/below this rate
 ISOLATION_FACTOR = 10.0  # an isolated pixel's neighbours read >= this lower

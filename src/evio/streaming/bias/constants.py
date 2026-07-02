@@ -90,10 +90,13 @@ STUCK_SUSTAIN_S = 10.0
 # throttled (high refractory) still stands out as a >>ambient outlier, and a
 # busy scene raises the floor so ordinary noise is never masked. Nominate iff
 # the pixel's hot-EMA exceeds max(STUCK_MASK_EPS_MIN, STUCK_AMBIENT_FACTOR x
-# ambient_per_pixel_eps). The old fixed 2 kev/s floor missed stuck pixels the
-# autotuner had throttled below it (opsnuc-r 2026-07-01: single-pol isolated
-# pixels sat at ~1 kev/s, below 2 kev/s, so nothing on the flooded cams masked).
-STUCK_MASK_EPS_MIN = 300.0
+# ambient_per_pixel_eps). PROVENANCE: the floor was briefly 300 because
+# opsnuc-r 2026-07-01 showed throttled stuck pixels at "~1 kev/s" — a PRE-FIX
+# reading taken while the transport silently dropped ~98% of events (true
+# rates ~50x higher, comfortably above 2 kev/s). Under lossless capture a
+# 300 ev/s floor is reachable by genuine scene pixels, so it is back at the
+# validated 2 kev/s; the relative 30x-ambient term self-corrects on top.
+STUCK_MASK_EPS_MIN = 2_000.0
 STUCK_AMBIENT_FACTOR = 30.0
 # A pixel is stuck iff strictly MORE than this share of its events are the
 # dominant polarity (operator rule: "99% or lower is not stuck, above is").

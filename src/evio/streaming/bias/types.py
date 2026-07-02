@@ -178,8 +178,12 @@ class PresetBox:
     refr: int = 0
     afk_enabled: bool = False  # AFK OFF outdoors by default (SN-31)
     erc_cap_eps: float = 3_000_000.0
-    budget_on_eps: float = 75_000.0  # per-polarity = BGT_cam / 2
-    budget_off_eps: float = 75_000.0
+    # Per-polarity = DEFAULT_BUDGETS_EPS[regime] / 2. Must MATCH the /2
+    # split regimes.build_default computes: a yaml entry missing these
+    # fields fell back to 75k per polarity = 150k total, silently DOUBLE
+    # the operator-chosen 75k total budget (latent 2x, found 2026-07-02).
+    budget_on_eps: float = 37_500.0
+    budget_off_eps: float = 37_500.0
     storm_diff_on: int = 40  # vetted heavy-suppression jump point
     storm_diff_off: int = 60
     asym_allowed: bool = False
