@@ -152,6 +152,94 @@ class Imx636CameraSource:
             print(f"[imx636] reloaded {applied} DEM mask(s) for {self.serial}",
                   flush=True)
 
+    def boot_scan_stuck_pixels(self, duration_s: float) -> int:
+        """Release all DEM masks, watch the raw stream, mask fresh flooders.
+
+        Stuck oscillators DRIFT with the bias operating point (offline
+        2026-07-02: mask sets from 12 s slices 18 min apart overlap at
+        Jaccard ~0.02), so the config masks a previous session promoted
+        usually miss today's flooders. At every camera open this releases
+        the stale masks, counts the raw per-pixel stream for ``duration_s``,
+        re-masks the current offenders (``boot_candidates`` gates) and
+        rewrites ``config/dem_masks/<serial>.json`` -- which the autotuner's
+        registry then seeds from (its lazy first-observation read), keeping
+        the main-process slot map in sync. On any failure the old config is
+        re-programmed so a broken scan never leaves the DEM unmasked.
+        """
+        if self.cam is None or duration_s <= 0:
+            return 0
+        from evio.streaming.stuck_pixel_scan import (
+            DEM_MAX_SLOTS,
+            boot_candidates,
+            write_applied_masks,
+        )
+        self._ensure_streaming()
+        try:
+            for slot in range(DEM_MAX_SLOTS):  # fresh eyes on masked pixels
+                with contextlib.suppress(RuntimeError, ValueError,
+                                         AttributeError, KeyError):
+                    self.cam.disable_pixel_mask(slot)
+            n_px = self.width * self.height
+            on = np.zeros(n_px, dtype=np.int64)
+            off = np.zeros(n_px, dtype=np.int64)
+            # Drain the pre-scan backlog so a buffered dump can't inflate
+            # the counts against the timed window (mirrors scan()).
+            drain_until = time.monotonic() + 0.2
+            while time.monotonic() < drain_until:
+                self.cam.poll()
+            self.decoded_queue.clear()
+            complete = True
+            start = time.monotonic()
+            while time.monotonic() - start < duration_s:
+                if self.cam.poll() < 0:  # USB error: abort, restore below
+                    complete = False
+                    break
+                while self.decoded_queue:
+                    buf = self.decoded_queue.popleft()
+                    if buf.size == 0:
+                        continue
+                    flat = (buf["y"].astype(np.intp) * self.width
+                            + buf["x"].astype(np.intp))
+                    is_on = buf["p"] > 0
+                    on += np.bincount(flat[is_on], minlength=n_px)
+                    off += np.bincount(flat[~is_on], minlength=n_px)
+            if not complete:
+                print(
+                    f"[warn] boot scan cut short (USB) serial={self.serial}; "
+                    "restoring config masks", flush=True,
+                )
+                self._reload_dem_masks()
+                return 0
+            elapsed = max(time.monotonic() - start, 1e-6)
+            applied, diag = boot_candidates(on, off, elapsed, self.width)
+            for slot, c in enumerate(applied):
+                self.cam.set_pixel_mask(
+                    slot, imx636.PixelMask(c.x, c.y, True))
+            mask_dir = self.dem_mask_dir or Path("config/dem_masks")
+            now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            write_applied_masks(
+                mask_dir / f"{self.serial}.json", self.serial, applied,
+                now_iso, source="boot_scan")
+            total = int(on.sum() + off.sum())
+            print(
+                f"[imx636] boot scan {self.serial}: masked {len(applied)} "
+                f"px of {total / elapsed:.0f} ev/s "
+                f"(ambient={diag['ambient_eps']:.0f} "
+                f"floor={diag['floor_eps']:.0f} "
+                f"spared_mixed={diag['over_floor_mixed']})",
+                flush=True,
+            )
+        except (RuntimeError, OSError, ValueError) as exc:
+            print(
+                f"[warn] boot scan failed serial={self.serial} err={exc}; "
+                "restoring config masks", flush=True,
+            )
+            self._reload_dem_masks()
+            return 0
+        else:
+            self.decoded_queue.clear()  # scan spill must not enter the pipe
+            return len(applied)
+
     def _ensure_streaming(self) -> None:
         if not self._streaming and self.cam is not None:
             self.cam.start()

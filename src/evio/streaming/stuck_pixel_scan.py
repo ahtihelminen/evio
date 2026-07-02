@@ -45,6 +45,14 @@ STUCK_MASK_EPS = 2_000.0  # per-pixel rate floor (ev/s) to be a candidate
 # numerically identical to bias.constants.STUCK_POLARITY_FRACTION.
 STUCK_POLARITY_FRACTION = 0.99
 DEM_MAX_SLOTS = 64  # = imx636.PIXEL_MASK_SLOTS
+# Boot-scan relative floor -- mirrors bias.constants STUCK_MASK_EPS_MIN /
+# STUCK_AMBIENT_FACTOR / HOT_PX_RATE_EPS (same stand-alone convention as
+# above). The fixed 2k floor misses stuck pixels the autotuner has already
+# throttled; the boot scan instead floors at a multiple of the scene's own
+# ambient per-pixel rate.
+STUCK_MASK_EPS_MIN = 300.0
+STUCK_AMBIENT_FACTOR = 30.0
+HOT_PX_RATE_EPS = 100.0  # ambient pool = active pixels at/below this rate
 ISOLATION_FACTOR = 10.0  # an isolated pixel's neighbours read >= this lower
 # AFK notch around the mains harmonic (31-55 Hz is valid; NOT 50-120 Hz, which
 # eats low-RPM blade-pass combs).
@@ -139,6 +147,53 @@ def _candidates(
         ))
     out.sort(key=lambda c: c.rate_eps, reverse=True)
     return out
+
+
+def boot_candidates(
+    on: np.ndarray, off: np.ndarray, elapsed_s: float, width: int,
+    *, max_masks: int = DEM_MAX_SLOTS,
+) -> tuple[list[StuckCandidate], dict]:
+    """Rank stuck candidates for the boot-time rescan (flat count arrays).
+
+    Chosen over the ``_candidates`` gates by the 2026-07-02 offline
+    comparison on the 07-01 flight recordings: the fixed 2 kev/s floor +
+    3x3 isolation missed autotuner-throttled flooders entirely (0 slots
+    where this floor masked 99.2% of the flood with 97% ten-minute
+    forward-coverage), while never selecting a pixel on the GT drone
+    path. Gates: rate above ``max(STUCK_MASK_EPS_MIN, STUCK_AMBIENT_FACTOR
+    x ambient)`` where ambient is the mean rate of active pixels at/below
+    ``HOT_PX_RATE_EPS``, plus the single-polarity discriminator; top
+    ``max_masks`` by rate. Returns ``(candidates, diag)`` -- ``diag``
+    carries ``ambient_eps`` / ``floor_eps`` / ``over_floor_mixed`` (pixels
+    above the floor spared as mixed-polarity = likely real activity).
+    """
+    elapsed = max(elapsed_s, 1e-6)
+    total = on + off
+    rate = total / elapsed
+    active = rate > 0
+    ambient_pool = active & (rate <= HOT_PX_RATE_EPS)
+    ambient = float(rate[ambient_pool].mean()) if ambient_pool.any() else 0.0
+    floor = max(STUCK_MASK_EPS_MIN, STUCK_AMBIENT_FACTOR * ambient)
+    dominant = np.maximum(on, off)
+    fraction = dominant / np.maximum(total, 1)
+    over = rate > floor
+    stuck = over & (fraction > STUCK_POLARITY_FRACTION)
+    idx = np.flatnonzero(stuck)
+    idx = idx[np.argsort(rate[idx])[::-1][:max_masks]]
+    diag = {
+        "ambient_eps": ambient,
+        "floor_eps": floor,
+        "over_floor_mixed": int((over & ~stuck).sum()),
+    }
+    return [
+        StuckCandidate(
+            x=int(i % width), y=int(i // width),
+            event_count=int(total[i]), rate_eps=float(rate[i]),
+            polarity_fraction=float(fraction[i]),
+            polarity=1 if on[i] >= off[i] else 0,
+        )
+        for i in idx
+    ], diag
 
 
 def apply_masks(
@@ -270,6 +325,7 @@ def write_inventory(path: Path, inventory: dict) -> None:
 
 def write_applied_masks(
     path: Path, serial: str, applied: list[StuckCandidate], applied_at: str,
+    *, source: str = "factory",
 ) -> None:
     """Persist the operator-vetted DEM masks as the durable config (schema v2).
 
@@ -278,7 +334,8 @@ def write_applied_masks(
     THIS manifest at open. Same schema the live autotuner round-trips
     (``config/dem_masks/<serial>.json``): factory masks take slots 0..N-1 and
     are tagged ``source: "factory"`` so the autotuner's auto masks slot after
-    them. Distinct from the raw inventory of candidates.
+    them (the boot-time rescan writes ``source: "boot_scan"``). Distinct from
+    the raw inventory of candidates.
     """
     import json
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -290,7 +347,7 @@ def write_applied_masks(
             {"slot": slot, "x": c.x, "y": c.y,
              "dominant_polarity": "ON" if c.polarity else "OFF",
              "rate_eps": round(c.rate_eps),
-             "source": "factory", "first_masked": applied_at}
+             "source": source, "first_masked": applied_at}
             for slot, c in enumerate(applied)
         ],
     }, indent=2) + "\n")
@@ -302,6 +359,7 @@ __all__ = [
     "active_masks",
     "apply_masks",
     "bandwidth_test",
+    "boot_candidates",
     "build_inventory",
     "scan",
     "set_afk_notch",
