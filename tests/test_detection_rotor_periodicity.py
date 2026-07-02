@@ -208,3 +208,57 @@ def test_sticky_between_cadences_and_prune() -> None:
             polarities=np.array([1], dtype=np.int8),
         ))
     assert est._rings == {}
+
+
+def test_tracker_dropout_resets_ring_no_false_comb() -> None:
+    """Unobserved windows must RESET the ring, not zero-fill it.
+
+    A polarity-imbalanced source observed on alternating windows would
+    otherwise get the window pacing written into the ON-OFF series as a
+    false in-band comb (skeptic finding, night 2).
+    """
+    batch = _synth_rotor_events(
+        bpf_hz=280.0, duration_s=1.2, mod_rate_hz=0.0,
+        bg_rate_hz=40_000.0, seed=11,
+    )
+    # Make the source strongly polarity-imbalanced: 80% ON.
+    pol = (np.random.default_rng(1).random(batch.timestamps.size) < 0.8)
+    imbalanced = EventsBatch(
+        timestamps=batch.timestamps, x_coords=batch.x_coords,
+        y_coords=batch.y_coords, polarities=pol.astype(np.int8),
+    )
+    est = RotorPeriodicityEstimator()
+    out: dict[str, object] = {}
+    for i, window in enumerate(_windows(imbalanced)):
+        # Track visible only on alternating windows (flapping confirmation).
+        tracked = [_det()] if i % 2 == 0 else []
+        result = est.update("cam", tracked, window)
+        if result:
+            out = result
+    # The ring never survives two consecutive observations, so no verdict
+    # (or a scoreless one) — critically, NO high-score false comb.
+    assert not out or out["t1"].score < 0.3
+
+
+def test_fresh_flag_marks_new_verdicts_only() -> None:
+    batch = _synth_rotor_events(bpf_hz=280.0, duration_s=0.6, seed=12)
+    est = RotorPeriodicityEstimator()
+    fresh_flags = []
+    for window in _windows(batch):
+        out = est.update("cam", [_det()], window)
+        if "t1" in out:
+            fresh_flags.append(out["t1"].fresh)
+    assert any(fresh_flags)          # PSD verdicts happen
+    assert not all(fresh_flags)      # sticky repeats are marked stale
+    # A verdict window is followed by sticky (False) until the next cadence.
+    first_fresh = fresh_flags.index(True)
+    assert fresh_flags[first_fresh + 1] is False
+
+
+def test_warmup_produces_no_estimate() -> None:
+    """Insufficient data = NOT evaluated (no sticky 0.0 verdicts)."""
+    batch = _synth_rotor_events(bpf_hz=280.0, duration_s=0.25, seed=13)
+    est = RotorPeriodicityEstimator()
+    for window in _windows(batch):
+        out = est.update("cam", [_det()], window)
+    assert out == {}  # ring below min_ring_bins -> nothing reported

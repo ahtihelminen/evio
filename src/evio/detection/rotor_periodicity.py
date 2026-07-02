@@ -31,13 +31,19 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class RotorEstimate:
-    """One periodicity verdict for a track (sticky between eval cadences)."""
+    """One periodicity verdict for a track (sticky between eval cadences).
+
+    ``fresh`` is True only on the window whose PSD produced this verdict —
+    consumers adding the score as SPRT evidence must use fresh estimates only,
+    else one verdict is re-counted every window until the next cadence.
+    """
 
     rotor_hz: float | None
     score: float
     sfm: float = 1.0
     n_bins: int = 0
     n_events: int = 0
+    fresh: bool = False
 
 
 @dataclass(slots=True)
@@ -162,10 +168,19 @@ class RotorPeriodicityEstimator:
         self._rings: dict[tuple[str, str], _TrackRing] = {}
         self._estimates: dict[tuple[str, str], RotorEstimate] = {}
         self._blank_until: dict[str, int] = {}
-        self._tick = 0
+        # Per-serial window counters — one shared counter would age every
+        # camera's rings at (n_cameras x) the intended rate.
+        self._ticks: dict[str, int] = {}
+        self._last_seen_us: dict[str, int] = {}
 
-    def notify_bias_write(self, serial: str, t_us: int) -> None:
-        """Blank the camera and clear its rings (post-bias-write splash)."""
+    def notify_bias_write(self, serial: str, t_us: int | None = None) -> None:
+        """Blank the camera and clear its rings (post-bias-write splash).
+
+        ``t_us`` defaults to the serial's last-seen event time, so the bias
+        runner can notify without knowing the camera's event clock.
+        """
+        if t_us is None:
+            t_us = self._last_seen_us.get(serial, 0)
         self._blank_until[serial] = t_us + self._blank_us
         for key in [k for k in self._rings if k[0] == serial]:
             del self._rings[key]
@@ -178,10 +193,12 @@ class RotorPeriodicityEstimator:
         batch: EventsBatch,
     ) -> dict[str, RotorEstimate]:
         """Accumulate this window; return sticky estimates per track_id."""
-        self._tick += 1
+        tick = self._ticks.get(serial, 0) + 1
+        self._ticks[serial] = tick
         if batch.timestamps.size == 0:
             return {}
         now_us = int(batch.timestamps[-1])
+        self._last_seen_us[serial] = now_us
         if now_us < self._blank_until.get(serial, 0):
             return {}
         out: dict[str, RotorEstimate] = {}
@@ -196,17 +213,44 @@ class RotorPeriodicityEstimator:
                     off=deque(maxlen=self._ring_bins),
                 )
                 self._rings[key] = ring
-            ring.seen_tick = self._tick
+            elif ring.seen_tick != tick - 1:
+                # The tracker dropped this track for >=1 window: those bins
+                # were never observed, and zero-filling them writes the window
+                # pacing into the ON-OFF series as a false in-band comb (a
+                # polarity-imbalanced source + alternate-window dropout = a
+                # ~50 Hz square wave). Unobserved != quiet: start over.
+                self._reset_ring(ring)
+                self._estimates.pop(key, None)
+            ring.seen_tick = tick
             self._accumulate(ring, det, batch)
             ring.windows_since_eval += 1
+            fresh: RotorEstimate | None = None
             if ring.windows_since_eval >= self._cadence:
                 ring.windows_since_eval = 0
-                self._estimates[key] = self._score(ring)
+                fresh = self._score(ring)
+                if fresh is not None:
+                    self._estimates[key] = fresh
             est = self._estimates.get(key)
-            if est is not None:
-                out[det.track_id] = est
-        self._prune(serial)
+            if fresh is not None:
+                out[det.track_id] = fresh
+            elif est is not None:
+                # Sticky repeat of the last verdict (fresh=False).
+                out[det.track_id] = RotorEstimate(
+                    est.rotor_hz, est.score, est.sfm, est.n_bins,
+                    est.n_events, fresh=False,
+                )
+        self._prune(serial, tick)
         return out
+
+    @staticmethod
+    def _reset_ring(ring: _TrackRing) -> None:
+        ring.on.clear()
+        ring.off.clear()
+        ring.total_events = 0
+        ring.next_bin = -1
+        ring.windows_since_eval = 0
+        ring.carry_ts = None
+        ring.carry_pol = None
 
     def _accumulate(
         self, ring: _TrackRing, det: Detection, batch: EventsBatch,
@@ -235,9 +279,7 @@ class RotorPeriodicityEstimator:
             )
         n_closed = open_bin - ring.next_bin
         if n_closed > self._max_gap_bins:
-            ring.on.clear()
-            ring.off.clear()
-            ring.total_events = 0
+            self._reset_ring(ring)
             ring.next_bin = open_bin
         elif n_closed > 0:
             on, off = bin_events_polarity(
@@ -256,11 +298,12 @@ class RotorPeriodicityEstimator:
         if len(ring.on) == self._ring_bins:
             ring.total_events = int(sum(ring.on) + sum(ring.off))
 
-    def _score(self, ring: _TrackRing) -> RotorEstimate:
+    def _score(self, ring: _TrackRing) -> RotorEstimate | None:
+        """PSD + comb score; None = insufficient data (NOT evaluated)."""
         n = len(ring.on)
         n_events = ring.total_events
         if n < self._min_bins or n_events < self._min_events:
-            return RotorEstimate(None, 0.0, 1.0, n, n_events)
+            return None  # warm-up != "evaluated, nothing found"
         series = np.asarray(ring.on, dtype=np.float64) - np.asarray(
             ring.off, dtype=np.float64,
         )
@@ -272,10 +315,10 @@ class RotorPeriodicityEstimator:
         freqs = np.fft.rfftfreq(n, d=self._bin_us * 1e-6)
         band = (freqs >= self._band[0]) & (freqs <= self._band[1])
         if not band.any():
-            return RotorEstimate(None, 0.0, 1.0, n, n_events)
+            return RotorEstimate(None, 0.0, 1.0, n, n_events, fresh=True)
         sfm = _spectral_flatness(psd[band])
         if sfm > self._sfm_max:
-            return RotorEstimate(None, 0.0, sfm, n, n_events)
+            return RotorEstimate(None, 0.0, sfm, n, n_events, fresh=True)
         step = float(freqs[1] - freqs[0])
         med = _running_median(
             psd, half_width=max(1, int(40.0 / step)),
@@ -292,27 +335,29 @@ class RotorPeriodicityEstimator:
             return float(prom[lo:hi].max()) if hi > lo else 0.0
 
         weights = (1.0, 0.5, 0.25, 0.125)[: self._harmonics]
-        proms = [
-            prom_at(_fold(h * f0, nyquist))
-            for h in range(1, self._harmonics + 1)
-        ]
+        guard_hz = 5.0
         # Fundamental always counts; higher harmonics only with real support
-        # (prominence >= 2), else a chance noise peak inherits comb credit
-        # from unrelated bins at its "harmonics".
-        comb_snr = weights[0] * math.log1p(max(0.0, proms[0] - 1.0)) + sum(
-            w * math.log1p(max(0.0, p - 1.0))
-            for w, p in zip(weights[1:], proms[1:], strict=True)
-            if p >= 2.0
-        )
+        # (prominence >= 2) AND a folded location that is neither back on the
+        # fundamental (3*f0 folds onto f0 near fs/4) nor below the band floor
+        # (1/f clutter shoulder) — else a chance peak inherits comb credit.
+        comb_snr = weights[0] * math.log1p(max(0.0, prom_at(f0) - 1.0))
+        for h, w in zip(range(2, self._harmonics + 1), weights[1:],
+                        strict=False):
+            f_h = _fold(h * f0, nyquist)
+            if f_h < self._band[0] or abs(f_h - f0) <= guard_hz:
+                continue
+            p = prom_at(f_h)
+            if p >= 2.0:
+                comb_snr += w * math.log1p(p - 1.0)
         score = 1.0 - math.exp(-comb_snr / self._kappa)
         rotor_hz = f0 if score >= self._floor else None
-        return RotorEstimate(rotor_hz, score, sfm, n, n_events)
+        return RotorEstimate(rotor_hz, score, sfm, n, n_events, fresh=True)
 
-    def _prune(self, serial: str) -> None:
+    def _prune(self, serial: str, tick: int) -> None:
         stale = [
             key for key, ring in self._rings.items()
             if key[0] == serial
-            and self._tick - ring.seen_tick > self._stale_ticks
+            and tick - ring.seen_tick > self._stale_ticks
         ]
         for key in stale:
             del self._rings[key]

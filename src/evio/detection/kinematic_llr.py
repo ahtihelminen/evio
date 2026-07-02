@@ -115,12 +115,21 @@ class KinematicLLR:
         z = self._standardise(features)
         return float(z @ self.coef + self.intercept)
 
-    def llr(self, features: Mapping[str, float]) -> float:
-        """Additive kinematic log-Bayes-factor for the SPRT increment.
+    def llr(self, features: Mapping[str, float] | None) -> float:
+        """Additive log-Bayes-factor for the SPRT increment.
 
-        0 = a kinematically-average track (no evidence either way); positive =
-        motion more drone-like than the base rate; negative = less.
+        0 = an average sample (no evidence either way); positive = more
+        drone-like than the base rate; negative = less. When NONE of this
+        arm's features are present the arm is exactly neutral — imputing
+        everything to the training mean would otherwise emit a constant
+        ``intercept - prior_logit`` bias on every window (e.g. the IRSTD arm
+        with no patch attached), which against |A| ~ 2.9 dominates the SPRT
+        within a few windows.
         """
+        if features is None or not any(
+            name in features for name in self.feature_names
+        ):
+            return 0.0
         return self.weight * (self.posterior_logit(features) - self.prior_logit)
 
     def save(self, path: Path) -> None:

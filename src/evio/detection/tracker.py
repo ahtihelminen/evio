@@ -262,6 +262,15 @@ class TrackManager:
     def dormant_resurrections(self) -> int:
         return self._dormant_resurrections
 
+    def live_track_ids(self) -> set[str]:
+        """IDs of every live track, INCLUDING ones coasting through misses.
+
+        Verdict-gate state must be pruned against this set — pruning against
+        a single window's emitted detections deletes SPRT/latch state on
+        every missed window, defeating the gate's dropout-survival property.
+        """
+        return set(self._tracks)
+
     def track_features(self, track_id: str) -> dict[str, float] | None:
         """Kinematic feature snapshot for a live track (None if unknown).
 

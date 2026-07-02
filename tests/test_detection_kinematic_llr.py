@@ -138,3 +138,19 @@ def test_default_feature_contract_is_stable() -> None:
     assert KINEMATIC_FEATURES[0] == "speed_mean"
     assert "m_coh" in KINEMATIC_FEATURES
     assert len(set(KINEMATIC_FEATURES)) == len(KINEMATIC_FEATURES)
+
+
+def test_all_missing_features_is_exactly_neutral() -> None:
+    """An arm with none of its features present must contribute 0 — not the
+    constant intercept-minus-prior bias (skeptic critical, night 2)."""
+    model = KinematicLLR(
+        feature_names=("irstd_mpcm", "irstd_fill"),
+        mean=np.array([0.5, 0.5]), std=np.array([1.0, 1.0]),
+        coef=np.array([2.0, 1.0]), intercept=1.7, prior_logit=-2.0,
+    )
+    # Nonzero at the feature means...
+    assert model.llr({"irstd_mpcm": 0.5, "irstd_fill": 0.5}) != 0.0
+    # ...but exactly neutral when its features are absent entirely.
+    assert model.llr({"speed_mean": 100.0}) == 0.0
+    assert model.llr({}) == 0.0
+    assert model.llr(None) == 0.0
