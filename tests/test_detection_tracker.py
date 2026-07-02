@@ -455,3 +455,36 @@ def test_adaptive_gate_disabled_keeps_tight_cutoff() -> None:
         last_seen_us=0, age_frames=10,
     )
     assert tracker._effective_chi2_cutoff(slow_confirmed) == 10.0
+
+
+def test_track_features_reports_kinematics_for_live_track() -> None:
+    tracker = TrackManager(TrackManagerConfig(
+        confirm_after_hits=1, velocity_coherence_enabled=False,
+    ))
+    vx, vy = 120.0, 0.0
+    dt_us = 50_000  # 50 ms
+    tid = ""
+    for i in range(5):
+        cx = 100.0 + vx * (i * dt_us / 1_000_000.0)
+        tracked = tracker.update(
+            [_det(cx, 100.0, vx=vx, vy=vy)], now_us=i * dt_us,
+        )
+        if tracked:
+            tid = tracked[0].track_id
+    feats = tracker.track_features(tid)
+    assert feats is not None
+    assert set(feats).issuperset({
+        "speed_mean", "speed_cv", "straightness", "vel_mag",
+        "age_frames", "miss_count", "bbox_diag", "pos_cov_trace",
+    })
+    # Constant-velocity motion: speed near |v|, straight path, low CV.
+    assert feats["speed_mean"] > 100.0
+    assert feats["straightness"] > 0.9
+    assert feats["speed_cv"] < 0.1
+    assert feats["age_frames"] >= 4.0
+    assert all(np.isfinite(v) for v in feats.values())
+
+
+def test_track_features_unknown_track_is_none() -> None:
+    tracker = TrackManager(TrackManagerConfig(confirm_after_hits=1))
+    assert tracker.track_features("nope") is None

@@ -7,14 +7,22 @@ decisive run of contrary evidence (S ≤ B) kills it.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+import numpy as np
 import pytest
 
+from evio.detection.kinematic_llr import KinematicLLR
 from evio.detection.verdict_gate import (
+    FusionGate,
     PersistenceGate,
     SequentialGate,
     build_verdict_gate,
     prob_to_log_odds,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _THRESHOLD = 0.5  # logit(0.5) = 0, so increments are just logit(prob)/T
 
@@ -87,3 +95,72 @@ def test_factory_sprt_is_drop_in() -> None:
     gate = build_verdict_gate("sprt")
     assert gate.update("cam", "t1", 0.95, _THRESHOLD) is True
     gate.prune("cam", {"t1"})  # live id kept → no error, state retained
+
+
+def _one_feature_llr(coef: float) -> KinematicLLR:
+    """A trivial 1-feature model where llr({"f": v}) == coef * v."""
+    return KinematicLLR(
+        feature_names=("f",),
+        mean=np.array([0.0]), std=np.array([1.0]),
+        coef=np.array([coef]), intercept=0.0, prior_logit=0.0,
+    )
+
+
+def test_sprt_extra_llr_is_additive() -> None:
+    base = SequentialGate(alpha=0.05, beta=0.1)
+    boosted = SequentialGate(alpha=0.05, beta=0.1)
+    assert base.update("cam", "t1", 0.6, _THRESHOLD) is False
+    # +2.0 of extra evidence on top of logit(0.6)≈0.405 clears A≈2.89.
+    assert boosted.update("cam", "t1", 0.6, _THRESHOLD, extra_llr=2.5) is True
+
+
+def test_fusion_drone_like_motion_speeds_firing() -> None:
+    plain = SequentialGate(alpha=0.05, beta=0.1)
+    fused = FusionGate([_one_feature_llr(1.0)], SequentialGate(
+        alpha=0.05, beta=0.1))
+    feats = {"f": 3.0}  # +3.0 kinematic LLR per window
+    # logit(0.7)≈0.85 alone stays under A≈2.89; +3.0 kinematic clears it.
+    assert plain.update("cam", "t1", 0.7, _THRESHOLD) is False
+    assert fused.update("cam", "t1", 0.7, _THRESHOLD, features=feats) is True
+
+
+def test_fusion_clutter_motion_delays_firing() -> None:
+    fused = FusionGate([_one_feature_llr(1.0)], SequentialGate(
+        alpha=0.05, beta=0.1))
+    # Strongly clutter-like motion (-3.0) drags a moderate window negative.
+    assert fused.update(
+        "cam", "t1", 0.7, _THRESHOLD, features={"f": -3.0},
+    ) is False
+
+
+def test_fusion_without_features_matches_sprt() -> None:
+    plain = SequentialGate(alpha=0.05, beta=0.1)
+    fused = FusionGate([_one_feature_llr(5.0)], SequentialGate(
+        alpha=0.05, beta=0.1))
+    for prob in (0.8, 0.8, 0.8):
+        a = plain.update("cam", "t1", prob, _THRESHOLD)
+        b = fused.update("cam", "t2", prob, _THRESHOLD)  # no features
+        assert a == b
+
+
+def test_fusion_kill_authority_preserved() -> None:
+    # Even with a positive kinematic bias, sustained low appearance KILLs.
+    fused = FusionGate([_one_feature_llr(1.0)], SequentialGate(
+        alpha=0.05, beta=0.1))
+    feats = {"f": 0.5}
+    assert fused.update("cam", "t1", 0.05, _THRESHOLD, features=feats) is False
+    assert fused.update("cam", "t1", 0.05, _THRESHOLD, features=feats) is False
+    # After KILL a single moderate window can't immediately re-fire.
+    assert fused.update("cam", "t1", 0.7, _THRESHOLD, features=feats) is False
+
+
+def test_factory_fusion_requires_path_then_loads(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="requires kinematic_llr_path"):
+        build_verdict_gate("fusion")
+    model_path = tmp_path / "kin.json"
+    _one_feature_llr(1.0).save(model_path)
+    gate = build_verdict_gate("fusion", kinematic_llr_path=model_path)
+    assert isinstance(gate, FusionGate)
+    # Drop-in contract: update(...)->bool, prune(...).
+    assert gate.update("cam", "t1", 0.95, _THRESHOLD, features={"f": 1.0})
+    gate.prune("cam", {"t1"})

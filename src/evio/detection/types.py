@@ -72,3 +72,13 @@ class Detection:
     # keeps a weak candidate that overlaps a live track's predicted ROI
     # instead of R1 hard-dropping it, so one dropout window is non-fatal.
     cand_conf: float | None = None
+    # Rotor-periodicity evidence (`evio.detection.rotor_periodicity`, SN-31):
+    # blade-pass fundamental + comb score in [0, 1). None = not evaluated
+    # (estimator off/blanked/gates unmet); 0.0 = evaluated, nothing found.
+    # One-sided evidence — rides the fusion LLR bus, never m_coh.
+    rotor_hz: float | None = None
+    periodicity_score: float | None = None
+    # IRSTD local-contrast score (`evio.detection.irstd` MPCM on the event
+    # patch): diagnostic scalar for logs/dashboard; the LLR arm consumes the
+    # full feature dict computed at the fusion seam.
+    irstd_score: float | None = None

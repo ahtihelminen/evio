@@ -262,6 +262,34 @@ class TrackManager:
     def dormant_resurrections(self) -> int:
         return self._dormant_resurrections
 
+    def track_features(self, track_id: str) -> dict[str, float] | None:
+        """Kinematic feature snapshot for a live track (None if unknown).
+
+        Read-only motion features for the fusion verdict gate
+        (`evio.detection.kinematic_llr`) and its offline trainer; combined with
+        the detection's quality scores via ``assemble_features``. No effect on
+        tracking behaviour.
+        """
+        track = self._tracks.get(track_id)
+        if track is None:
+            return None
+        samples = track.speed_samples
+        mean_speed, cv = _speed_stats(samples) if samples else (0.0, 0.0)
+        if not math.isfinite(cv):
+            cv = 0.0
+        return {
+            "speed_mean": mean_speed,
+            "speed_cv": cv,
+            "straightness": _straightness(track.path_history),
+            "vel_mag": math.hypot(float(track.x[2]), float(track.x[3])),
+            "age_frames": float(track.age_frames),
+            "miss_count": float(track.miss_count),
+            "bbox_diag": math.hypot(
+                2.0 * track.half_width, 2.0 * track.half_height,
+            ),
+            "pos_cov_trace": float(track.cov[0, 0] + track.cov[1, 1]),
+        }
+
     def live_boxes(
         self, *, confirmed_only: bool = True,
     ) -> list[tuple[int, int, int, int]]:
@@ -826,23 +854,18 @@ class TrackManager:
         )
 
 
-def _passes_velocity_coherence(
-    track: _Track, cfg: TrackManagerConfig,
-) -> bool:
-    """F1 velocity-coherence rule (replaces SORT's plain hit count)."""
-    samples = track.speed_samples
-    if len(samples) < cfg.confirm_after_hits:
-        return False
+def _speed_stats(samples: list[float]) -> tuple[float, float]:
+    """Mean speed and coefficient of variation over a speed ring."""
     speeds = np.asarray(samples, dtype=np.float64)
     mean_speed = float(speeds.mean())
-    if mean_speed < cfg.velocity_min_confirm_px_s:
-        return False
     cv = float(speeds.std() / mean_speed) if mean_speed > 0 else float("inf")
-    if cv > cfg.velocity_cv_max:
-        return False
-    path = track.path_history
+    return mean_speed, cv
+
+
+def _straightness(path: list[tuple[float, float]]) -> float:
+    """Endpoint distance / path length in [0, 1]; 0 for a degenerate path."""
     if len(path) < 2:
-        return False
+        return 0.0
     p0 = np.asarray(path[0], dtype=np.float64)
     pn = np.asarray(path[-1], dtype=np.float64)
     endpoint_dist = float(np.linalg.norm(pn - p0))
@@ -850,9 +873,22 @@ def _passes_velocity_coherence(
         np.linalg.norm(np.subtract(path[i], path[i - 1]))
         for i in range(1, len(path))
     ))
-    if travelled <= 0.0:
+    return endpoint_dist / travelled if travelled > 0.0 else 0.0
+
+
+def _passes_velocity_coherence(
+    track: _Track, cfg: TrackManagerConfig,
+) -> bool:
+    """F1 velocity-coherence rule (replaces SORT's plain hit count)."""
+    samples = track.speed_samples
+    if len(samples) < cfg.confirm_after_hits:
         return False
-    straightness = endpoint_dist / travelled
+    mean_speed, cv = _speed_stats(samples)
+    if mean_speed < cfg.velocity_min_confirm_px_s:
+        return False
+    if cv > cfg.velocity_cv_max:
+        return False
+    straightness = _straightness(track.path_history)
     return straightness >= cfg.velocity_straightness_min
 
 

@@ -13,6 +13,21 @@ from __future__ import annotations
 
 import math
 from collections import deque
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+    from pathlib import Path
+
+
+class LLRArm(Protocol):
+    """An additive evidence source for :class:`FusionGate`.
+
+    Reads what it knows from the shared per-track features dict and returns a
+    calibrated log-Bayes-factor (0 = neutral / nothing to say).
+    """
+
+    def llr(self, features: Mapping[str, float] | None) -> float: ...
 
 
 class PersistenceGate:
@@ -33,8 +48,14 @@ class PersistenceGate:
 
     def update(
         self, serial: str, track_id: str, prob: float, threshold: float,
+        *, features: Mapping[str, float] | None = None,
     ) -> bool:
-        """Record ``prob`` for a track and return whether the gate fires now."""
+        """Record ``prob`` for a track and return whether the gate fires now.
+
+        ``features`` is accepted for verdict-gate signature parity and ignored
+        (M-of-K uses appearance probability only).
+        """
+        del features
         key = (serial, track_id)
         ring = self._rings.get(key)
         if ring is None:
@@ -114,12 +135,21 @@ class SequentialGate:
 
     def update(
         self, serial: str, track_id: str, prob: float, threshold: float,
+        *, features: Mapping[str, float] | None = None, extra_llr: float = 0.0,
     ) -> bool:
-        """Accumulate evidence; return whether the track fires DRONE now."""
+        """Accumulate evidence; return whether the track fires DRONE now.
+
+        ``extra_llr`` is an additive independent-evidence log-Bayes-factor
+        (e.g. the kinematic LLR from :class:`FusionGate`) folded into the
+        log-odds increment. ``features`` is ignored here (SPRT scores the
+        appearance probability); the fusion gate consumes it upstream.
+        """
+        del features
         key = (serial, track_id)
         increment = (
             prob_to_log_odds(prob, temperature=self._temperature)
             - _logit(threshold)
+            + float(extra_llr)
         )
         score = self._scores.get(key, 0.0) * (1.0 - self._leak) + increment
         score = min(self._a, max(self._b, score))
@@ -145,7 +175,54 @@ class SequentialGate:
             self._fired.discard(key)
 
 
-VerdictGate = PersistenceGate | SequentialGate
+class FusionGate:
+    """SPRT gate fed appearance + independent evidence arms additively.
+
+    Wraps a :class:`SequentialGate` and one or more fitted LLR arms (kinematic
+    :class:`~evio.detection.kinematic_llr.KinematicLLR`, rotor-periodicity,
+    IRSTD, ...). Each window it sums the arms' log-Bayes-factors into the
+    transformer's log-odds increment (naive Bayes: arms assumed conditionally
+    independent given class), so a track with drone-like motion / a rotor comb
+    / small-target contrast accrues evidence faster — without a second hard
+    gate. Every arm exposes ``llr(features) -> float`` over the shared
+    per-track features dict and returns 0 for anything it can't read, so the
+    gate degrades to pure SPRT when evidence is missing.
+
+    Same FP/hr caveat as :class:`SequentialGate`: advisory until the realised
+    rate is validated on a real empty-sky corpus (EmptySky).
+    """
+
+    def __init__(
+        self, models: Sequence[LLRArm], gate: SequentialGate,
+    ) -> None:
+        self._models = tuple(models)
+        self._gate = gate
+
+    @property
+    def upper(self) -> float:
+        return self._gate.upper
+
+    @property
+    def lower(self) -> float:
+        return self._gate.lower
+
+    def update(
+        self, serial: str, track_id: str, prob: float, threshold: float,
+        *, features: Mapping[str, float] | None = None,
+    ) -> bool:
+        """Fuse the evidence arms into the SPRT increment; return fires-now."""
+        extra_llr = (
+            sum(m.llr(features) for m in self._models) if features else 0.0
+        )
+        return self._gate.update(
+            serial, track_id, prob, threshold, extra_llr=extra_llr,
+        )
+
+    def prune(self, serial: str, live_ids: set[str]) -> None:
+        self._gate.prune(serial, live_ids)
+
+
+VerdictGate = PersistenceGate | SequentialGate | FusionGate
 
 
 def build_verdict_gate(
@@ -157,19 +234,51 @@ def build_verdict_gate(
     beta: float = 0.1,
     temperature: float = 1.0,
     leak: float = 0.0,
+    kinematic_llr_path: Path | None = None,
+    fusion_weight: float = 1.0,
+    rotor_llr_path: Path | None = None,
+    rotor_weight: float = 1.0,
+    irstd_llr_path: Path | None = None,
+    irstd_weight: float = 1.0,
 ) -> VerdictGate:
-    """Construct the configured verdict gate (mofk default, sprt opt-in)."""
+    """Construct the configured verdict gate (mofk default, sprt/fusion opt-in).
+
+    ``fusion`` requires ``kinematic_llr_path`` (fit by
+    ``scripts/train_kinematic_llr.py``); the rotor and IRSTD arms are appended
+    when their model paths are given.
+    """
     if kind == "mofk":
         return PersistenceGate(k=k, m=m)
     if kind == "sprt":
         return SequentialGate(
             alpha=alpha, beta=beta, temperature=temperature, leak=leak,
         )
-    msg = f"unknown verdict gate {kind!r} (use 'mofk' or 'sprt')"
+    if kind == "fusion":
+        if kinematic_llr_path is None:
+            msg = "verdict gate 'fusion' requires kinematic_llr_path"
+            raise ValueError(msg)
+        from evio.detection.kinematic_llr import KinematicLLR
+        models: list[LLRArm] = [
+            KinematicLLR.load(kinematic_llr_path, weight=fusion_weight),
+        ]
+        if rotor_llr_path is not None:
+            from evio.detection.rotor_llr import RotorLLR
+            models.append(RotorLLR.load(rotor_llr_path, weight=rotor_weight))
+        if irstd_llr_path is not None:
+            models.append(
+                KinematicLLR.load(irstd_llr_path, weight=irstd_weight),
+            )
+        gate = SequentialGate(
+            alpha=alpha, beta=beta, temperature=temperature, leak=leak,
+        )
+        return FusionGate(models, gate)
+    msg = f"unknown verdict gate {kind!r} (use 'mofk', 'sprt', or 'fusion')"
     raise ValueError(msg)
 
 
 __all__ = [
+    "FusionGate",
+    "LLRArm",
     "PersistenceGate",
     "SequentialGate",
     "VerdictGate",
