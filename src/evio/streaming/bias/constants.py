@@ -149,6 +149,16 @@ R_N_DESCENT_FLOOR_EPS: dict[str, float] = {
 JUDGE_WIN_S = 6.0
 SCENE_STATIONARY_WIN_S = 30.0
 SCENE_STATIONARY_MAX_COV = 0.5
+# Below this mean delivered rate the CoV test is waived (trivially
+# stationary). A relative-variance brake is systematically harsher on quiet
+# scenes: at a few hundred ev/s one bird/gust doubles the rate and blows
+# CoV>0.5, freezing descent on exactly the cameras with the most headroom
+# (post-masking rig, 2026-07-02: 4 of 6 cams frozen at stationary:0 on
+# 100-700 ev/s genuine scene). At this scale there is no activity for the
+# brake to protect a descent trial from -- real judgment-corrupting scene
+# change shows up in kev/s, and a crossing target is covered by the
+# no-tracks-nearby gate.
+SCENE_STATIONARY_SPARSE_EPS = 5_000.0
 REVERT_COOLDOWN_S = 120.0
 COOLDOWN_MAX_S = 1800.0
 MCOH_DEGRADE_RATIO = 0.8  # post/pre coherent metric below this fails a trial
