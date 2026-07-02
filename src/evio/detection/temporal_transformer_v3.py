@@ -59,9 +59,11 @@ class TemporalTransformerV3Config:
     # forward is byte-identical and existing checkpoints load unchanged.
     state_enabled: bool = False
     state_dim: int = 256
-    # State-cell type: "gru" (nn.GRUCell, gated) or "lru" (diagonal linear
+    # State-cell type: "gru" (nn.GRUCell, gated), "lru" (diagonal linear
     # recurrence — gate-free, exports to OV as elementwise ops → cheaper/cleaner
-    # on the Arc; same (x, h) -> h call surface).
+    # on the Arc) or "lif" (soft leaky integrate-and-fire — decayed membrane
+    # with a sigmoid-spike soft reset, nonlinear yet still elementwise-only).
+    # All share the same (x, h) -> h call surface.
     state_cell: str = "gru"
 
 
@@ -81,6 +83,34 @@ class _LRUCell(nn.Module):
     def forward(self, x: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
         a = torch.sigmoid(self.log_decay)
         return a * h + (1.0 - a) * self.in_proj(x)
+
+
+class _LIFCell(nn.Module):
+    """Soft leaky integrate-and-fire state cell (Phase-5 bakeoff arm).
+
+    Membrane ``v = a*h + W x`` under a learned per-dim decay; a sigmoid
+    "soft spike" drains it toward the learned threshold (soft reset):
+    ``h = v - sigmoid(k*(v - thr)) * thr``. Unlike a hard-threshold LIF this
+    uses the smooth spike in the forward pass too, so it needs no surrogate
+    gradient and exports to OpenVINO as pure elementwise ops. Same
+    ``(x, h) -> h`` surface as GRUCell/_LRUCell; nonlinear where the LRU is
+    linear — the bakeoff question is whether that buys anything.
+    """
+
+    def __init__(
+        self, in_dim: int, state_dim: int, *, spike_sharpness: float = 4.0,
+    ) -> None:
+        super().__init__()
+        self.in_proj = nn.Linear(in_dim, state_dim)
+        self.log_decay = nn.Parameter(torch.zeros(state_dim))
+        self.threshold = nn.Parameter(torch.ones(state_dim))
+        self.spike_sharpness = spike_sharpness
+
+    def forward(self, x: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
+        a = torch.sigmoid(self.log_decay)
+        v = a * h + self.in_proj(x)
+        spike = torch.sigmoid(self.spike_sharpness * (v - self.threshold))
+        return v - spike * self.threshold
 
 
 class _StreamingMHA(nn.Module):
@@ -374,10 +404,13 @@ class TemporalTrackTransformerV3(nn.Module):
         # R5 explicit-state cell — created only when enabled so v3/v4
         # checkpoints (no state params) still load strict=True.
         if config.state_enabled:
-            self.state_cell: nn.Module | None = (
-                _LRUCell(config.embed_dim, config.state_dim)
-                if config.state_cell == "lru"
-                else nn.GRUCell(config.embed_dim, config.state_dim)
+            cells = {
+                "lru": _LRUCell,
+                "lif": _LIFCell,
+                "gru": nn.GRUCell,
+            }
+            self.state_cell: nn.Module | None = cells[config.state_cell](
+                config.embed_dim, config.state_dim,
             )
             self.state_proj: nn.Linear | None = nn.Linear(
                 config.state_dim, config.embed_dim,
