@@ -322,7 +322,12 @@ class TickResult:
     evidence: list[ProbeEvidence] = field(default_factory=list)
     records: list[dict] = field(default_factory=list)  # action-log rows
     status_lines: list[str] = field(default_factory=list)
-    # (serial, ("pixel_mask", slot, x, y, enabled)) DEM control messages.
-    # NOT BiasCommands — they never flow through the kernel or the
-    # ("bias", ...) worker path.
+    # (serial, ("pixel_mask", slot, x, y, enabled)) live DEM control messages
+    # (promote / probe-blink / release). NOT BiasCommands — they never flow
+    # through the kernel or the ("bias", ...) worker path.
     pixel_mask_msgs: list[tuple[str, tuple]] = field(default_factory=list)
+    # (serial, transition-log line) for the config-changing events only —
+    # a pixel masked ("masked") or released ("recovered"). The runtime
+    # rewrites config/dem_masks/<serial>.json and appends the transition log
+    # for each; a probe blink emits a pixel_mask_msg but NO transition.
+    stuck_transitions: list[tuple[str, dict]] = field(default_factory=list)

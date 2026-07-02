@@ -65,3 +65,51 @@ def geodetic_to_azel(
     az = math.degrees(math.atan2(east, north)) % 360.0
     el = math.degrees(math.atan2(up, math.hypot(east, north)))
     return az, el, rng
+
+
+def _ecef_to_geodetic(
+    x: float, y: float, z: float,
+) -> tuple[float, float, float]:
+    """ECEF -> (lat_deg, lon_deg, alt_m) via Bowring's closed form."""
+    lon = math.atan2(y, x)
+    p = math.hypot(x, y)
+    b = _A * (1.0 - _F)
+    ep2 = (_A * _A - b * b) / (b * b)
+    theta = math.atan2(_A * z, b * p)
+    lat = math.atan2(
+        z + ep2 * b * math.sin(theta) ** 3,
+        p - _E2 * _A * math.cos(theta) ** 3,
+    )
+    n = _A / math.sqrt(1.0 - _E2 * math.sin(lat) ** 2)
+    alt = p / math.cos(lat) - n
+    return math.degrees(lat), math.degrees(lon), alt
+
+
+def azel_range_to_geodetic(
+    observer_lat_deg: float,
+    observer_lon_deg: float,
+    observer_alt_m: float,
+    az_deg: float,
+    el_deg: float,
+    range_m: float,
+) -> tuple[float, float, float]:
+    """(lat, lon, alt) of a target at (az, el, range) from the observer.
+
+    Exact inverse of :func:`geodetic_to_azel` (ENU -> ECEF -> geodetic), so a
+    round trip reproduces the inputs. Use it to turn a desired camera-frame
+    sightline (azimuth + elevation + range) into a drone GPS waypoint.
+    """
+    az, el = math.radians(az_deg), math.radians(el_deg)
+    east = range_m * math.cos(el) * math.sin(az)
+    north = range_m * math.cos(el) * math.cos(az)
+    up = range_m * math.sin(el)
+    lat, lon = math.radians(observer_lat_deg), math.radians(observer_lon_deg)
+    slat, clat = math.sin(lat), math.cos(lat)
+    slon, clon = math.sin(lon), math.cos(lon)
+    ox, oy, oz = _geodetic_to_ecef(
+        observer_lat_deg, observer_lon_deg, observer_alt_m,
+    )
+    dx = -slon * east - slat * clon * north + clat * clon * up
+    dy = clon * east - slat * slon * north + clat * slon * up
+    dz = clat * north + slat * up
+    return _ecef_to_geodetic(ox + dx, oy + dy, oz + dz)
