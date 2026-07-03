@@ -194,3 +194,6 @@ ignore = [
 # network / discovery error must be logged and retried (or the feed disabled)
 # rather than crash the always-on run, so its boundaries are blind excepts.
 "src/evio/groundtruth/flytbase_feed.py" = ["BLE001"]
+# Same contract for its test-site sibling: the /api/stream consumer's
+# reconnect cycle catches everything, surfaces it via status(), and retries.
+"src/evio/groundtruth/testsite_feed.py" = ["BLE001"]
