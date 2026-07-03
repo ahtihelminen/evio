@@ -69,9 +69,11 @@ testsite = [
     "test-site-protocol",  # shared WS envelope + payload models (authoritative)
     "fastapi>=0.110",      # control sidecar (port 18001)
     "uvicorn>=0.29",       # ASGI server for the sidecar
+    "pyarrow>=17",         # gt_convert: flight-session parquet -> gt-*.ndjson
 ]
 
 dev = [
+    "pyarrow>=17",  # exercises the parquet -> gt-*.ndjson converter tests
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
     "ruff>=0.6",
