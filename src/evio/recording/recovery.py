@@ -30,6 +30,7 @@ import hashlib
 import logging
 import struct
 from pathlib import Path
+from typing import BinaryIO
 
 from evio.recording.footage_recorder import DAT_FILE_HEADER
 from evio.recording.manifest import ManifestEntry, append_entry, iter_manifest
@@ -77,6 +78,26 @@ def recover_orphans(root: Path, *, before: float | None = None) -> list[Path]:
     return recovered
 
 
+def _trailing_zero_records(f: BinaryIO, n_whole: int) -> int:
+    """Count the run of all-zero DT8 records at the end of the file."""
+    block = 1 << 20  # records per backward step (8 MB reads)
+    zeros = 0
+    end = n_whole
+    while end > 0:
+        start = max(0, end - block)
+        f.seek(_HEADER_LEN + start * _DT8_RECORD_BYTES)
+        chunk = f.read((end - start) * _DT8_RECORD_BYTES)
+        stripped = len(chunk.rstrip(b"\x00"))
+        # zero bytes after the last nonzero byte, rounded DOWN to whole
+        # records (a record merely ENDING in zeros is not a zero record)
+        zeros += (len(chunk) - stripped) // _DT8_RECORD_BYTES if stripped \
+            else (end - start)
+        if stripped:
+            break
+        end = start
+    return zeros
+
+
 def _reindex(path: Path) -> ManifestEntry | None:
     """Validate, truncate-to-whole-record, and rebuild a manifest entry.
 
@@ -99,6 +120,19 @@ def _reindex(path: Path) -> ManifestEntry | None:
                 "truncated %s: dropped %d trailing partial byte(s)",
                 path, trailing,
             )
+        # The mmap recorder preallocates 256 MB extents; a power cut leaves
+        # a ZERO tail that would decode as millions of fake t=0 events at
+        # (0,0). A real all-zero DT8 record is vanishingly rare, so trim the
+        # trailing zero run (backward, block-wise — never loads the file).
+        if n_whole:
+            zeros = _trailing_zero_records(f, n_whole)
+            if zeros:
+                n_whole -= zeros
+                f.truncate(_HEADER_LEN + n_whole * _DT8_RECORD_BYTES)
+                _log.warning(
+                    "truncated %s: dropped %d zero-filled record(s) "
+                    "(preallocated extent tail)", path, zeros,
+                )
         if n_whole == 0:
             f.close()
             path.unlink(missing_ok=True)

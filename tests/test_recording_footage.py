@@ -144,3 +144,59 @@ def test_empty_batch_is_a_noop(tmp_path: Path) -> None:
     recorder.write(empty)
     recorder.close()
     assert not (tmp_path / "event-0").exists()
+
+
+def test_degraded_disk_buffers_then_recovers(
+    tmp_path: Path, monkeypatch: object,
+) -> None:
+    """A transient allocation failure NEVER stops recording (2026-07-03).
+
+    While the disk path is broken, batches wait in the bounded pending
+    buffer with ``degraded=True``; once allocation works again, every
+    buffered batch lands, in order, with nothing lost.
+    """
+    import evio.recording.footage_recorder as fr
+
+    real = fr._preallocate
+    fail = {"on": True}
+
+    def flaky(fd: int, offset: int, length: int) -> None:
+        if fail["on"]:
+            raise OSError(28, "No space left on device")
+        real(fd, offset, length)
+
+    monkeypatch.setattr(fr, "_preallocate", flaky)
+    clock = {"t": _epoch(2026, 5, 21, 10)}
+    recorder = FootageRecorder(
+        root=tmp_path, camera_id="event-0", width=1280, height=720,
+        time_provider=lambda: clock["t"],
+    )
+    recorder.write(_batch(start_us=1_000, n=5))  # alloc fails -> buffered
+    assert recorder.degraded
+    assert recorder.current_path is None or recorder.degraded is not False
+    clock["t"] += 30.0  # past the retry backoff
+    fail["on"] = False
+    recorder.write(_batch(start_us=2_000, n=5))  # recovers + drains both
+    assert not recorder.degraded
+    assert recorder.dropped_bytes == 0
+    recorder.close()
+    dats = list(tmp_path.rglob("*.dat"))
+    assert len(dats) == 1
+    entries = list(iter_manifest(dats[0].parent / "manifest.jsonl"))
+    assert entries[0].start_ts_ns == 1_000 * 1000  # first batch preserved
+    assert entries[0].size_bytes == dats[0].stat().st_size
+
+
+def test_recovery_trims_preallocated_zero_tail(tmp_path: Path) -> None:
+    """A crash mid-extent leaves a zero tail; recovery must trim it."""
+    from evio.recording.footage_recorder import DAT_FILE_HEADER
+    from evio.recording.recovery import recover_orphans
+
+    day = tmp_path / "event-0" / "2026-05-21"
+    day.mkdir(parents=True)
+    path = day / "100000Z-093000Z.dat"
+    record = (12345).to_bytes(4, "little") + (0x10000064).to_bytes(4, "little")
+    path.write_bytes(DAT_FILE_HEADER + record * 3 + b"\x00" * (8 * 1000))
+    recovered = recover_orphans(tmp_path)
+    assert path in recovered
+    assert path.stat().st_size == len(DAT_FILE_HEADER) + 8 * 3
