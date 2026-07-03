@@ -466,6 +466,7 @@ data = [
     { name = "kagglehub", marker = "(python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version < '3.13' and sys_platform == 'darwin')" },
 ]
 dev = [
+    { name = "pyarrow", marker = "(python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version < '3.13' and sys_platform == 'darwin')" },
     { name = "pytest", marker = "(python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version < '3.13' and sys_platform == 'darwin')" },
     { name = "pytest-asyncio", marker = "(python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version < '3.13' and sys_platform == 'darwin')" },
     { name = "ruff", marker = "(python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version < '3.13' and sys_platform == 'darwin')" },
@@ -476,6 +477,7 @@ openvino = [
 ]
 testsite = [
     { name = "fastapi", marker = "(python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version < '3.13' and sys_platform == 'darwin')" },
+    { name = "pyarrow", marker = "(python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version < '3.13' and sys_platform == 'darwin')" },
     { name = "test-site-protocol", marker = "(python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version < '3.13' and sys_platform == 'darwin')" },
     { name = "uvicorn", marker = "(python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version < '3.13' and sys_platform == 'darwin')" },
 ]
@@ -497,6 +499,8 @@ requires-dist = [
     { name = "openvino", specifier = ">=2026.2.0" },
     { name = "openvino", marker = "extra == 'openvino'", specifier = ">=2025.0" },
     { name = "pandas", specifier = ">=2.3.3" },
+    { name = "pyarrow", marker = "extra == 'dev'", specifier = ">=17" },
+    { name = "pyarrow", marker = "extra == 'testsite'", specifier = ">=17" },
     { name = "pyserial", specifier = ">=3.5" },
     { name = "pyside6", specifier = ">=6.10.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
