@@ -31,6 +31,12 @@ PINNED_KNOBS: tuple[str, ...] = ("diff",)
 # (fleet railed at the box floor with rn 10-100x under budget, rig 2026-07-03).
 HARD_FLOOR_DIFF_ON = -85
 HARD_FLOOR_DIFF_OFF = -35
+# Scripted bias sweeps (edge bias_control) run with the storm ladder and every
+# runtime guard SUSPENDED, so the dynamic-guards argument above does not apply
+# there: sweeps keep the old static margins. A below-margin sweep needs an
+# explicit human decision, not an inherited constant.
+SWEEP_FLOOR_DIFF_ON = -60
+SWEEP_FLOOR_DIFF_OFF = -20
 
 # Preset box: runtime-reachable offsets relative to the regime preset value —
 # applies to the calibration knobs (fo / refr / hpf). The servoed threshold
@@ -216,6 +222,18 @@ STUCK_UNSTICK_S = 300.0
 # 64 probes opened simultaneously (the whole flood back for 15 s every 120 s).
 PROBE_BACKOFF_MAX_S = 4 * 3600.0
 PROBE_FAILS_PERMANENT = 5
+# Probe verdicts are judged on the DIRECTLY OBSERVED event rate at the probed
+# coordinate (the worker counts events at probation pixels and ships them in
+# PolaritySignals.probation_counts) — NEVER on re-nomination: a masked pixel's
+# 60 s hot-EMA decays toward zero, so re-nomination inside the 15 s blink is
+# physically impossible below ~25 kev/s (floor re-cross + 10 s sustain > 15 s)
+# and a still-stuck throttled pixel would read "healed" on every backed-off
+# probe (2026-07-04 adversarial review, 2 confirmed findings). Observed rate
+# above this refires the probe (counts as a failure); a blink with NO
+# probation report at all is INCONCLUSIVE — re-mask, keep the failure count,
+# never release. Half the absolute stuck floor: err toward keeping a mask
+# (cheap) over releasing a flooder (expensive).
+PROBE_REFIRE_EPS = 1_000.0
 # Stuck pixels beyond the 64 hardware DEM slots get a SOFTWARE mask: the
 # worker drops their events after recording (footage stays a lossless record
 # of what the sensor delivered) and before detection / render / the noise
@@ -231,9 +249,13 @@ NIGHT_LUX = 10.0
 DARK_LUX = 50.0
 TWILIGHT_SUN_ELEV_DEG = 6.0  # |elevation| below this (and above -6) = twilight
 NIGHT_SUN_ELEV_DEG = -6.0
-# Sun above this = day, PERIOD: the lux-keyed twilight/low_light branches are
-# unreachable (the on-chip lux readout can read <50 lx through the optics on
-# an overcast afternoon and whipsawed the fleet into twilight mid-day).
+# Sun at/above this = day, PERIOD: the lux-keyed twilight/low_light branches
+# are unreachable (the on-chip lux readout can read <50 lx through the optics
+# on an overcast afternoon and whipsawed the fleet into twilight mid-day).
+# Additionally the lux-keyed LOW_LIGHT vote requires sun corroboration (sun
+# unknown or inside the twilight cone) at ANY elevation — the (6, 10] band and
+# the ~60N winter (max elevation < 10 all day) otherwise leave the flaky-lux
+# night vote armed in broad daylight (2026-07-04 review).
 DAY_SUN_ELEV_DEG = 10.0
 REGIME_STREAK = 2  # classifier hysteresis (proven whipsaw fix)
 REGIME_DWELL_S = 300.0

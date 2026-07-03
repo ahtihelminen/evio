@@ -142,7 +142,11 @@ class Imx636CameraSource:
         import json
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+        except (OSError, ValueError) as exc:
+            print(
+                f"[warn] dem-mask config unreadable for {self.serial}: {exc}",
+                flush=True,
+            )
             return
         masks = data.get("masks", [])
         applied = 0
@@ -157,12 +161,26 @@ class Imx636CameraSource:
                     slot, imx636.PixelMask(int(m["x"]), int(m["y"]), True))
                 applied += 1
         # Software tier (schema v3): surfaced for the camera worker's
-        # post-record drop bitmap; nothing to program on-sensor.
+        # post-record drop bitmap; nothing to program on-sensor. Capped to
+        # match the registry's SOFT_MASK_MAX and bounds-filtered — a bad
+        # config entry must never crash the worker's bitmap seed (IndexError
+        # restart loop) or wrap a negative index onto the wrong pixel.
+        from evio.streaming.stuck_pixel_scan import SOFT_MASK_MAX
+        soft_entries = data.get("soft_masks", [])[:SOFT_MASK_MAX]
         self.soft_mask_coords = [
             (int(m["x"]), int(m["y"]))
-            for m in data.get("soft_masks", [])
+            for m in soft_entries
             if "x" in m and "y" in m
+            and 0 <= int(m["x"]) < 1280 and 0 <= int(m["y"]) < 720
         ]
+        skipped = len(soft_entries) - len(self.soft_mask_coords)
+        overflow = len(data.get("soft_masks", [])) - len(soft_entries)
+        if skipped or overflow:
+            print(
+                f"[warn] dem-mask config {self.serial}: skipped "
+                f"{skipped} out-of-range + {overflow} over-cap soft mask(s)",
+                flush=True,
+            )
         if applied or self.soft_mask_coords:
             print(
                 f"[imx636] reloaded {applied} DEM mask(s) + "
@@ -237,18 +255,22 @@ class Imx636CameraSource:
             )
             # Top-rate candidates take the 64 hardware slots (DEM saves
             # ERC/USB transport budget); the remainder become software
-            # masks the camera worker drops post-record.
+            # masks the camera worker drops post-record. PERSIST FIRST:
+            # if the config write fails, the except path below restores a
+            # sensor/worker state that matches the (old) durable store —
+            # mutating first would leave sensor, bitmap seed, registry and
+            # file mutually desynced.
             applied = candidates[:DEM_MAX_SLOTS]
             soft = candidates[DEM_MAX_SLOTS:]
-            for slot, c in enumerate(applied):
-                self.cam.set_pixel_mask(
-                    slot, imx636.PixelMask(c.x, c.y, True))
-            self.soft_mask_coords = [(c.x, c.y) for c in soft]
             mask_dir = self.dem_mask_dir or Path("config/dem_masks")
             now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             write_applied_masks(
                 mask_dir / f"{self.serial}.json", self.serial, applied,
                 now_iso, source="boot_scan", soft=soft)
+            for slot, c in enumerate(applied):
+                self.cam.set_pixel_mask(
+                    slot, imx636.PixelMask(c.x, c.y, True))
+            self.soft_mask_coords = [(c.x, c.y) for c in soft]
             total = int(on.sum() + off.sum())
             print(
                 f"[imx636] boot scan {self.serial}: masked {len(applied)} "
@@ -263,6 +285,11 @@ class Imx636CameraSource:
                 f"[warn] boot scan failed serial={self.serial} err={exc}; "
                 "restoring config masks", flush=True,
             )
+            # Restore from a clean slate: the scan released every slot, so
+            # stale soft coords or partial programming must not survive into
+            # the worker seed (_reload_dem_masks early-returns on a missing
+            # file and would otherwise leave them).
+            self.soft_mask_coords = []
             self._reload_dem_masks()
             return 0
         else:

@@ -352,7 +352,7 @@ def write_applied_masks(
                 "source": source, "first_masked": applied_at}
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({
+    doc = json.dumps({
         "serial": serial,
         "schema_version": 3,
         "updated_at": applied_at,
@@ -360,7 +360,12 @@ def write_applied_masks(
             {"slot": slot, **_entry(c)} for slot, c in enumerate(applied)
         ],
         "soft_masks": [_entry(c) for c in (soft or [])],
-    }, indent=2) + "\n")
+    }, indent=2) + "\n"
+    # Atomic (tmp + replace), same as the runtime's config rewrite: a worker
+    # reloading mid-write must never see a torn manifest.
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(doc)
+    tmp.replace(path)
 
 
 __all__ = [

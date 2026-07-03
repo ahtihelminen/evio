@@ -98,8 +98,13 @@ class PolaritySignals:
     subsample_factor: int = 1
     # Path-A DEM-mask nominations this window: (x, y, dominant_polarity)
     # with dominant_polarity 1=ON, 0=OFF. Already gated worker-side on
-    # rate + single-polarity + spatial isolation + not-in-a-track-box.
+    # rate + single-polarity + not-in-a-track-box.
     stuck_candidates: tuple[tuple[int, int, int], ...] = ()
+    # Directly observed event rate at each probation (probe-blink) pixel
+    # this window: (x, y, eps). The registry's probe VERDICT channel — a
+    # masked pixel's hot-EMA decays while masked, so nomination membership
+    # cannot judge a blink (false-clean below ~25 kev/s).
+    probation_counts: tuple[tuple[int, int, float], ...] = ()
 
     def rejected_eps(self, polarity: Polarity) -> float:
         n = self.rejected_on if polarity is Polarity.ON else self.rejected_off
