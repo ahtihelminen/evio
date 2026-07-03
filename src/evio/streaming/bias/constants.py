@@ -21,14 +21,23 @@ BIAS_RANGES: dict[str, tuple[int, int]] = {
 BIAS_NAMES: tuple[str, ...] = tuple(BIAS_RANGES)
 PINNED_KNOBS: tuple[str, ...] = ("diff",)
 
-# Hard floors with margin above the -85/-35 rails that caused the original
-# field storm. The kernel enforces these regardless of any loop or preset.
-HARD_FLOOR_DIFF_ON = -60
-HARD_FLOOR_DIFF_OFF = -20
+# Hard floors = the hardware rails (Elia 2026-07-03: "go all the way to the
+# hardware min/max — don't leave performance on the table"). The original -60
+# / -20 static margins dated from the pre-trial-engine field storm (e26967a
+# era, suppress-only controller, no masking, lossy transport); today every
+# descent step is a judged revertible trial behind the R_N floors, the budget
+# servo, fast suppress and the storm ladder — the DYNAMIC guards are the
+# protection, and the static margin was measurably the binding constraint
+# (fleet railed at the box floor with rn 10-100x under budget, rig 2026-07-03).
+HARD_FLOOR_DIFF_ON = -85
+HARD_FLOOR_DIFF_OFF = -35
 
-# Preset box: runtime-reachable offsets relative to the regime preset value.
+# Preset box: runtime-reachable offsets relative to the regime preset value —
+# applies to the calibration knobs (fo / refr / hpf). The servoed threshold
+# pair is deliberately NOT box-bound: it may use the full hardware range.
 BOX_LO = -12
 BOX_HI = 25
+FULL_RANGE_KNOBS: tuple[str, ...] = ("diff_on", "diff_off")
 
 # --- Budgets (the "noise level we want", ev/s per camera; plan §16.6) -------
 # Re-based 2026-07-03 (Elia): every earlier value was chosen while the
@@ -193,12 +202,39 @@ STUCK_PROBE_PERIOD_S = 120.0  # cadence of the active unmask-and-observe probe
 # masked life (confirmed by a clean probe) is released.
 STUCK_PROBE_WINDOW_S = 15.0
 STUCK_UNSTICK_S = 300.0
+# Probe backoff (rig 2026-07-03): with 40-64 long-lived oscillators per
+# camera, the fixed 120 s cadence re-admitted every flooder at 12.5% duty —
+# ~100-200 kev/s of standing fake noise that consumed the OFF budget (rn_off
+# read 88-236k on a 25-56 kev/s scene), so the servo balanced diff_off against
+# the probe cycle instead of the sky. Each consecutive FAILED probe (the pixel
+# re-fired) doubles that pixel's probe period up to PROBE_BACKOFF_MAX_S; after
+# PROBE_FAILS_PERMANENT consecutive failures the pixel is PERMANENT and never
+# runtime-probed again — the boot-time rescan (release-all + re-detect at
+# every camera open) is the healing path for permanents. A clean probe resets
+# the failure count. Probes also open at most ONE at a time per camera:
+# from_config seeded every slot's timer to the same instant, so previously all
+# 64 probes opened simultaneously (the whole flood back for 15 s every 120 s).
+PROBE_BACKOFF_MAX_S = 4 * 3600.0
+PROBE_FAILS_PERMANENT = 5
+# Stuck pixels beyond the 64 hardware DEM slots get a SOFTWARE mask: the
+# worker drops their events after recording (footage stays a lossless record
+# of what the sensor delivered) and before detection / render / the noise
+# estimator. The cap is a sanity bound — the nomination triad (sustained fixed
+# coordinate + >99% single-polarity + not-under-a-track-box) keeps diffuse
+# storms out by construction. A software mask cannot save ERC/USB transport
+# budget (the events still cross the wire), so hardware slots are preferred:
+# when a DEM slot frees, the longest-lived software mask is promoted into it.
+SOFT_MASK_MAX = 1024
 
 # --- Regimes ------------------------------------------------------------------
 NIGHT_LUX = 10.0
 DARK_LUX = 50.0
 TWILIGHT_SUN_ELEV_DEG = 6.0  # |elevation| below this (and above -6) = twilight
 NIGHT_SUN_ELEV_DEG = -6.0
+# Sun above this = day, PERIOD: the lux-keyed twilight/low_light branches are
+# unreachable (the on-chip lux readout can read <50 lx through the optics on
+# an overcast afternoon and whipsawed the fleet into twilight mid-day).
+DAY_SUN_ELEV_DEG = 10.0
 REGIME_STREAK = 2  # classifier hysteresis (proven whipsaw fix)
 REGIME_DWELL_S = 300.0
 RAMP_MAX_STEP = 2  # bumpless transfer: registers per write interval
@@ -231,7 +267,13 @@ LOCKIN_STEEP_NAT_PER_REG = 0.12  # above this = noise-dominated
 
 # --- Write hygiene ------------------------------------------------------------
 WRITE_MIN_SPACING_S = 2.0  # per knob per camera (the 2 s cap; never exempt)
-WRITE_BUDGET_REG = 12  # rate-of-change cap ...
+# Sized so the descent speed ramp is not defeated by its own budget: the ramp
+# takes up to STEP_SLOW_MAX_RAMP=8 registers per SLOW_RAMP_SPACING_S=12 s, so
+# the old 12-reg budget throttled it after ~1.5 steps per 10 min (rig
+# 2026-07-03: 129-186 write_budget rejections on the ramping cameras). 48
+# allows ~6 ramp steps per window while still capping a pathological
+# regulate-loop; every step remains a judged, revertible trial.
+WRITE_BUDGET_REG = 48  # rate-of-change cap ...
 WRITE_BUDGET_WIN_S = 600.0  # ... per knob per this window (ladder/ramps exempt)
 SETTLE_S = 0.1  # register write settle (I2C-class transaction)
 

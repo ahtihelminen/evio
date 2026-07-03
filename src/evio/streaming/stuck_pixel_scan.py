@@ -53,6 +53,10 @@ DEM_MAX_SLOTS = 64  # = imx636.PIXEL_MASK_SLOTS
 STUCK_MASK_EPS_MIN = 2_000.0
 STUCK_AMBIENT_FACTOR = 30.0
 HOT_PX_RATE_EPS = 100.0  # ambient pool = active pixels at/below this rate
+# Software-mask tier cap (mirrors bias.constants.SOFT_MASK_MAX): qualifying
+# pixels beyond the 64 DEM slots go to the manifest's soft_masks array; the
+# camera worker drops their events post-record.
+SOFT_MASK_MAX = 1024
 ISOLATION_FACTOR = 10.0  # an isolated pixel's neighbours read >= this lower
 # AFK notch around the mains harmonic (31-55 Hz is valid; NOT 50-120 Hz, which
 # eats low-RPM blade-pass combs).
@@ -325,31 +329,37 @@ def write_inventory(path: Path, inventory: dict) -> None:
 
 def write_applied_masks(
     path: Path, serial: str, applied: list[StuckCandidate], applied_at: str,
-    *, source: str = "factory",
+    *, source: str = "factory", soft: list[StuckCandidate] | None = None,
 ) -> None:
-    """Persist the operator-vetted DEM masks as the durable config (schema v2).
+    """Persist the operator-vetted masks as the durable config (schema v3).
 
     The on-sensor DEM is volatile (lost when the scan closes the camera), so
     ``--apply`` alone never reaches ``run_ops``; ``Imx636CameraSource`` reloads
     THIS manifest at open. Same schema the live autotuner round-trips
     (``config/dem_masks/<serial>.json``): factory masks take slots 0..N-1 and
     are tagged ``source: "factory"`` so the autotuner's auto masks slot after
-    them (the boot-time rescan writes ``source: "boot_scan"``). Distinct from
-    the raw inventory of candidates.
+    them (the boot-time rescan writes ``source: "boot_scan"``). ``soft`` is
+    the software tier — qualifying pixels beyond the 64 hardware slots; the
+    camera worker drops their events post-record. Distinct from the raw
+    inventory of candidates.
     """
     import json
+
+    def _entry(c: StuckCandidate) -> dict:
+        return {"x": c.x, "y": c.y,
+                "dominant_polarity": "ON" if c.polarity else "OFF",
+                "rate_eps": round(c.rate_eps),
+                "source": source, "first_masked": applied_at}
+
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({
         "serial": serial,
-        "schema_version": 2,
+        "schema_version": 3,
         "updated_at": applied_at,
         "masks": [
-            {"slot": slot, "x": c.x, "y": c.y,
-             "dominant_polarity": "ON" if c.polarity else "OFF",
-             "rate_eps": round(c.rate_eps),
-             "source": source, "first_masked": applied_at}
-            for slot, c in enumerate(applied)
+            {"slot": slot, **_entry(c)} for slot, c in enumerate(applied)
         ],
+        "soft_masks": [_entry(c) for c in (soft or [])],
     }, indent=2) + "\n")
 
 
