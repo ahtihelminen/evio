@@ -31,12 +31,15 @@ BOX_LO = -12
 BOX_HI = 25
 
 # --- Budgets (the "noise level we want", ev/s per camera; plan §16.6) -------
+# Re-based 2026-07-03 (Elia): every earlier value was chosen while the
+# transport silently dropped ~98% of events (rates read ~50x low). Day = 300k
+# total/cam on lossless capture; other regimes keep their pre-fix ratios.
 DEFAULT_BUDGETS_EPS: dict[str, float] = {
-    "clear_day": 75_000.0,     # total per camera; per-polarity = /2 = 37.5k
-    "overcast_day": 75_000.0,  # lowered from 150k (Elia, 2026-07-01)
-    "twilight": 250_000.0,  # IMX636 noise peaks near 3-5 lx on-chip (dusk)
-    "rain_clutter": 100_000.0,
-    "low_light": 120_000.0,
+    "clear_day": 300_000.0,    # total per camera; per-polarity = /2 = 150k
+    "overcast_day": 300_000.0,
+    "twilight": 500_000.0,  # IMX636 noise peaks near 3-5 lx on-chip (dusk)
+    "rain_clutter": 200_000.0,
+    "low_light": 250_000.0,
 }
 CEIL_FACTOR = 1.5  # fast-loop trigger = CEIL_FACTOR x per-polarity budget
 DEADBAND_LN = 0.3  # slow servo acts only when ln(BGT/R_N) exceeds this
@@ -142,12 +145,14 @@ SLOW_RAMP_SPACING_S = 12.0
 # descend to maximum sensitivity for far / single-pixel drones (the speed
 # ramp). Mode-C re-tunes these per camera from the clean per-pixel noise
 # floor (clean cam 4110038334 is the cross-check).
+# Scaled in lockstep with the 2026-07-03 budget re-base (floor/budget
+# ratio preserved per regime).
 R_N_DESCENT_FLOOR_EPS: dict[str, float] = {
-    "clear_day": 2_000.0,
-    "overcast_day": 2_000.0,
-    "twilight": 4_000.0,
-    "rain_clutter": 5_000.0,
-    "low_light": 2_000.0,
+    "clear_day": 8_000.0,
+    "overcast_day": 8_000.0,
+    "twilight": 8_000.0,
+    "rain_clutter": 10_000.0,
+    "low_light": 4_000.0,
 }
 JUDGE_WIN_S = 6.0
 SCENE_STATIONARY_WIN_S = 30.0
