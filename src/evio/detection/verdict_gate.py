@@ -163,6 +163,10 @@ class SequentialGate:
             return True
         return key in self._fired  # PENDING — latched DRONE rides it out
 
+    def score(self, serial: str, track_id: str) -> float:
+        """Current accumulated log-odds S for a track (introspection only)."""
+        return self._scores.get((serial, track_id), 0.0)
+
     def prune(self, serial: str, live_ids: set[str]) -> None:
         """Drop state for tracks of ``serial`` that are no longer alive."""
         stale = [
@@ -217,6 +221,10 @@ class FusionGate:
         return self._gate.update(
             serial, track_id, prob, threshold, extra_llr=extra_llr,
         )
+
+    def score(self, serial: str, track_id: str) -> float:
+        """Accumulated fused log-odds S for a track (introspection only)."""
+        return self._gate.score(serial, track_id)
 
     def prune(self, serial: str, live_ids: set[str]) -> None:
         self._gate.prune(serial, live_ids)
