@@ -164,3 +164,19 @@ def test_factory_fusion_requires_path_then_loads(tmp_path: Path) -> None:
     # Drop-in contract: update(...)->bool, prune(...).
     assert gate.update("cam", "t1", 0.95, _THRESHOLD, features={"f": 1.0})
     gate.prune("cam", {"t1"})
+
+
+def test_fusion_clamp_bounds_arm_evidence() -> None:
+    """A transient hugely-negative arm must not KILL a latched track."""
+    unclamped = FusionGate([_one_feature_llr(1.0)], SequentialGate(
+        alpha=0.05, beta=0.1))
+    clamped = FusionGate([_one_feature_llr(1.0)], SequentialGate(
+        alpha=0.05, beta=0.1), clamp=2.0)
+    for gate in (unclamped, clamped):
+        assert gate.update("cam", "t1", 0.95, _THRESHOLD,
+                           features={"f": 0.0}) is True  # latched
+    sour = {"f": -8.0}  # one bad kinematic window
+    assert unclamped.update("cam", "t1", 0.6, _THRESHOLD,
+                            features=sour) is False  # dragged to KILL
+    assert clamped.update("cam", "t1", 0.6, _THRESHOLD,
+                          features=sour) is True    # latch survives

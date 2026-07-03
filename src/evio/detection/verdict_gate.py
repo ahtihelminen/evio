@@ -198,9 +198,16 @@ class FusionGate:
 
     def __init__(
         self, models: Sequence[LLRArm], gate: SequentialGate,
+        *, clamp: float | None = None,
     ) -> None:
         self._models = tuple(models)
         self._gate = gate
+        # Per-window bound on the summed arm evidence. Unbounded negative
+        # arm evidence can drag a LATCHED track from A all the way to the
+        # KILL boundary in a couple of windows (offline A/B: flicker 1.51
+        # un-fires per fired track vs SPRT's 0.00) — a transient kinematic
+        # sour spell shouldn't outvote the accumulated appearance evidence.
+        self._clamp = clamp
 
     @property
     def upper(self) -> float:
@@ -218,6 +225,8 @@ class FusionGate:
         extra_llr = (
             sum(m.llr(features) for m in self._models) if features else 0.0
         )
+        if self._clamp is not None:
+            extra_llr = max(-self._clamp, min(self._clamp, extra_llr))
         return self._gate.update(
             serial, track_id, prob, threshold, extra_llr=extra_llr,
         )
@@ -248,6 +257,7 @@ def build_verdict_gate(
     rotor_weight: float = 1.0,
     irstd_llr_path: Path | None = None,
     irstd_weight: float = 1.0,
+    fusion_clamp: float | None = 2.0,
 ) -> VerdictGate:
     """Construct the configured verdict gate (mofk default, sprt/fusion opt-in).
 
@@ -279,7 +289,7 @@ def build_verdict_gate(
         gate = SequentialGate(
             alpha=alpha, beta=beta, temperature=temperature, leak=leak,
         )
-        return FusionGate(models, gate)
+        return FusionGate(models, gate, clamp=fusion_clamp)
     msg = f"unknown verdict gate {kind!r} (use 'mofk', 'sprt', or 'fusion')"
     raise ValueError(msg)
 
