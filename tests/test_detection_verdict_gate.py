@@ -180,3 +180,13 @@ def test_fusion_clamp_bounds_arm_evidence() -> None:
                             features=sour) is False  # dragged to KILL
     assert clamped.update("cam", "t1", 0.6, _THRESHOLD,
                           features=sour) is True    # latch survives
+
+
+def test_fusion_clamp_is_negative_only() -> None:
+    """Positive arm evidence stays unbounded — it carries weak-appearance
+    drones over the line (2026-07-03 real-footage finding)."""
+    gate = FusionGate([_one_feature_llr(1.0)], SequentialGate(
+        alpha=0.05, beta=0.1), clamp=2.0)
+    # Huge positive evidence fires in ONE window even at modest prob.
+    assert gate.update("cam", "t1", 0.6, _THRESHOLD,
+                       features={"f": 10.0}) is True

@@ -202,11 +202,14 @@ class FusionGate:
     ) -> None:
         self._models = tuple(models)
         self._gate = gate
-        # Per-window bound on the summed arm evidence. Unbounded negative
-        # arm evidence can drag a LATCHED track from A all the way to the
-        # KILL boundary in a couple of windows (offline A/B: flicker 1.51
-        # un-fires per fired track vs SPRT's 0.00) — a transient kinematic
-        # sour spell shouldn't outvote the accumulated appearance evidence.
+        # ASYMMETRIC per-window bound on the summed arm evidence, negative
+        # side only. Unbounded negative evidence drags a LATCHED track to
+        # the KILL boundary in a couple of windows (offline A/B: flicker
+        # 1.51/track vs SPRT's 0.00). The positive side stays UNBOUNDED:
+        # on the 2026-07-03 real-footage A/B, corroborating arm evidence is
+        # what carried true drone tracks over the line under a conservative
+        # fine-tuned head (28/32 flight-fires kept at tau 0.95 unclamped vs
+        # 0 with a symmetric clamp) — capping it traded recall for nothing.
         self._clamp = clamp
 
     @property
@@ -226,7 +229,7 @@ class FusionGate:
             sum(m.llr(features) for m in self._models) if features else 0.0
         )
         if self._clamp is not None:
-            extra_llr = max(-self._clamp, min(self._clamp, extra_llr))
+            extra_llr = max(-self._clamp, extra_llr)
         return self._gate.update(
             serial, track_id, prob, threshold, extra_llr=extra_llr,
         )
