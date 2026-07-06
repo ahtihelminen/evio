@@ -98,8 +98,13 @@ class PolaritySignals:
     subsample_factor: int = 1
     # Path-A DEM-mask nominations this window: (x, y, dominant_polarity)
     # with dominant_polarity 1=ON, 0=OFF. Already gated worker-side on
-    # rate + single-polarity + spatial isolation + not-in-a-track-box.
+    # rate + single-polarity + not-in-a-track-box.
     stuck_candidates: tuple[tuple[int, int, int], ...] = ()
+    # Directly observed event rate at each probation (probe-blink) pixel
+    # this window: (x, y, eps). The registry's probe VERDICT channel — a
+    # masked pixel's hot-EMA decays while masked, so nomination membership
+    # cannot judge a blink (false-clean below ~25 kev/s).
+    probation_counts: tuple[tuple[int, int, float], ...] = ()
 
     def rejected_eps(self, polarity: Polarity) -> float:
         n = self.rejected_on if polarity is Polarity.ON else self.rejected_off
@@ -192,13 +197,21 @@ class PresetBox:
         return int(getattr(self, knob))
 
     def lo(self, knob: str) -> int:
-        from .constants import BOX_LO
+        from .constants import BIAS_RANGES, BOX_LO, FULL_RANGE_KNOBS
 
+        # The servoed threshold pair may use the full hardware range (Elia
+        # 2026-07-03: the ±(-12/+25) box was the fleet-wide binding rail
+        # with rn 10-100x under budget — the dynamic guards are the
+        # protection). Calibration knobs keep the preset-relative box.
+        if knob in FULL_RANGE_KNOBS:
+            return BIAS_RANGES[knob][0]
         return self.center(knob) + BOX_LO
 
     def hi(self, knob: str) -> int:
-        from .constants import BOX_HI
+        from .constants import BIAS_RANGES, BOX_HI, FULL_RANGE_KNOBS
 
+        if knob in FULL_RANGE_KNOBS:
+            return BIAS_RANGES[knob][1]
         return self.center(knob) + BOX_HI
 
 
@@ -326,12 +339,15 @@ class TickResult:
     evidence: list[ProbeEvidence] = field(default_factory=list)
     records: list[dict] = field(default_factory=list)  # action-log rows
     status_lines: list[str] = field(default_factory=list)
-    # (serial, ("pixel_mask", slot, x, y, enabled)) live DEM control messages
-    # (promote / probe-blink / release). NOT BiasCommands — they never flow
-    # through the kernel or the ("bias", ...) worker path.
+    # (serial, ("pixel_mask", slot, x, y, enabled, probe)) live mask control
+    # messages (promote / probe-blink / release; slot == -1 = software tier).
+    # NOT BiasCommands — they never flow through the kernel or the
+    # ("bias", ...) worker path.
     pixel_mask_msgs: list[tuple[str, tuple]] = field(default_factory=list)
-    # (serial, transition-log line) for the config-changing events only —
-    # a pixel masked ("masked") or released ("recovered"). The runtime
-    # rewrites config/dem_masks/<serial>.json and appends the transition log
-    # for each; a probe blink emits a pixel_mask_msg but NO transition.
+    # (serial, transition-log line) for the lifecycle events only — a pixel
+    # masked ("masked") or released ("recovered"). A probe blink emits a
+    # pixel_mask_msg but NO transition.
     stuck_transitions: list[tuple[str, dict]] = field(default_factory=list)
+    # Serials whose durable mask store must be rewritten this tick (add /
+    # release / hardware promotion / probe-backoff bookkeeping).
+    stuck_config_dirty: set[str] = field(default_factory=set)

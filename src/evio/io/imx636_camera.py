@@ -76,6 +76,14 @@ class Imx636CameraSource:
     # the mask persistence mechanism. None -> the default config/dem_masks/ dir.
     dem_mask_dir: Path | None = None
 
+    # Software stuck-pixel masks (the tier beyond the 64 DEM slots), parsed
+    # from the same config file at open / boot scan. The camera worker seeds
+    # its post-record event-drop bitmap from this; the driver itself never
+    # filters (recording must stay a lossless record of the sensor stream).
+    soft_mask_coords: list[tuple[int, int]] = field(
+        init=False, default_factory=list,
+    )
+
     cam: Any = field(init=False, default=None)
     width: int = field(init=False, default=0)
     height: int = field(init=False, default=0)
@@ -134,7 +142,11 @@ class Imx636CameraSource:
         import json
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+        except (OSError, ValueError) as exc:
+            print(
+                f"[warn] dem-mask config unreadable for {self.serial}: {exc}",
+                flush=True,
+            )
             return
         masks = data.get("masks", [])
         applied = 0
@@ -148,9 +160,34 @@ class Imx636CameraSource:
                 self.cam.set_pixel_mask(
                     slot, imx636.PixelMask(int(m["x"]), int(m["y"]), True))
                 applied += 1
-        if applied:
-            print(f"[imx636] reloaded {applied} DEM mask(s) for {self.serial}",
-                  flush=True)
+        # Software tier (schema v3): surfaced for the camera worker's
+        # post-record drop bitmap; nothing to program on-sensor. Capped to
+        # match the registry's SOFT_MASK_MAX and bounds-filtered — a bad
+        # config entry must never crash the worker's bitmap seed (IndexError
+        # restart loop) or wrap a negative index onto the wrong pixel.
+        from evio.streaming.stuck_pixel_scan import SOFT_MASK_MAX
+        soft_entries = data.get("soft_masks", [])[:SOFT_MASK_MAX]
+        self.soft_mask_coords = [
+            (int(m["x"]), int(m["y"]))
+            for m in soft_entries
+            if "x" in m and "y" in m
+            and 0 <= int(m["x"]) < 1280 and 0 <= int(m["y"]) < 720
+        ]
+        skipped = len(soft_entries) - len(self.soft_mask_coords)
+        overflow = len(data.get("soft_masks", [])) - len(soft_entries)
+        if skipped or overflow:
+            print(
+                f"[warn] dem-mask config {self.serial}: skipped "
+                f"{skipped} out-of-range + {overflow} over-cap soft mask(s)",
+                flush=True,
+            )
+        if applied or self.soft_mask_coords:
+            print(
+                f"[imx636] reloaded {applied} DEM mask(s) + "
+                f"{len(self.soft_mask_coords)} software mask(s) "
+                f"for {self.serial}",
+                flush=True,
+            )
 
     def boot_scan_stuck_pixels(self, duration_s: float) -> int:
         """Release all DEM masks, watch the raw stream, mask fresh flooders.
@@ -170,6 +207,7 @@ class Imx636CameraSource:
             return 0
         from evio.streaming.stuck_pixel_scan import (
             DEM_MAX_SLOTS,
+            SOFT_MASK_MAX,
             boot_candidates,
             write_applied_masks,
         )
@@ -211,19 +249,32 @@ class Imx636CameraSource:
                 self._reload_dem_masks()
                 return 0
             elapsed = max(time.monotonic() - start, 1e-6)
-            applied, diag = boot_candidates(on, off, elapsed, self.width)
-            for slot, c in enumerate(applied):
-                self.cam.set_pixel_mask(
-                    slot, imx636.PixelMask(c.x, c.y, True))
+            candidates, diag = boot_candidates(
+                on, off, elapsed, self.width,
+                max_masks=DEM_MAX_SLOTS + SOFT_MASK_MAX,
+            )
+            # Top-rate candidates take the 64 hardware slots (DEM saves
+            # ERC/USB transport budget); the remainder become software
+            # masks the camera worker drops post-record. PERSIST FIRST:
+            # if the config write fails, the except path below restores a
+            # sensor/worker state that matches the (old) durable store —
+            # mutating first would leave sensor, bitmap seed, registry and
+            # file mutually desynced.
+            applied = candidates[:DEM_MAX_SLOTS]
+            soft = candidates[DEM_MAX_SLOTS:]
             mask_dir = self.dem_mask_dir or Path("config/dem_masks")
             now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             write_applied_masks(
                 mask_dir / f"{self.serial}.json", self.serial, applied,
-                now_iso, source="boot_scan")
+                now_iso, source="boot_scan", soft=soft)
+            for slot, c in enumerate(applied):
+                self.cam.set_pixel_mask(
+                    slot, imx636.PixelMask(c.x, c.y, True))
+            self.soft_mask_coords = [(c.x, c.y) for c in soft]
             total = int(on.sum() + off.sum())
             print(
                 f"[imx636] boot scan {self.serial}: masked {len(applied)} "
-                f"px of {total / elapsed:.0f} ev/s "
+                f"px (+{len(soft)} software) of {total / elapsed:.0f} ev/s "
                 f"(ambient={diag['ambient_eps']:.0f} "
                 f"floor={diag['floor_eps']:.0f} "
                 f"spared_mixed={diag['over_floor_mixed']})",
@@ -234,6 +285,11 @@ class Imx636CameraSource:
                 f"[warn] boot scan failed serial={self.serial} err={exc}; "
                 "restoring config masks", flush=True,
             )
+            # Restore from a clean slate: the scan released every slot, so
+            # stale soft coords or partial programming must not survive into
+            # the worker seed (_reload_dem_masks early-returns on a missing
+            # file and would otherwise leave them).
+            self.soft_mask_coords = []
             self._reload_dem_masks()
             return 0
         else:
