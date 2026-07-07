@@ -21,6 +21,9 @@ Schema:
           yaw_deg: 0.0
           pitch_deg: 0.0
           roll_deg: 0.0
+        max_range_m: 800.0   # optional — operator-tunable useful detection
+                             # range for the fov_publish cone (NOT calibration;
+                             # see evio.geometry.fov)
 """
 
 from __future__ import annotations
@@ -40,6 +43,9 @@ from evio.geometry.mount import MountPose
 class CameraCalibration:
     intrinsics: CameraIntrinsics
     extrinsics: CameraExtrinsics
+    # Operator-authored useful detection range for the fov_publish cone
+    # (project_test_site_calibration_fov); None -> the fov builder's default.
+    max_range_m: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +73,7 @@ def _from_dict(data: dict[str, Any]) -> Calibration:
         serial: CameraCalibration(
             intrinsics=CameraIntrinsics(**entry["intrinsics"]),
             extrinsics=CameraExtrinsics(**entry["extrinsics"]),
+            max_range_m=entry.get("max_range_m"),
         )
         for serial, entry in data["cameras"].items()
     }
@@ -77,13 +84,20 @@ def _to_dict(calibration: Calibration) -> dict[str, Any]:
     return {
         "mount": asdict(calibration.mount),
         "cameras": {
-            serial: {
-                "intrinsics": _strip_nones(asdict(cam.intrinsics)),
-                "extrinsics": asdict(cam.extrinsics),
-            }
+            serial: _camera_to_dict(cam)
             for serial, cam in calibration.cameras.items()
         },
     }
+
+
+def _camera_to_dict(cam: CameraCalibration) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "intrinsics": _strip_nones(asdict(cam.intrinsics)),
+        "extrinsics": asdict(cam.extrinsics),
+    }
+    if cam.max_range_m is not None:
+        entry["max_range_m"] = cam.max_range_m
+    return entry
 
 
 def _strip_nones(d: dict[str, Any]) -> dict[str, Any]:

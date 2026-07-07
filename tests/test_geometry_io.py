@@ -40,6 +40,7 @@ def _sample() -> Calibration:
                 extrinsics=CameraExtrinsics(
                     yaw_deg=60.0, pitch_deg=0.0, roll_deg=0.5,
                 ),
+                max_range_m=550.0,
             ),
             "mono-cam-0": CameraCalibration(
                 intrinsics=CameraIntrinsics(
@@ -70,3 +71,14 @@ def test_optional_intrinsic_centre_omitted_in_yaml(tmp_path: Path) -> None:
     evt0_block = text.split("evt-cam-0:")[1].split("evt-cam-1:")[0]
     assert "cx:" not in evt0_block
     assert "cy:" not in evt0_block
+
+
+def test_optional_max_range_omitted_when_unset(tmp_path: Path) -> None:
+    cal = _sample()
+    path = tmp_path / "cal.yaml"
+    save_calibration(cal, path)
+    text = path.read_text()
+    evt0_block = text.split("evt-cam-0:")[1].split("evt-cam-1:")[0]
+    evt1_block = text.split("evt-cam-1:")[1].split("mono-cam-0:")[0]
+    assert "max_range_m:" not in evt0_block
+    assert "max_range_m: 550.0" in evt1_block
