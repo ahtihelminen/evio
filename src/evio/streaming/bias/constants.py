@@ -37,6 +37,33 @@ HARD_FLOOR_DIFF_OFF = -35
 # explicit human decision, not an inherited constant.
 SWEEP_FLOOR_DIFF_ON = -60
 SWEEP_FLOOR_DIFF_OFF = -20
+# fo sweep floor (2026-07-03 incident): a scripted/ramped fo staircase to -35
+# on a lit scene collapses the photoreceptor bandwidth 3-4 decades — the
+# camera is effectively blind. Response data: collapse became total ~fo<=-20
+# on a clear-day scene. Sweeps below this need an explicit per-knob spec
+# override (SweepBounds.allow_below_floor), never a default.
+SWEEP_FLOOR_FO = -20
+# Min-rate (blindness) abort for sweep runners: whole-frame delivered below
+# this for N consecutive judged steps aborts + restores pre-sweep registers.
+# Distinct from censored-abort (too HIGH): silence must never judge happily.
+SWEEP_MIN_RATE_EPS = 2_000.0
+SWEEP_MIN_RATE_STEPS = 2
+
+# --- Rate-collapse (blindness) watchdog — controller-side G2 -----------------
+# After ANY applied write, if delivered collapses below RATE_COLLAPSE_FRACTION
+# of the pre-write-burst baseline (a >=30 s-quiet median, frozen while writes
+# are in flight so a staircase can't walk the baseline down with itself) and
+# stays there RATE_COLLAPSE_HOLD_S, the controller alarms + reverts to the
+# last SIGHTED register state. Keyed RELATIVE to the pre-write rate so the
+# legit quiet-sky descent (R_N low, R_hot ~0) is never fought; inert when the
+# baseline itself is below RATE_COLLAPSE_BASELINE_MIN_EPS (a genuinely dark
+# night scene has nothing for the watchdog to protect — and low-side lies
+# are indistinguishable from night there).
+RATE_COLLAPSE_FRACTION = 0.01
+RATE_COLLAPSE_HOLD_S = 10.0
+RATE_COLLAPSE_BASELINE_MIN_EPS = 1_000.0
+RATE_COLLAPSE_BASELINE_QUIET_S = 30.0
+RATE_COLLAPSE_COOLDOWN_S = 60.0
 
 # Preset box: runtime-reachable offsets relative to the regime preset value —
 # applies to the calibration knobs (fo / refr / hpf). The servoed threshold
