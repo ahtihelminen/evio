@@ -30,6 +30,7 @@ class Reason(StrEnum):
     REGULATE_DOWN = "regulate_down"  # slow-servo descent trial
     RAMP = "ramp"  # bumpless regime transfer
     STORM = "storm"  # jump to the regime's vetted STORM vector
+    BACKOFF = "backoff"  # self-inflicted storm: retreat above the cliff
     PROBE = "probe"  # blink-probe raise (always reverted)
     REVERT = "revert"  # trial/probe revert to pre-state
     DITHER = "dither"  # PRBS dither around the setpoint
@@ -192,6 +193,10 @@ class PresetBox:
     storm_diff_on: int = 40  # vetted heavy-suppression jump point
     storm_diff_off: int = 60
     asym_allowed: bool = False
+    # Per-(serial, regime) cliff floor the controller injects each tick
+    # (TrimStore memory, not a preset property — excluded from yaml), so
+    # every downward clamp through lo() inherits it with no other change.
+    floor: dict[str, int] = field(default_factory=dict)
 
     def center(self, knob: str) -> int:
         return int(getattr(self, knob))
@@ -204,8 +209,10 @@ class PresetBox:
         # with rn 10-100x under budget — the dynamic guards are the
         # protection). Calibration knobs keep the preset-relative box.
         if knob in FULL_RANGE_KNOBS:
-            return BIAS_RANGES[knob][0]
-        return self.center(knob) + BOX_LO
+            lo = BIAS_RANGES[knob][0]
+        else:
+            lo = self.center(knob) + BOX_LO
+        return max(lo, self.floor.get(knob, lo))
 
     def hi(self, knob: str) -> int:
         from .constants import BIAS_RANGES, BOX_HI, FULL_RANGE_KNOBS
@@ -262,6 +269,15 @@ class StormState:
     below_ceiling_since: float | None = None
     predicted_drop_ln: float = 0.0  # expectation for the step under judgment
     pre_step_noise_eps: float = 0.0
+    backoff_until: float = 0.0  # cliff back-off grace deadline; 0 = unarmed
+    backoff_target: dict[str, int] = field(default_factory=dict)
+    # Deepest attributed down-write + margin, held from arm until the
+    # back-off clears censoring (controller persists it as the floor)
+    # or the grace expires into the jump (dropped: storm was genuine).
+    # The regime is recorded at ARM: a pending relabel can complete on
+    # exactly the persist tick (the classifier thaws with the censor).
+    pending_floor: dict[str, int] = field(default_factory=dict)
+    pending_floor_regime: str = ""
 
 
 @dataclass
@@ -328,6 +344,15 @@ class CameraBiasState:
     kappa_reg_per_decade: float = 12.0  # per-camera loop gain (Mode A refines)
     last_probe_at: float = 0.0
     write_log: list[tuple[float, str, int]] = field(default_factory=list)
+    # Kernel-accepted writes that LOWERED diff_on/diff_off: (t, knob,
+    # pre_value, new_value). Feeds storm attribution — write_log cannot
+    # (exempt reasons log zero delta, direction-blind). DITHER (a ±2
+    # oscillation) and REVERT (return to a value proven fine seconds
+    # earlier) are excluded as innocent; RAMP stays attributable.
+    down_log: list[tuple[float, str, int, int]] = field(default_factory=list)
+    # In-flight sanctioned below-floor re-probe: (regime value, knob,
+    # floor at arm). Only its kept resolution may lower that floor.
+    reprobe: tuple[str, str, int] | None = None
     manual_until: float = 0.0  # MANUAL override TTL; controller holds off
 
 

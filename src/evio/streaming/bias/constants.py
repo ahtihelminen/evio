@@ -220,6 +220,24 @@ NOOP_BLIND_STEPS = 3  # blind steps while censored before the STORM jump
 STORM_DEESCALATE_FRACTION = 0.5
 STORM_DEESCALATE_S = 120.0
 
+# --- Cliff-aware back-off (self-inflicted storms, incident 2026-07-08) -------
+# A storm with a recent downward diff write in this window is SELF-INFLICTED
+# (we walked past the comparator-noise cliff): covers blank + judge + the
+# blind-step run + a ~12 s-cadence descent staircase, yet stays under
+# STORM_DEESCALATE_S so stale descents age out before any release ramp runs.
+CLIFF_ATTRIBUTION_WIN_S = 90.0
+# One dither amplitude plus one register of comparator hysteresis above the
+# observed cliff — the smallest margin the dither cannot re-cross.
+CLIFF_MARGIN_REG = 2
+# Two spacing-limited writes + the 1.5 s blank + a few fast evals; if the
+# estimator has not un-censored by then the storm is real: jump (valve).
+CLIFF_BACKOFF_GRACE_S = 20.0
+# Comparator-noise cliffs drift with temperature/scene on hour scales; the
+# floor is re-probed by one judged descent step only at this age and only
+# while the servo is under budget (wants_descent gates).
+CLIFF_REPROBE_AGE_S = 3600.0
+CLIFF_REPROBE_STEP_REG = 1
+
 # --- Stuck-pixel DEM registry (main-side policy) ----------------------------
 # The registry owns promote / active-demote-probe / slot allocation. DEM has
 # 64 per-pixel slots (imx636.PIXEL_MASK_SLOTS); the allocator dedupes (x, y)
