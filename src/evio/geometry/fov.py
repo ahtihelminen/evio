@@ -13,16 +13,14 @@ Five of the six come straight from the calibration:
 - pitch_deg <- extrinsics.pitch_deg
 - fov_h_deg / fov_v_deg <- intrinsics
 
-`max_range_m` is NOT in the calibration -- it is per-camera-type data the ops
-team authors (datasheet / empirical useful-range). It is injected here; the real
-numbers are DATA-BLOCKED until the calibration is filled in (mount is currently
-null-island), per the architect ruling: build the plumbing, not the numbers.
+`max_range_m` is NOT calibration proper -- it is the operator-authored "useful
+detection range" (§9 answer #7, `project_evio_testsite_compliance`).
+Precedence: the caller's per-serial override dict, then the camera's optional
+`max_range_m` key in the calibration YAML, then `DEFAULT_MAX_RANGE_M`.
 
-NOTE (flagged for the architect): `test_site_protocol` models the
-`fov_publish` capability DESCRIPTOR but NOT the `GET /control/fov` response data
-(the fovs[] array). `FovCone.to_dict` / `fov_response` below match the
-calibration_fov spec shape; the protocol package should grow a model for it so
-non-Python nodes share one schema.
+The typed wire form of a cone is `test_site_protocol.capabilities.FovEntry`
+(protocol v0.3.0); `evio.edge.fov_publish` converts `FovCone` to it. The dict
+helpers below stay protocol-free so this module keeps zero testsite deps.
 """
 
 from __future__ import annotations
@@ -50,15 +48,30 @@ class FovCone:
     fov_v_deg: float
     max_range_m: float
 
+    @property
+    def has_position(self) -> bool:
+        """False for the null-island placeholder (mount pose not yet set).
+
+        The single source of the rule: an unsurveyed mount declares its cones
+        WITHOUT an origin (`position=None` on every surface) rather than
+        claiming (0, 0).
+        """
+        return not (self.lat_deg == 0.0 and self.lng_deg == 0.0)
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to the calibration_fov `fovs[]` entry shape."""
-        return {
-            "id": self.id,
-            "position": {
+        position = (
+            {
                 "lat_deg": self.lat_deg,
                 "lng_deg": self.lng_deg,
                 "alt_m": self.alt_m,
-            },
+            }
+            if self.has_position
+            else None
+        )
+        return {
+            "id": self.id,
+            "position": position,
             "yaw_deg": self.yaw_deg,
             "pitch_deg": self.pitch_deg,
             "fov_h_deg": self.fov_h_deg,
@@ -75,14 +88,18 @@ def build_fov_cones(
 ) -> list[FovCone]:
     """Build one FoV cone per camera in the calibration.
 
-    `max_range_m` maps camera serial -> useful range; serials not present fall
-    back to `default_max_range_m`. Cameras are emitted in calibration order.
+    `max_range_m` maps camera serial -> useful range; serials not present use
+    the camera's calibration `max_range_m`, else `default_max_range_m`.
+    Cameras are emitted in calibration order.
     """
     ranges = max_range_m or {}
     mount = calibration.mount
     cones: list[FovCone] = []
     for serial, camera in calibration.cameras.items():
         world_yaw = (camera.extrinsics.yaw_deg + mount.world_yaw_deg) % 360.0
+        cone_range = ranges.get(serial, camera.max_range_m)
+        if cone_range is None:
+            cone_range = default_max_range_m
         cones.append(
             FovCone(
                 id=serial,
@@ -93,7 +110,7 @@ def build_fov_cones(
                 pitch_deg=camera.extrinsics.pitch_deg,
                 fov_h_deg=camera.intrinsics.h_fov_deg,
                 fov_v_deg=camera.intrinsics.v_fov_deg,
-                max_range_m=ranges.get(serial, default_max_range_m),
+                max_range_m=cone_range,
             ),
         )
     return cones

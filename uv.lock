@@ -511,7 +511,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "sapient", editable = "../sapient" },
     { name = "tensorboard", specifier = ">=2.20.0" },
-    { name = "test-site-protocol", marker = "extra == 'testsite'", git = "ssh://git@git.sensofusion.com/testsite/test-site-protocol.git?tag=v0.1.0" },
+    { name = "test-site-protocol", marker = "extra == 'testsite'", git = "ssh://git@git.sensofusion.com/testsite/test-site-protocol.git?tag=v0.3.0" },
     { name = "torch", marker = "sys_platform != 'linux'", specifier = ">=2.6" },
     { name = "torch", marker = "sys_platform == 'linux'", specifier = ">=2.6", index = "https://download.pytorch.org/whl/xpu" },
     { name = "triton-xpu", marker = "sys_platform == 'linux'", index = "https://download.pytorch.org/whl/xpu" },
@@ -2681,8 +2681,8 @@ wheels = [
 
 [[package]]
 name = "test-site-protocol"
-version = "0.1.0"
-source = { git = "ssh://git@git.sensofusion.com/testsite/test-site-protocol.git?tag=v0.1.0#6fc1fe4c624208af03a25a1765c288f156416384" }
+version = "0.3.0"
+source = { git = "ssh://git@git.sensofusion.com/testsite/test-site-protocol.git?tag=v0.3.0#0bea8c71ac483c36c5c6f9a60a46958fa80dc0f8" }
 dependencies = [
     { name = "pydantic", marker = "(python_full_version < '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version < '3.13' and sys_platform == 'darwin')" },
 ]

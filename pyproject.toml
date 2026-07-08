@@ -111,7 +111,7 @@ torch = [{ index = "pytorch-xpu", marker = "sys_platform == 'linux'" }]
 triton-xpu = [{ index = "pytorch-xpu" }]
 # Pinned to the published tag (vendor from a tag, not a loose path) so it
 # resolves in CI -- matches how the backend vendors the shared protocol models.
-test-site-protocol = { git = "ssh://git@git.sensofusion.com/testsite/test-site-protocol.git", tag = "v0.1.0" }
+test-site-protocol = { git = "ssh://git@git.sensofusion.com/testsite/test-site-protocol.git", tag = "v0.3.0" }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -192,6 +192,14 @@ ignore = [
 # kill mono footage capture, which only reads raw frames, so it is wrapped in a
 # blind except.
 "src/evio/io/mono_camera.py" = ["BLE001"]
+# The WS client's on_register hook re-asserts node state (fov_update) after
+# each register; a failing hook must never kill the reconnecting spine, so
+# the hook call is wrapped in a blind except (log + keep serving).
+"src/evio/edge/ws_client.py" = ["BLE001"]
+# The calibration-reload route rejects ANY handler failure with an enveloped
+# 400 so a malformed YAML cannot 500 bare nor crash the sidecar; the old
+# calibration stays in force (validate-before-swap in the handler).
+"src/evio/control/sidecar.py" = ["BLE001"]
 # The FlytBase ground-truth feed runs on a background thread; any socket /
 # network / discovery error must be logged and retried (or the feed disabled)
 # rather than crash the always-on run, so its boundaries are blind excepts.

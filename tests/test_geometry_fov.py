@@ -75,6 +75,20 @@ def test_max_range_default_and_override() -> None:
     assert zenith.max_range_m == DEFAULT_MAX_RANGE_M  # default fallback
 
 
+def test_max_range_from_calibration_yaml_key() -> None:
+    # Precedence: caller override dict > per-camera calibration > default.
+    cal = _calibration()
+    cal.cameras["ev-1"] = CameraCalibration(
+        intrinsics=cal.cameras["ev-1"].intrinsics,
+        extrinsics=cal.cameras["ev-1"].extrinsics,
+        max_range_m=550.0,
+    )
+    from_yaml = build_fov_cones(cal)
+    assert next(c for c in from_yaml if c.id == "ev-1").max_range_m == 550.0
+    overridden = build_fov_cones(cal, max_range_m={"ev-1": 900.0})
+    assert next(c for c in overridden if c.id == "ev-1").max_range_m == 900.0
+
+
 def test_fov_response_shape_is_static() -> None:
     body = fov_response(build_fov_cones(_calibration()))
     assert body["dynamic"] is False
@@ -86,3 +100,16 @@ def test_fov_response_shape_is_static() -> None:
         "id", "position", "yaw_deg", "pitch_deg",
         "fov_h_deg", "fov_v_deg", "max_range_m",
     }
+
+
+def test_null_island_mount_serializes_position_none() -> None:
+    cal = _calibration()
+    cal = Calibration(
+        mount=MountPose(latitude_deg=0.0, longitude_deg=0.0, altitude_m=0.0),
+        cameras=cal.cameras,
+    )
+    cones = build_fov_cones(cal)
+    assert all(not c.has_position for c in cones)
+    body = fov_response(cones)
+    # The HTTP surface must match the WS surface: no (0,0) origin claims.
+    assert all(entry["position"] is None for entry in body["fovs"])
