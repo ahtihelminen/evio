@@ -106,6 +106,9 @@ class PolaritySignals:
     # masked pixel's hot-EMA decays while masked, so nomination membership
     # cannot judge a blink (false-clean below ~25 kev/s).
     probation_counts: tuple[tuple[int, int, float], ...] = ()
+    # Hot-EMA rate (x, y, eps) per stuck_candidates nomination — the
+    # registry's tier bar (DEM vs software) and demotion-ranking input.
+    stuck_rates: tuple[tuple[int, int, float], ...] = ()
 
     def rejected_eps(self, polarity: Polarity) -> float:
         n = self.rejected_on if polarity is Polarity.ON else self.rejected_off
@@ -123,6 +126,11 @@ class EnvSignals:
     lux: float | None = None
     die_temp_c: float | None = None
     pixel_dead_time_us: float | None = None
+    # In-sensor ERC telemetry (EVT3 0x014/0x016 counters): the rate the
+    # sensor GENERATED vs the rate it SHIPPED. None = counters stale or
+    # unavailable — the censors then fall back to the delivered proxies.
+    erc_in_eps: float | None = None
+    erc_out_eps: float | None = None
 
 
 @dataclass(frozen=True)
@@ -165,7 +173,14 @@ class CameraObservations:
     signals: PolaritySignals | None = None
     delivered_eps: float = 0.0  # host-counted, post-ERC
     sdk_rate_eps: float = 0.0  # readout claim (rail-lies above ~9 Mev/s)
-    erc_drop_fraction: float = 0.0
+    # False when sdk_rate_eps repeats a slow-cadence counter sample: the
+    # FLAT_LIE history must only ingest independent samples, or the CoV
+    # fingerprint degenerates to std=0 over its own repeats.
+    sdk_rate_fresh: bool = True
+    # Real in-sensor drop share (1 - post/pre ERC counters); None means
+    # counters unavailable. The delivered >= 0.95 x cap proxy censors
+    # regardless — a ~5 s counter sample misses sub-5s pin bursts.
+    erc_drop_fraction: float | None = None
     bus_governor_active: bool = False
     env: EnvSignals = field(default_factory=EnvSignals)
     detection: DetectionSignals = field(default_factory=DetectionSignals)
@@ -256,6 +271,7 @@ class SlowState:
     cooldown_until: float = 0.0
     consecutive_fails: int = 0
     last_trial_at: float = 0.0
+    crowded_since: float | None = None  # hot-channel crowding onset
 
 
 @dataclass

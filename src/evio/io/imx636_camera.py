@@ -97,6 +97,16 @@ class Imx636CameraSource:
     _processor_window_us: int = field(init=False, default=0)
     _processor_step_us: int = field(init=False, default=0)
     _streaming: bool = field(init=False, default=False)
+    # ERC telemetry sampling state: None = capability unprobed, False =
+    # driver build lacks erc_counters() (skew — sampling disabled for the
+    # session). The (in_n, out_n) pair detects staleness/lockstep, and the
+    # deque accumulates recent same-period count pairs so rates/drops come
+    # from interval sums, never one extrapolated 200 µs period.
+    _erc_capable: bool | None = field(init=False, default=None)
+    _last_erc_n: tuple[int, int] = field(init=False, default=(-1, -1))
+    _erc_samples: deque[tuple[int, int]] = field(
+        init=False, default_factory=lambda: deque(maxlen=4),
+    )
 
     def __enter__(self) -> Imx636CameraSource:
         # ONLY claim the USB device + sensor init writes here. The
@@ -311,6 +321,17 @@ class Imx636CameraSource:
         unreachable device, raise; failures are skipped so a transient miss
         just leaves the controller on its last good value. A -1 lux is
         forwarded as-is — the controller treats negative lux as 'unknown'.
+
+        Also samples the in-sensor ERC counters (EVT3 0x014/0x016, decoded
+        from the stream; only the count period is a USB read): pre/post-ERC
+        rates are the bias controller's censor truth channel. Rates come
+        from sums over the recent SAME-PERIOD sample pairs — the decoder
+        stamps the two reports independently, so a sample is accepted only
+        when both report counters advanced in lockstep and the timestamps
+        sit within one count period (a chunk boundary between a period's
+        in/out reports otherwise fabricates a drop on a healthy camera).
+        A stale stream or a driver build without ``erc_counters()`` (skew)
+        degrades to the controller's delivered-rate proxies.
         """
         env: dict[str, float] = {}
         if self.cam is None:
@@ -323,7 +344,41 @@ class Imx636CameraSource:
             dead = float(self.cam.pixel_dead_time())
             if dead >= 0.0:
                 env["pixel_dead_time_us"] = dead
+        if self._erc_capable is None:
+            self._erc_capable = hasattr(self.cam, "erc_counters")
+        if self._erc_capable:
+            try:
+                self._sample_erc(env)
+            except AttributeError:  # partial binding: disable for good
+                self._erc_capable = False
+            except RuntimeError:  # USB hiccup: transient, retry next call
+                pass
         return env
+
+    def _sample_erc(self, env: dict[str, float]) -> None:
+        erc = self.cam.erc_counters()
+        if erc.count_period_us <= 0:
+            return
+        last_in_n, last_out_n = self._last_erc_n
+        lockstep = (  # both report counters advanced, by the same amount
+            erc.in_n > last_in_n
+            and erc.in_n - last_in_n == erc.out_n - last_out_n
+        )
+        paired = (  # the latest in/out reports belong to one count period
+            erc.in_t >= 0 and erc.out_t >= 0
+            and abs(erc.in_t - erc.out_t) <= erc.count_period_us
+        )
+        self._last_erc_n = (erc.in_n, erc.out_n)
+        if not (lockstep and paired):
+            return  # stale or split pair: keep the proxies this cycle
+        self._erc_samples.append((erc.in_count, erc.out_count))
+        span_s = len(self._erc_samples) * erc.count_period_us * 1e-6
+        env["erc_in_eps"] = sum(
+            in_count for in_count, _ in self._erc_samples
+        ) / span_s
+        env["erc_out_eps"] = sum(
+            out_count for _, out_count in self._erc_samples
+        ) / span_s
 
     def __exit__(
         self,

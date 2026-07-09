@@ -76,6 +76,12 @@ FULL_RANGE_KNOBS: tuple[str, ...] = ("diff_on", "diff_off")
 # Re-based 2026-07-03 (Elia): every earlier value was chosen while the
 # transport silently dropped ~98% of events (rates read ~50x low). Day = 300k
 # total/cam on lossless capture; other regimes keep their pre-fix ratios.
+# 2026-07-09 flight finding: the drone signature is OFF-polarity-led (dark
+# target on bright sky, 97-100% OFF) — diff_off is the SIGNAL channel and
+# raising it desensitizes exactly it, while deep diff_on descent mostly
+# ignites stuck pixels. Any ON/OFF rebalance is Elia's call; the per-polarity
+# budgets are already per-(serial, regime) config via the presets yaml
+# (PresetBox.budget_on_eps / budget_off_eps) — no code change needed.
 DEFAULT_BUDGETS_EPS: dict[str, float] = {
     "clear_day": 300_000.0,    # total per camera; per-polarity = /2 = 150k
     "overcast_day": 300_000.0,
@@ -91,9 +97,15 @@ ERC_CAP_EPS = 3_000_000.0  # static per-camera ERC budget; 6x sits under USB3
 R_CEIL_FRACTION = 0.75  # fast-loop delivered-rate trigger vs ERC cap
 SAT_DELIVERED_EPS = 6_300_000.0  # 0.7 x the ~9 Mev/s SDK readout rail
 ERC_PINNED_FRACTION = 0.95  # delivered within 5% of ERC cap => "ge, unknown"
+# Real in-sensor drop share that censors: single-count pipeline-edge jitter
+# between the paired counters must not read as "ERC is dropping".
+ERC_PINNED_MIN_DROP = 0.01
 FLAT_LIE_MEAN_EPS = 8_000_000.0  # SDK readout mean above this ...
 FLAT_LIE_MAX_COV = 0.01  # ... with CoV below this over FLAT_LIE_WIN_S = lie
-FLAT_LIE_WIN_S = 3.0
+# 20 s (2026-07-09): the wired sdk rate refreshes at the ~5 s env cadence
+# and appends to the history once per FRESH sample, so the CoV fingerprint
+# needs a window holding >= 3 independent samples in that mode too.
+FLAT_LIE_WIN_S = 20.0
 CENSOR_CLEAR_S = 60.0  # S_c must be false this long before slow loop acts
 
 # --- Estimators --------------------------------------------------------------
@@ -141,7 +153,17 @@ STUCK_SUSTAIN_S = 10.0
 # rates ~50x higher, comfortably above 2 kev/s). Under lossless capture a
 # 300 ev/s floor is reachable by genuine scene pixels, so it is back at the
 # validated 2 kev/s; the relative 30x-ambient term self-corrects on top.
+# 2026-07-09 split: the 2 kev/s floor is the DEM (hardware-slot) bar only.
+# The flight showed 0.5-2.5 kev/s stuck oscillators spoofing a drone all
+# session, so SOFTWARE-tier nomination floors at 500 ev/s — still 5x the
+# genuine per-pixel p99.99 tail, and a soft mask is a cheap bitmap drop.
 STUCK_MASK_EPS_MIN = 2_000.0
+SOFT_STUCK_MASK_EPS_MIN = 500.0
+# The 500-2000 ev/s band needs a 60 s dwell (vs STUCK_SUSTAIN_S at the DEM
+# bar): a far/hovering OFF-led drone can be >99% single-polarity at these
+# rates, and track boxes only veto ALREADY-tracked targets — a sub-2k pixel
+# that clears within a minute is never nominated.
+SOFT_STUCK_SUSTAIN_S = 60.0
 STUCK_AMBIENT_FACTOR = 30.0
 # A pixel is stuck iff strictly MORE than this share of its events are the
 # dominant polarity (operator rule: "99% or lower is not stuck, above is").
@@ -196,6 +218,17 @@ R_N_DESCENT_FLOOR_EPS: dict[str, float] = {
     "rain_clutter": 10_000.0,
     "low_light": 4_000.0,
 }
+# Descent crowding brake (2026-07-09 flight): deep diff_on descent IGNITES
+# stuck pixels instead of adding sensitivity — 2.4-6.8k pixels carried
+# 90-99.9% of events while the hot-excluded R_N read near-zero, so the servo
+# kept descending to the cliff. Descent (only) holds while the hot channel
+# carries most of the delivered stream at the genuine-oscillator scale
+# (>= FAST_STUCK_RATE_EPS, so a quiet sky is never starved), sustained
+# briefly for hysteresis — or immediately when the sensor's own ERC counters
+# report a real drop share (the estimator's picture is then not the scene).
+HOT_CROWD_FRACTION = 0.5
+HOT_CROWD_SUSTAIN_S = 10.0
+ERC_CROWD_FRACTION = 0.05
 JUDGE_WIN_S = 6.0
 SCENE_STATIONARY_WIN_S = 30.0
 SCENE_STATIONARY_MAX_COV = 0.5
@@ -287,7 +320,9 @@ PROBE_REFIRE_EPS = 1_000.0
 # storms out by construction. A software mask cannot save ERC/USB transport
 # budget (the events still cross the wire), so hardware slots are preferred:
 # when a DEM slot frees, the longest-lived software mask is promoted into it.
-SOFT_MASK_MAX = 1024
+# 4096 (2026-07-09): the observed deep-bias stuck population is 2.4-6.8k
+# pixels; the bitmap cost of the tier is trivial.
+SOFT_MASK_MAX = 4096
 
 # --- Regimes ------------------------------------------------------------------
 NIGHT_LUX = 10.0
