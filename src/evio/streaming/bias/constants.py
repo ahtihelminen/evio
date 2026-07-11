@@ -229,6 +229,37 @@ R_N_DESCENT_FLOOR_EPS: dict[str, float] = {
 HOT_CROWD_FRACTION = 0.5
 HOT_CROWD_SUSTAIN_S = 10.0
 ERC_CROWD_FRACTION = 0.05
+
+# --- Good-point latch (2026-07-09, Elia / camera 2526) -----------------------
+# "There should be some sort of achieved_good_rate thingy that makes the
+# tuner less willing to jump the event rates out of wack": a healthy stable
+# operating point (sighted, un-crowded, stationary, rn within budget,
+# delivered under GOOD_DELIVERED_MAX_FRACTION x cap, registers unchanged
+# GOOD_DWELL_S) is LATCHED per camera x regime. While the camera sits at a
+# fresh (< GOOD_STALE_S) latch, descent needs a GOOD_CONTENT_FACTOR-
+# stretched cadence AND rn sustained under GOOD_HEADROOM_FRACTION of budget
+# for that interval; after an episode (RECOVERY_QUIET_S sighted + under
+# ceiling) a bounded ramp restores the latched registers — the 2526 camera
+# lost its point permanently because nothing did. Two detonated restores
+# invalidate (the scene genuinely changed). NOTE: no delivered LOWER bound
+# — a quiet sky is exactly the earned sensitivity the mission wants held
+# (2526's own healthy point sat far below 0.15 x cap).
+GOOD_DWELL_S = 90.0
+GOOD_STALE_S = 1800.0
+GOOD_DELIVERED_MAX_FRACTION = 0.85
+GOOD_CONTENT_FACTOR = 4.0
+GOOD_HEADROOM_FRACTION = 0.5
+RECOVERY_QUIET_S = 30.0
+GOOD_RESTORE_ATTEMPTS = 2
+# Restore failure watch = arm -> estimated ramp completion + this settle.
+# A strike must mean the RESTORE detonated — a censor blip minutes later
+# (bird pass, neighbor flood) is scene weather, not a failed attempt.
+GOOD_RESTORE_SETTLE_S = 60.0
+# Culprit-first suppression (same incident): a flood following our own
+# down-write is answered by the culprit knob first; innocents join only
+# after this many culprit-only rounds failed to clear it (or the culprit
+# is railed). Ordering only — total suppression authority unchanged.
+CULPRIT_FIRST_STEPS = 2
 JUDGE_WIN_S = 6.0
 SCENE_STATIONARY_WIN_S = 30.0
 SCENE_STATIONARY_MAX_COV = 0.5

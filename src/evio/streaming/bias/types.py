@@ -264,6 +264,7 @@ class FastState:
     last_eval_at: float = 0.0
     idle_evals: int = 0  # consecutive evaluations with no violation/write
     last_write_at: float = 0.0
+    culprit_steps: int = 0  # culprit-only suppression rounds this violation
 
 
 @dataclass
@@ -272,6 +273,24 @@ class SlowState:
     consecutive_fails: int = 0
     last_trial_at: float = 0.0
     crowded_since: float | None = None  # hot-channel crowding onset
+
+
+@dataclass
+class GoodPointState:
+    """An ACHIEVED healthy operating point, held and defended (2026-07-09,
+    camera 2526: one under-budget descent detonated a flood, suppression
+    then moved the innocent knob too, and nothing ever restored the known
+    good point). Latched after a stable healthy dwell, regime-scoped,
+    contentment-gates further descent and is the restore target after an
+    episode. ``registers`` empty = unlatched."""
+
+    registers: dict[str, int] = field(default_factory=dict)
+    regime: str = ""
+    latched_at: float = 0.0  # last refresh while conditions held
+    headroom_since: float | None = None  # rn under half budget since
+    quiet_since: float | None = None  # sighted + under ceiling since
+    restore_until: float = 0.0  # restore failure-watch window; 0 = idle
+    failed_restores: int = 0  # two strikes: the scene genuinely changed
 
 
 @dataclass
@@ -369,6 +388,7 @@ class CameraBiasState:
     # In-flight sanctioned below-floor re-probe: (regime value, knob,
     # floor at arm). Only its kept resolution may lower that floor.
     reprobe: tuple[str, str, int] | None = None
+    good: GoodPointState = field(default_factory=GoodPointState)
     manual_until: float = 0.0  # MANUAL override TTL; controller holds off
 
 
