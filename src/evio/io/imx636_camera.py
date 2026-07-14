@@ -54,6 +54,12 @@ def get_camera_serials() -> list[str]:
     return sorted(serials)
 
 
+# An interval-summed ERC drop ratio is only statistically meaningful
+# once enough events were counted: 64 events bounds the quantization
+# error under ~13% and gates out the near-silent regime entirely.
+_ERC_MIN_COUNT_SUM = 64
+
+
 @dataclass()
 class Imx636CameraSource:
     serial: str = ""
@@ -372,10 +378,16 @@ class Imx636CameraSource:
         if not (lockstep and paired):
             return  # stale or split pair: keep the proxies this cycle
         self._erc_samples.append((erc.in_count, erc.out_count))
+        in_sum = sum(in_count for in_count, _ in self._erc_samples)
+        if in_sum < _ERC_MIN_COUNT_SUM:
+            # Near-silent cameras yield single-digit counts per period;
+            # 3-in/1-out then reads as a 67% "drop" whose fabricated
+            # censor deadlocks recovery (field, 2026-07-14 cam 38339).
+            # Below the floor the ratio is counting noise — emit nothing
+            # and let the delivered-rate proxy govern.
+            return
         span_s = len(self._erc_samples) * erc.count_period_us * 1e-6
-        env["erc_in_eps"] = sum(
-            in_count for in_count, _ in self._erc_samples
-        ) / span_s
+        env["erc_in_eps"] = in_sum / span_s
         env["erc_out_eps"] = sum(
             out_count for _, out_count in self._erc_samples
         ) / span_s

@@ -159,8 +159,28 @@ def test_runtime_error_is_transient(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # A USB hiccup skips one sample but keeps the capability armed.
-    cam = _FakeCam([RuntimeError("usb"), _pair(1000, 1, 10, 10)])
+    cam = _FakeCam([RuntimeError("usb"), _pair(1000, 1, 100, 100)])
     source = _source(monkeypatch, cam)
     assert "erc_in_eps" not in source.read_env()
     assert "erc_in_eps" in source.read_env()
     assert cam.erc_calls == 2
+
+
+def test_erc_sample_below_min_count_emits_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Near-silent camera: single-digit counts per period read as a huge
+    # fabricated drop (field 2026-07-14, cam 38339 recovery deadlock).
+    cam = _FakeCam([_pair(t=100, n=1, in_count=3, out_count=1)])
+    src = _source(monkeypatch, cam)
+    env = src.read_env()
+    assert "erc_in_eps" not in env and "erc_out_eps" not in env
+
+
+def test_erc_sample_above_min_count_emits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cam = _FakeCam([_pair(t=100, n=1, in_count=120, out_count=90)])
+    src = _source(monkeypatch, cam)
+    env = src.read_env()
+    assert env["erc_in_eps"] > env["erc_out_eps"] > 0
