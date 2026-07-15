@@ -55,8 +55,9 @@ STUCK_AMBIENT_FACTOR = 30.0
 HOT_PX_RATE_EPS = 100.0  # ambient pool = active pixels at/below this rate
 # Software-mask tier cap (mirrors bias.constants.SOFT_MASK_MAX): qualifying
 # pixels beyond the 64 DEM slots go to the manifest's soft_masks array; the
-# camera worker drops their events post-record.
-SOFT_MASK_MAX = 1024
+# camera worker drops their events post-record. 4096 (2026-07-09): the
+# observed deep-bias stuck population is 2.4-6.8k pixels.
+SOFT_MASK_MAX = 4096
 ISOLATION_FACTOR = 10.0  # an isolated pixel's neighbours read >= this lower
 # AFK notch around the mains harmonic (31-55 Hz is valid; NOT 50-120 Hz, which
 # eats low-RPM blade-pass combs).

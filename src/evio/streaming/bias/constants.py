@@ -37,6 +37,33 @@ HARD_FLOOR_DIFF_OFF = -35
 # explicit human decision, not an inherited constant.
 SWEEP_FLOOR_DIFF_ON = -60
 SWEEP_FLOOR_DIFF_OFF = -20
+# fo sweep floor (2026-07-03 incident): a scripted/ramped fo staircase to -35
+# on a lit scene collapses the photoreceptor bandwidth 3-4 decades — the
+# camera is effectively blind. Response data: collapse became total ~fo<=-20
+# on a clear-day scene. Sweeps below this need an explicit per-knob spec
+# override (SweepBounds.allow_below_floor), never a default.
+SWEEP_FLOOR_FO = -20
+# Min-rate (blindness) abort for sweep runners: whole-frame delivered below
+# this for N consecutive judged steps aborts + restores pre-sweep registers.
+# Distinct from censored-abort (too HIGH): silence must never judge happily.
+SWEEP_MIN_RATE_EPS = 2_000.0
+SWEEP_MIN_RATE_STEPS = 2
+
+# --- Rate-collapse (blindness) watchdog — controller-side G2 -----------------
+# After ANY applied write, if delivered collapses below RATE_COLLAPSE_FRACTION
+# of the pre-write-burst baseline (a >=30 s-quiet median, frozen while writes
+# are in flight so a staircase can't walk the baseline down with itself) and
+# stays there RATE_COLLAPSE_HOLD_S, the controller alarms + reverts to the
+# last SIGHTED register state. Keyed RELATIVE to the pre-write rate so the
+# legit quiet-sky descent (R_N low, R_hot ~0) is never fought; inert when the
+# baseline itself is below RATE_COLLAPSE_BASELINE_MIN_EPS (a genuinely dark
+# night scene has nothing for the watchdog to protect — and low-side lies
+# are indistinguishable from night there).
+RATE_COLLAPSE_FRACTION = 0.01
+RATE_COLLAPSE_HOLD_S = 10.0
+RATE_COLLAPSE_BASELINE_MIN_EPS = 1_000.0
+RATE_COLLAPSE_BASELINE_QUIET_S = 30.0
+RATE_COLLAPSE_COOLDOWN_S = 60.0
 
 # Preset box: runtime-reachable offsets relative to the regime preset value —
 # applies to the calibration knobs (fo / refr / hpf). The servoed threshold
@@ -49,6 +76,12 @@ FULL_RANGE_KNOBS: tuple[str, ...] = ("diff_on", "diff_off")
 # Re-based 2026-07-03 (Elia): every earlier value was chosen while the
 # transport silently dropped ~98% of events (rates read ~50x low). Day = 300k
 # total/cam on lossless capture; other regimes keep their pre-fix ratios.
+# 2026-07-09 flight finding: the drone signature is OFF-polarity-led (dark
+# target on bright sky, 97-100% OFF) — diff_off is the SIGNAL channel and
+# raising it desensitizes exactly it, while deep diff_on descent mostly
+# ignites stuck pixels. Any ON/OFF rebalance is Elia's call; the per-polarity
+# budgets are already per-(serial, regime) config via the presets yaml
+# (PresetBox.budget_on_eps / budget_off_eps) — no code change needed.
 DEFAULT_BUDGETS_EPS: dict[str, float] = {
     "clear_day": 300_000.0,    # total per camera; per-polarity = /2 = 150k
     "overcast_day": 300_000.0,
@@ -64,9 +97,15 @@ ERC_CAP_EPS = 3_000_000.0  # static per-camera ERC budget; 6x sits under USB3
 R_CEIL_FRACTION = 0.75  # fast-loop delivered-rate trigger vs ERC cap
 SAT_DELIVERED_EPS = 6_300_000.0  # 0.7 x the ~9 Mev/s SDK readout rail
 ERC_PINNED_FRACTION = 0.95  # delivered within 5% of ERC cap => "ge, unknown"
+# Real in-sensor drop share that censors: single-count pipeline-edge jitter
+# between the paired counters must not read as "ERC is dropping".
+ERC_PINNED_MIN_DROP = 0.01
 FLAT_LIE_MEAN_EPS = 8_000_000.0  # SDK readout mean above this ...
 FLAT_LIE_MAX_COV = 0.01  # ... with CoV below this over FLAT_LIE_WIN_S = lie
-FLAT_LIE_WIN_S = 3.0
+# 20 s (2026-07-09): the wired sdk rate refreshes at the ~5 s env cadence
+# and appends to the history once per FRESH sample, so the CoV fingerprint
+# needs a window holding >= 3 independent samples in that mode too.
+FLAT_LIE_WIN_S = 20.0
 CENSOR_CLEAR_S = 60.0  # S_c must be false this long before slow loop acts
 
 # --- Estimators --------------------------------------------------------------
@@ -114,7 +153,17 @@ STUCK_SUSTAIN_S = 10.0
 # rates ~50x higher, comfortably above 2 kev/s). Under lossless capture a
 # 300 ev/s floor is reachable by genuine scene pixels, so it is back at the
 # validated 2 kev/s; the relative 30x-ambient term self-corrects on top.
+# 2026-07-09 split: the 2 kev/s floor is the DEM (hardware-slot) bar only.
+# The flight showed 0.5-2.5 kev/s stuck oscillators spoofing a drone all
+# session, so SOFTWARE-tier nomination floors at 500 ev/s — still 5x the
+# genuine per-pixel p99.99 tail, and a soft mask is a cheap bitmap drop.
 STUCK_MASK_EPS_MIN = 2_000.0
+SOFT_STUCK_MASK_EPS_MIN = 500.0
+# The 500-2000 ev/s band needs a 60 s dwell (vs STUCK_SUSTAIN_S at the DEM
+# bar): a far/hovering OFF-led drone can be >99% single-polarity at these
+# rates, and track boxes only veto ALREADY-tracked targets — a sub-2k pixel
+# that clears within a minute is never nominated.
+SOFT_STUCK_SUSTAIN_S = 60.0
 STUCK_AMBIENT_FACTOR = 30.0
 # A pixel is stuck iff strictly MORE than this share of its events are the
 # dominant polarity (operator rule: "99% or lower is not stuck, above is").
@@ -169,6 +218,48 @@ R_N_DESCENT_FLOOR_EPS: dict[str, float] = {
     "rain_clutter": 10_000.0,
     "low_light": 4_000.0,
 }
+# Descent crowding brake (2026-07-09 flight): deep diff_on descent IGNITES
+# stuck pixels instead of adding sensitivity — 2.4-6.8k pixels carried
+# 90-99.9% of events while the hot-excluded R_N read near-zero, so the servo
+# kept descending to the cliff. Descent (only) holds while the hot channel
+# carries most of the delivered stream at the genuine-oscillator scale
+# (>= FAST_STUCK_RATE_EPS, so a quiet sky is never starved), sustained
+# briefly for hysteresis — or immediately when the sensor's own ERC counters
+# report a real drop share (the estimator's picture is then not the scene).
+HOT_CROWD_FRACTION = 0.5
+HOT_CROWD_SUSTAIN_S = 10.0
+ERC_CROWD_FRACTION = 0.05
+
+# --- Good-point latch (2026-07-09, Elia / camera 2526) -----------------------
+# "There should be some sort of achieved_good_rate thingy that makes the
+# tuner less willing to jump the event rates out of wack": a healthy stable
+# operating point (sighted, un-crowded, stationary, rn within budget,
+# delivered under GOOD_DELIVERED_MAX_FRACTION x cap, registers unchanged
+# GOOD_DWELL_S) is LATCHED per camera x regime. While the camera sits at a
+# fresh (< GOOD_STALE_S) latch, descent needs a GOOD_CONTENT_FACTOR-
+# stretched cadence AND rn sustained under GOOD_HEADROOM_FRACTION of budget
+# for that interval; after an episode (RECOVERY_QUIET_S sighted + under
+# ceiling) a bounded ramp restores the latched registers — the 2526 camera
+# lost its point permanently because nothing did. Two detonated restores
+# invalidate (the scene genuinely changed). NOTE: no delivered LOWER bound
+# — a quiet sky is exactly the earned sensitivity the mission wants held
+# (2526's own healthy point sat far below 0.15 x cap).
+GOOD_DWELL_S = 90.0
+GOOD_STALE_S = 1800.0
+GOOD_DELIVERED_MAX_FRACTION = 0.85
+GOOD_CONTENT_FACTOR = 4.0
+GOOD_HEADROOM_FRACTION = 0.5
+RECOVERY_QUIET_S = 30.0
+GOOD_RESTORE_ATTEMPTS = 2
+# Restore failure watch = arm -> estimated ramp completion + this settle.
+# A strike must mean the RESTORE detonated — a censor blip minutes later
+# (bird pass, neighbor flood) is scene weather, not a failed attempt.
+GOOD_RESTORE_SETTLE_S = 60.0
+# Culprit-first suppression (same incident): a flood following our own
+# down-write is answered by the culprit knob first; innocents join only
+# after this many culprit-only rounds failed to clear it (or the culprit
+# is railed). Ordering only — total suppression authority unchanged.
+CULPRIT_FIRST_STEPS = 2
 JUDGE_WIN_S = 6.0
 SCENE_STATIONARY_WIN_S = 30.0
 SCENE_STATIONARY_MAX_COV = 0.5
@@ -192,6 +283,24 @@ EFFECTIVENESS_STRIKES = 2  # ... this many times consecutively => ineffective
 NOOP_BLIND_STEPS = 3  # blind steps while censored before the STORM jump
 STORM_DEESCALATE_FRACTION = 0.5
 STORM_DEESCALATE_S = 120.0
+
+# --- Cliff-aware back-off (self-inflicted storms, incident 2026-07-08) -------
+# A storm with a recent downward diff write in this window is SELF-INFLICTED
+# (we walked past the comparator-noise cliff): covers blank + judge + the
+# blind-step run + a ~12 s-cadence descent staircase, yet stays under
+# STORM_DEESCALATE_S so stale descents age out before any release ramp runs.
+CLIFF_ATTRIBUTION_WIN_S = 90.0
+# One dither amplitude plus one register of comparator hysteresis above the
+# observed cliff — the smallest margin the dither cannot re-cross.
+CLIFF_MARGIN_REG = 2
+# Two spacing-limited writes + the 1.5 s blank + a few fast evals; if the
+# estimator has not un-censored by then the storm is real: jump (valve).
+CLIFF_BACKOFF_GRACE_S = 20.0
+# Comparator-noise cliffs drift with temperature/scene on hour scales; the
+# floor is re-probed by one judged descent step only at this age and only
+# while the servo is under budget (wants_descent gates).
+CLIFF_REPROBE_AGE_S = 3600.0
+CLIFF_REPROBE_STEP_REG = 1
 
 # --- Stuck-pixel DEM registry (main-side policy) ----------------------------
 # The registry owns promote / active-demote-probe / slot allocation. DEM has
@@ -242,7 +351,9 @@ PROBE_REFIRE_EPS = 1_000.0
 # storms out by construction. A software mask cannot save ERC/USB transport
 # budget (the events still cross the wire), so hardware slots are preferred:
 # when a DEM slot frees, the longest-lived software mask is promoted into it.
-SOFT_MASK_MAX = 1024
+# 4096 (2026-07-09): the observed deep-bias stuck population is 2.4-6.8k
+# pixels; the bitmap cost of the tier is trivial.
+SOFT_MASK_MAX = 4096
 
 # --- Regimes ------------------------------------------------------------------
 NIGHT_LUX = 10.0
