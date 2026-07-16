@@ -55,6 +55,30 @@ def test_write_creates_files_and_manifest_on_rotation(tmp_path: Path) -> None:
     }
 
 
+def test_reenable_same_hour_writes_new_subindexed_file(
+    tmp_path: Path,
+) -> None:
+    # Same defect as the event recorder (field 2026-07-15): a same-hour
+    # re-enable must sub-index, never overwrite the earlier block.
+    clock = {"t": _epoch(2026, 7, 15, 12) + 60}
+    recorder = MonoFootageRecorder(
+        root=tmp_path, camera_id="mono-0", width=4, height=3,
+        time_provider=lambda: clock["t"],
+    )
+    recorder.write(_frame(4, 3, 1), ts_ns=1_000)
+    first = recorder.current_path
+    assert first is not None
+    recorder.close()
+    first_size = first.stat().st_size
+    clock["t"] += 600.0
+    recorder.write(_frame(4, 3, 2), ts_ns=2_000)
+    second = recorder.current_path
+    recorder.close()
+    assert second is not None
+    assert second.name == first.name.replace(".mraw", ".1.mraw")
+    assert first.stat().st_size == first_size
+
+
 def test_on_disk_layout_is_header_then_fixed_stride(tmp_path: Path) -> None:
     recorder = MonoFootageRecorder(
         root=tmp_path, camera_id="mono-0", width=4, height=3,

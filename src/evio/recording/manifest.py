@@ -10,9 +10,12 @@ without coordination.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -28,6 +31,12 @@ class ManifestEntry:
     # context. None on un-augmented recordings. The bias vector here can't
     # be reconstructed from the events, so it is the file's gold metadata.
     capture: dict[str, object] | None = None
+    # Wall clock (epoch ns) when the recorder OPENED the file. The filename
+    # encodes only the hour bucket + run start, so this is the one durable
+    # record of a recording re-enable time — replay (dat_index) prefers it
+    # over the name-derived start. None on pre-field manifests and on
+    # recovered orphans (the open time died with the recorder).
+    wall_start_ns: int | None = None
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), sort_keys=True)
@@ -43,6 +52,7 @@ class ManifestEntry:
             sha256=str(data["sha256"]),
             object_ids=list(data.get("object_ids", [])),
             capture=data.get("capture"),
+            wall_start_ns=data.get("wall_start_ns"),
         )
 
 
@@ -53,13 +63,28 @@ def append_entry(manifest_path: Path, entry: ManifestEntry) -> None:
 
 
 def iter_manifest(manifest_path: Path) -> Iterator[ManifestEntry]:
+    """Yield entries, skipping unparseable lines (warned once per file).
+
+    ``append_entry`` is not atomic, so a power cut can tear the tail
+    line; one bad line must never make a whole day's footage unlistable.
+    """
     if not manifest_path.exists():
         return
+    warned = False
     with manifest_path.open("r", encoding="utf-8") as f:
         for raw in f:
             line = raw.strip()
-            if line:
+            if not line:
+                continue
+            try:
                 yield ManifestEntry.from_json(line)
+            except (KeyError, TypeError, ValueError):
+                if not warned:
+                    warned = True
+                    _log.warning(
+                        "%s: skipping unparseable manifest line(s) — torn "
+                        "append?", manifest_path,
+                    )
 
 
 def entry_for_file(dat_path: Path) -> ManifestEntry | None:

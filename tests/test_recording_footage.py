@@ -187,6 +187,48 @@ def test_degraded_disk_buffers_then_recovers(
     assert entries[0].size_bytes == dats[0].stat().st_size
 
 
+def test_reenable_same_hour_writes_new_subindexed_file(
+    tmp_path: Path,
+) -> None:
+    """Field 2026-07-15: toggling recording off and back on inside one hour
+    reused the same filename and truncated the earlier block (~150 GB lost
+    fleet-wide). Every enable span must land in its own sub-indexed file."""
+    clock = {"t": _epoch(2026, 7, 15, 12) + 60}
+    recorder = FootageRecorder(
+        root=tmp_path, camera_id="event-0", width=1280, height=720,
+        time_provider=lambda: clock["t"],
+    )
+    recorder.write(_batch(start_us=1_000_000, n=500))
+    first = recorder.current_path
+    assert first is not None
+    recorder.close()  # recording toggled OFF
+    first_size = first.stat().st_size
+    clock["t"] += 600.0  # toggled back ON inside the same hour
+    recorder.write(_batch(start_us=2_000_000, n=5))
+    second = recorder.current_path
+    recorder.close()
+    clock["t"] += 600.0  # and once more
+    recorder.write(_batch(start_us=3_000_000, n=5))
+    third = recorder.current_path
+    recorder.close()
+    assert second is not None and third is not None
+    assert second.name == first.name.replace(".dat", ".1.dat")
+    assert third.name == first.name.replace(".dat", ".2.dat")
+    assert first.stat().st_size == first_size  # earlier block untouched
+    entries = list(iter_manifest(first.parent / "manifest.jsonl"))
+    assert [e.filename for e in entries] == [
+        first.name, second.name, third.name,
+    ]
+    # Each row stamps its enable-span open wall time — the anchor replay
+    # prefers over the (series-start) filename.
+    base = _epoch(2026, 7, 15, 12)
+    assert [e.wall_start_ns for e in entries] == [
+        int((base + 60) * 1e9),
+        int((base + 660) * 1e9),
+        int((base + 1260) * 1e9),
+    ]
+
+
 def test_recovery_trims_preallocated_zero_tail(tmp_path: Path) -> None:
     """A crash mid-extent leaves a zero tail; recovery must trim it."""
     from evio.recording.footage_recorder import DAT_FILE_HEADER
