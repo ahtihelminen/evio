@@ -194,7 +194,16 @@ def _reindex_mono(path: Path) -> ManifestEntry | None:
     foreign header is skipped (it would give a meaningless stride).
     """
     if path.stat().st_size < _MONO_HEADER_LEN:
-        _log.warning("skipping %s: shorter than the mono header", path)
+        # A rotate that died mid-header (ENOSPC, power cut) leaves a stub
+        # that can never be indexed: remove it instead of re-warning every
+        # boot. Foreign content (magic-prefix mismatch) is left untouched.
+        with path.open("rb") as f:
+            prefix = f.read(len(MONO_MAGIC))
+        if MONO_MAGIC.startswith(prefix):
+            path.unlink(missing_ok=True)
+            _log.info("removed sub-header mono stub %s", path)
+        else:
+            _log.warning("skipping %s: shorter than the mono header", path)
         return None
     with path.open("r+b") as f:
         if f.read(len(MONO_MAGIC)) != MONO_MAGIC:

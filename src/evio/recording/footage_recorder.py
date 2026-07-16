@@ -7,9 +7,12 @@ gets a sticky bit later retention sweeps will honour.
 
 Path layout:
 
-    <root>/<camera_id>/YYYY-MM-DD/HHMMSS.dat
+    <root>/<camera_id>/YYYY-MM-DD/HH0000Z-<run_id>[.N].dat
     <root>/<camera_id>/YYYY-MM-DD/manifest.jsonl
     <root>/<camera_id>/provenance-<run_id>.jsonl
+
+``[.N]`` is the enable-span sub-index: recording toggled off and back on
+inside one hour re-enters the bucket, and each span gets its own file.
 
 `provenance-<run_id>.jsonl` is a per-run, per-sensor change-log of the
 IMX636 bias vector (and the autotuner's regime/scene context). A bias is
@@ -79,7 +82,11 @@ class _MmapExtent:
     """Append-only mmap writer: the hot path is a memcpy, no syscalls."""
 
     def __init__(self, path: Path, initial: bytes) -> None:
-        self._fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o644)
+        # O_EXCL: the caller picked an unused name (rotation sub-indexes
+        # past existing files), so opening an existing file is always a
+        # bug — never silently overwrite a prior recording.
+        flags = os.O_RDWR | os.O_CREAT | os.O_EXCL
+        self._fd = os.open(str(path), flags, 0o644)
         self._capacity = 0
         self._mm: mmap.mmap | None = None
         self.length = 0
@@ -87,7 +94,11 @@ class _MmapExtent:
             self._grow(max(_EXTENT_BYTES, len(initial)))
             self.append(initial)
         except BaseException:
+            # Nothing durable landed yet: unlink the just-created file so
+            # a degraded retry reuses the name instead of leaving one
+            # empty sub-indexed file per backoff attempt.
             self.abort()
+            path.unlink(missing_ok=True)
             raise
 
     def _grow(self, need_total: int) -> None:
@@ -173,6 +184,7 @@ class FootageRecorder:
         self._retry_at = 0.0
         self._backoff_s = _RETRY_BASE_S
         self._bucket: _Bucket | None = None
+        self._opened_wall = 0.0  # wall clock of the current file's open
         self._start_ts_ns: int | None = None
         self._end_ts_ns: int = 0
         self._size_bytes: int = 0
@@ -315,14 +327,23 @@ class FootageRecorder:
             / f"{year:04d}-{month:02d}-{day:02d}"
         )
         day_dir.mkdir(parents=True, exist_ok=True)
+        # Recording toggled off and back on inside the same hour re-enters
+        # this bucket under the same run id: sub-index past the earlier
+        # block(s) instead of overwriting them (field 2026-07-15: the
+        # re-open truncated 25 GB blocks fleet-wide).
         path = day_dir / f"{hour:02d}0000Z-{self._run_id}.dat"
+        sub = 0
+        while path.exists():
+            sub += 1
+            path = day_dir / f"{hour:02d}0000Z-{self._run_id}.{sub}.dat"
         self._ext = _MmapExtent(path, DAT_FILE_HEADER)
         self._hasher = hashlib.sha256()
         self._hasher.update(DAT_FILE_HEADER)
         self._size_bytes = len(DAT_FILE_HEADER)
         self._file_path = path
         self._bucket = bucket
-        self._last_fsync = self._now()
+        self._opened_wall = self._now()  # the manifest's replay anchor
+        self._last_fsync = self._opened_wall
         self._start_ts_ns = None
         self._end_ts_ns = 0
         self._object_ids = set()
@@ -356,6 +377,7 @@ class FootageRecorder:
             sha256=self._hasher.hexdigest(),
             object_ids=sorted(self._object_ids),
             capture=capture,
+            wall_start_ns=int(self._opened_wall * 1e9),
         )
         append_entry(manifest, entry)
         self._reset_state()

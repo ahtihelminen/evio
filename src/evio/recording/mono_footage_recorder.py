@@ -15,7 +15,7 @@ recovers to the last whole frame with no codec state to rebuild.
 
 Path layout:
 
-    <root>/<camera_id>/YYYY-MM-DD/HH0000Z-<run>.mraw
+    <root>/<camera_id>/YYYY-MM-DD/HH0000Z-<run>[.N].mraw
     <root>/<camera_id>/YYYY-MM-DD/manifest.jsonl
 """
 
@@ -77,6 +77,7 @@ class MonoFootageRecorder:
         self._file: BinaryIO | None = None
         self._file_path: Path | None = None
         self._bucket: _Bucket | None = None
+        self._opened_wall = 0.0  # wall clock of the current file's open
         self._start_ts_ns: int | None = None
         self._end_ts_ns = 0
         self._size_bytes = 0
@@ -140,8 +141,15 @@ class MonoFootageRecorder:
             self._root / self._camera_id / f"{year:04d}-{month:02d}-{day:02d}"
         )
         day_dir.mkdir(parents=True, exist_ok=True)
+        # Same-hour re-enable re-enters this bucket under the same run id:
+        # sub-index past the earlier block(s), never overwrite (the "xb"
+        # mode makes any collision an error instead of a truncate).
         path = day_dir / f"{hour:02d}0000Z-{self._run_id}.mraw"
-        f = path.open("wb")
+        sub = 0
+        while path.exists():
+            sub += 1
+            path = day_dir / f"{hour:02d}0000Z-{self._run_id}.{sub}.mraw"
+        f = path.open("xb")
         f.write(self._header)
         self._hasher = hashlib.sha256()
         self._hasher.update(self._header)
@@ -149,7 +157,8 @@ class MonoFootageRecorder:
         self._file = f
         self._file_path = path
         self._bucket = bucket
-        self._last_fsync = self._now()
+        self._opened_wall = self._now()  # the manifest's replay anchor
+        self._last_fsync = self._opened_wall
         self._start_ts_ns = None
         self._end_ts_ns = 0
         _log.info("mono footage rotated -> %s", path)
@@ -178,6 +187,7 @@ class MonoFootageRecorder:
                 "channels": self._channels,
                 "fps": self._fps,
             },
+            wall_start_ns=int(self._opened_wall * 1e9),
         )
         append_entry(manifest, entry)
         self._reset_state()

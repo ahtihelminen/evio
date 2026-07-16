@@ -80,6 +80,21 @@ def test_recover_removes_header_only_file(tmp_path: Path) -> None:
     assert not (day_dir / "manifest.jsonl").exists()
 
 
+def test_recover_unlinks_sub_header_stub(tmp_path: Path) -> None:
+    # A rotate that died mid-header (ENOSPC, power cut) leaves a stub
+    # shorter than the header: it can never be indexed, so recovery must
+    # remove it instead of re-warning about it on every boot. A foreign
+    # short file (magic-prefix mismatch) is left untouched.
+    day_dir = tmp_path / "mono-0" / "2026-07-15"
+    stub = _write(day_dir, "120000Z-074303Z.1.mraw", MONO_MAGIC[:10])
+    foreign = _write(day_dir, "junk.mraw", b"short junk")
+
+    assert recover_mono_orphans(tmp_path) == []
+    assert not stub.exists()
+    assert foreign.exists()
+    assert not (day_dir / "manifest.jsonl").exists()
+
+
 def test_recover_skips_files_already_in_manifest(tmp_path: Path) -> None:
     recorder = MonoFootageRecorder(
         root=tmp_path, camera_id="mono-0", width=4, height=3,

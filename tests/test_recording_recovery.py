@@ -59,6 +59,19 @@ def test_recover_truncates_partial_and_reindexes(tmp_path: Path) -> None:
     assert rec.timestamps.size == 5
 
 
+def test_recover_handles_sub_indexed_names(tmp_path: Path) -> None:
+    # A re-enabled recording block (same hour, same run) carries a
+    # sub-index; orphan recovery must re-index it like any other .dat.
+    day_dir = tmp_path / "event-0" / "2026-07-15"
+    orphan = _write_orphan(
+        day_dir, "120000Z-074303Z.1.dat", _orphan_bytes(3),
+    )
+    assert recover_orphans(tmp_path) == [orphan]
+    entries = list(iter_manifest(day_dir / "manifest.jsonl"))
+    assert entries[0].filename == "120000Z-074303Z.1.dat"
+    assert entries[0].capture == {"recovered": True}
+
+
 def test_recover_removes_header_only_file(tmp_path: Path) -> None:
     day_dir = tmp_path / "event-0" / "2026-06-05"
     orphan = _write_orphan(day_dir, "110000Z-BBB.dat", _orphan_bytes(0))

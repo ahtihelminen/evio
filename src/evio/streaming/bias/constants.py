@@ -95,7 +95,8 @@ DEADBAND_LN = 0.3  # slow servo acts only when ln(BGT/R_N) exceeds this
 # --- Transport / saturation (censoring) -------------------------------------
 ERC_CAP_EPS = 3_000_000.0  # static per-camera ERC budget; 6x sits under USB3
 R_CEIL_FRACTION = 0.75  # fast-loop delivered-rate trigger vs ERC cap
-SAT_DELIVERED_EPS = 6_300_000.0  # 0.7 x the ~9 Mev/s SDK readout rail
+# 0.9 x the ~9 Mev/s SDK readout rail (7.5M ERC-cap far-range experiment).
+SAT_DELIVERED_EPS = 8_200_000.0
 ERC_PINNED_FRACTION = 0.95  # delivered within 5% of ERC cap => "ge, unknown"
 # Real in-sensor drop share that censors: single-count pipeline-edge jitter
 # between the paired counters must not read as "ERC is dropping".
@@ -260,6 +261,20 @@ GOOD_RESTORE_SETTLE_S = 60.0
 # after this many culprit-only rounds failed to clear it (or the culprit
 # is railed). Ordering only — total suppression authority unchanged.
 CULPRIT_FIRST_STEPS = 2
+# --- OFF-first recovery (field 2026-07-14/15) --------------------------------
+# diff_off guards the drone-signature channel (dark target on bright sky is
+# 97-100% OFF-led): four of six cameras crept +7..+13 over hours because
+# OFF-flood episodes raised doff correctly but recovery descended whichever
+# polarity had the most budget headroom (ON, whose noise is masked), and the
+# good-point latch then ratcheted the crept value in. Three parts: raising
+# doff needs the OFF violation sustained OFF_ASCENT_STREAK_FACTOR x the
+# normal streak (the delivered-rate/storm/back-off containment triggers are
+# untouched); descent unwinds a doff excursion above its home (latch, or
+# preset+trim) before diff_on gains further depth; and above DOFF_SOFT_CEIL
+# a return spring presses judged diff_off descent even through the
+# contentment gate — a desensitized signal channel is never a good point.
+OFF_ASCENT_STREAK_FACTOR = 2
+DOFF_SOFT_CEIL = 4
 JUDGE_WIN_S = 6.0
 SCENE_STATIONARY_WIN_S = 30.0
 SCENE_STATIONARY_MAX_COV = 0.5
