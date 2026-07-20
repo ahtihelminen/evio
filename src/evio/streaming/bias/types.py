@@ -333,6 +333,10 @@ class StormState:
     pre_step_noise_eps: float = 0.0
     backoff_until: float = 0.0  # cliff back-off grace deadline; 0 = unarmed
     backoff_target: dict[str, int] = field(default_factory=dict)
+    # Armed by the ramp kill (vs the blind-step ladder): its grace
+    # expiry may not escalate to the jump before the camera settles
+    # (FIELD 2026-07-20 — the forbidden false +40/+60).
+    backoff_from_kill: bool = False
     # Deepest attributed down-write + margin, held from arm until the
     # back-off clears censoring (controller persists it as the floor)
     # or the grace expires into the jump (dropped: storm was genuine).
@@ -356,6 +360,11 @@ class RampState:
     target: dict[str, int] = field(default_factory=dict)
     descent_hold_until: float = 0.0
     last_down_at: float = 0.0  # last accepted downward RAMP write
+    # Delivered rate measured on the tick of that write (pre-write
+    # level): a kill needs the flood to EXCEED it by
+    # CLIFF_DETONATION_GAIN — attributability, not just coincidence
+    # (FIELD 2026-07-20).
+    pre_down_delivered: float = 0.0
 
 
 @dataclass
