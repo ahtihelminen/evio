@@ -316,6 +316,37 @@ NOOP_BLIND_STEPS = 3  # blind steps while censored before the STORM jump
 STORM_DEESCALATE_FRACTION = 0.5
 STORM_DEESCALATE_S = 120.0
 
+# --- Boot settling (FIELD INCIDENT 2026-07-20: false blind jump) -------------
+# At session start the estimator is structurally untrustworthy for cliff
+# ATTRIBUTION: camera-open floods and boot-scan masking present as
+# flood-class censors on continuous ticks, so every warm-ramp down-step
+# has a censor onset within CLIFF_DETONATION_WIN_S by pure coincidence.
+# The 2026-07-20 session turned that into false -6->+2 back-offs fleet-
+# wide and one grace-expiry +40/+60 blind jump (38339). Until a camera
+# is SETTLED — signals flowing (the worker's boot scan completes before
+# it streams, multicamera.py), BOOT_SETTLE_S of wall time since open,
+# and one censor-free RATE_EMA_TAU_S horizon — the ramp kill may not
+# arm the ladder and a kill-armed grace expiry may not escalate to the
+# jump. The blind-step ladder (NOOP_BLIND_STEPS of real no-effect
+# evidence, the discipline the morning-proven baseline booted clean
+# with) stays live from tick 1: containment never sleeps.
+BOOT_SETTLE_S = 90.0
+# A ramp down-step is a plausible DETONATOR only if the flood it chases
+# EXCEEDS the pre-write delivered level by this factor: comparator
+# cliffs explode 10-300x, while a boot/external flood already in
+# progress reads ~1x the pre-write sample (2026-07-20: boot floods
+# passed the pure timing gate).
+CLIFF_DETONATION_GAIN = 4.0
+# Delivered is ERC-ceiling-compressed, so the gain is UNOBSERVABLE in a
+# busy scene: once the pre-write level exceeds erc_cap/(2*GAIN) the
+# gate falls back to onset-chases-write timing plus the censor carrying
+# the ERC_PINNED bit — hitting the cap IS the detonation signature
+# there (boot-gate review 2026-07-20: the pure gain gate left the kill
+# lane silently dead above ~cap/4, reopening the 4634 limit cycle).
+# The pre-write sample is floored at the sparse-scene scale so an
+# unset/zero sample can never collapse the gain threshold to ~4 eps.
+PRE_DOWN_FLOOR_EPS = 5_000.0
+
 # --- Cliff-aware back-off (self-inflicted storms, incident 2026-07-08) -------
 # A storm with a recent downward diff write in this window is SELF-INFLICTED
 # (we walked past the comparator-noise cliff): covers blank + judge + the
