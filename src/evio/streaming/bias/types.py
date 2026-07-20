@@ -265,13 +265,33 @@ class FastState:
     idle_evals: int = 0  # consecutive evaluations with no violation/write
     last_write_at: float = 0.0
     culprit_steps: int = 0  # culprit-only suppression rounds this violation
+    # Violating fast evals of the CURRENT standing R_CEIL flood (counted
+    # whether or not raises landed); past R_CEIL_CULPRIT_EVALS the raise
+    # escalates to both. The valve re-arms only after SUSTAINED observed
+    # clearance — quiet evals since rceil_clear_since spanning the
+    # blank+judge horizon — never one dip eval or an obs stall (round 3).
+    rceil_culprit_evals: int = 0
+    rceil_clear_since: float = 0.0
+    # The last sighted R_CEIL step INTENDED one knob only: an ineffective
+    # judgment on it is misattribution evidence, never a freeze strike.
+    rceil_culprit_step: bool = False
+
+
+def _knob_clocks() -> dict[str, float]:
+    return {"diff_on": 0.0, "diff_off": 0.0}
 
 
 @dataclass
 class SlowState:
-    cooldown_until: float = 0.0
-    consecutive_fails: int = 0
-    last_trial_at: float = 0.0
+    # Descent pacing is PER KNOB (2026-07-17: the shared clocks made
+    # every ON trial delay OFF 60-240 s while rn_off starved). The
+    # doubling exponent too (2026-07-20): ON's failure history must not
+    # charge OFF's first cooldown, and a kept ON trial clears only ON's.
+    cooldown_until: dict[str, float] = field(default_factory=_knob_clocks)
+    consecutive_fails: dict[str, int] = field(
+        default_factory=lambda: {"diff_on": 0, "diff_off": 0}
+    )
+    last_trial_at: dict[str, float] = field(default_factory=_knob_clocks)
     crowded_since: float | None = None  # hot-channel crowding onset
 
 
@@ -287,7 +307,11 @@ class GoodPointState:
     registers: dict[str, int] = field(default_factory=dict)
     regime: str = ""
     latched_at: float = 0.0  # last refresh while conditions held
-    headroom_since: float | None = None  # rn under half budget since
+    # Per-polarity: rn_p under half of budget_p since (2026-07-17 —
+    # summed headroom let masked ON noise veto OFF's earned escape).
+    headroom_since: dict[str, float | None] = field(
+        default_factory=lambda: {"on": None, "off": None}
+    )
     quiet_since: float | None = None  # sighted + under ceiling since
     restore_until: float = 0.0  # restore failure-watch window; 0 = idle
     failed_restores: int = 0  # two strikes: the scene genuinely changed
@@ -297,6 +321,9 @@ class GoodPointState:
 class StormState:
     active: bool = False
     effectiveness_strikes: int = 0
+    # A standing strike was earned by a BOTH-intent raise: culprit-only
+    # escalation must never wipe it (round 3, bursty-flood starvation).
+    strike_both: bool = False
     blind_steps: int = 0
     frozen: bool = False  # thresholds declared ineffective; containment mode
     jumped: bool = False  # STORM vector applied
@@ -328,6 +355,7 @@ class RampState:
     active: bool = False
     target: dict[str, int] = field(default_factory=dict)
     descent_hold_until: float = 0.0
+    last_down_at: float = 0.0  # last accepted downward RAMP write
 
 
 @dataclass
@@ -346,6 +374,7 @@ class EstimatorState:
     pair_fraction: float = 0.0
     censor: CensorCause = CensorCause.NONE
     censor_clear_at: float = 0.0  # when S_c last became false
+    censor_set_at: float = 0.0  # when S_c last became true (onset edge)
     blank_until: float = 0.0
     sdk_rate_history: list[tuple[float, float]] = field(default_factory=list)
     last_update_at: float = 0.0

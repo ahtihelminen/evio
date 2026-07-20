@@ -187,6 +187,17 @@ FAST_TRIGGER_STREAK = 2
 KAPPA_SEED_REG_PER_DECADE = 12.0  # noise-vs-threshold loop gain seed
 STEP_FAST_MAX = 6
 STEP_CENSORED_MAX = 2  # fixed-max-step while measurements are censored
+# R_CEIL culprit attribution (session 2026-07-17): the delivered-rate
+# ceiling used to raise BOTH thresholds — 41/46 diff_off up-moves rode
+# diff_on floods while rn_off sat at 2.6-50% of its budget. A polarity
+# carrying at least this share of the estimator's per-polarity totals
+# answers alone. Two escalation paths keep the both-raise reachable
+# (2026-07-20 review): a flood standing more than this many violating
+# fast evals (counted whether or not raises landed) escalates, and the
+# ladder judging a culprit-only raise ineffective escalates immediately
+# — misattribution evidence, charged BEFORE any freeze strike.
+R_CEIL_CULPRIT_SHARE = 2.0 / 3.0
+R_CEIL_CULPRIT_EVALS = 3
 
 # --- Slow loop / trials -------------------------------------------------------
 SLOW_MIN_SPACING_S = 60.0
@@ -276,6 +287,12 @@ CULPRIT_FIRST_STEPS = 2
 OFF_ASCENT_STREAK_FACTOR = 2
 DOFF_SOFT_CEIL = 4
 JUDGE_WIN_S = 6.0
+# Sustained-clearance horizon for the R_CEIL flood machinery (valve
+# re-arm, strike-ledger expiry, the freeze latch's flood-over test):
+# quiet evals must span the post-write blank deferral plus the
+# settle-lock judge window (plus one eval quantum) before a delivered
+# flood counts as ENDED — shorter dips are bursts of the same flood.
+RCEIL_CLEAR_S = T_BLANK_S["diff_on"] + JUDGE_WIN_S + 2 * FAST_EVAL_S
 SCENE_STATIONARY_WIN_S = 30.0
 SCENE_STATIONARY_MAX_COV = 0.5
 # Below this mean delivered rate the CoV test is waived (trivially
@@ -305,6 +322,13 @@ STORM_DEESCALATE_S = 120.0
 # blind-step run + a ~12 s-cadence descent staircase, yet stays under
 # STORM_DEESCALATE_S so stale descents age out before any release ramp runs.
 CLIFF_ATTRIBUTION_WIN_S = 90.0
+# Detonation is FAST: a write that crosses a cliff censors within a couple
+# of observation ticks. A down-write inside this window before the censor
+# ONSET is a prime floor suspect (2026-07-20 round-2: recency and movement
+# alone each misattribute a confirmed shape, so the floor takes the UNION
+# of onset-window and top-mover suspects), and a censored ramp is killed
+# (vs held) only when the onset chases its own down-step this closely.
+CLIFF_DETONATION_WIN_S = 12.0
 # One dither amplitude plus one register of comparator hysteresis above the
 # observed cliff — the smallest margin the dither cannot re-cross.
 CLIFF_MARGIN_REG = 2
