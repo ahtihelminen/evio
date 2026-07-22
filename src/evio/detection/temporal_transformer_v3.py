@@ -51,6 +51,66 @@ class TemporalTransformerV3Config:
     event_in_dim: int = 4
     enable_bbox_mask_head: bool = True
     causal: bool = False  # v4: causal attention mask + per-track K/V cacheable
+    # R5: explicit per-track recurrent state (h_track). When enabled the model
+    # takes an extra ``h_in`` and returns ``h_track`` (h_out), a fixed-size
+    # state carried across windows by the caller — the deployable alternative
+    # to the per-window dense event attention (E0 Sub-gate B validated the
+    # (B, state_dim) f32 in/out round-trips on the Arc). Default off = the v3/v4
+    # forward is byte-identical and existing checkpoints load unchanged.
+    state_enabled: bool = False
+    state_dim: int = 256
+    # State-cell type: "gru" (nn.GRUCell, gated), "lru" (diagonal linear
+    # recurrence — gate-free, exports to OV as elementwise ops → cheaper/cleaner
+    # on the Arc) or "lif" (soft leaky integrate-and-fire — decayed membrane
+    # with a sigmoid-spike soft reset, nonlinear yet still elementwise-only).
+    # All share the same (x, h) -> h call surface.
+    state_cell: str = "gru"
+
+
+class _LRUCell(nn.Module):
+    """Diagonal linear-recurrent state cell: ``h = a*h + (1-a)*W x``, a∈(0,1).
+
+    A gate-free alternative to :class:`torch.nn.GRUCell` with the same
+    ``(x, h) -> h`` surface. The recurrence is elementwise, so it exports to
+    OpenVINO as sigmoid/mul/add (no gate matmuls) and runs cheaper on the Arc.
+    """
+
+    def __init__(self, in_dim: int, state_dim: int) -> None:
+        super().__init__()
+        self.in_proj = nn.Linear(in_dim, state_dim)
+        self.log_decay = nn.Parameter(torch.zeros(state_dim))
+
+    def forward(self, x: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
+        a = torch.sigmoid(self.log_decay)
+        return a * h + (1.0 - a) * self.in_proj(x)
+
+
+class _LIFCell(nn.Module):
+    """Soft leaky integrate-and-fire state cell (Phase-5 bakeoff arm).
+
+    Membrane ``v = a*h + W x`` under a learned per-dim decay; a sigmoid
+    "soft spike" drains it toward the learned threshold (soft reset):
+    ``h = v - sigmoid(k*(v - thr)) * thr``. Unlike a hard-threshold LIF this
+    uses the smooth spike in the forward pass too, so it needs no surrogate
+    gradient and exports to OpenVINO as pure elementwise ops. Same
+    ``(x, h) -> h`` surface as GRUCell/_LRUCell; nonlinear where the LRU is
+    linear — the bakeoff question is whether that buys anything.
+    """
+
+    def __init__(
+        self, in_dim: int, state_dim: int, *, spike_sharpness: float = 4.0,
+    ) -> None:
+        super().__init__()
+        self.in_proj = nn.Linear(in_dim, state_dim)
+        self.log_decay = nn.Parameter(torch.zeros(state_dim))
+        self.threshold = nn.Parameter(torch.ones(state_dim))
+        self.spike_sharpness = spike_sharpness
+
+    def forward(self, x: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
+        a = torch.sigmoid(self.log_decay)
+        v = a * h + self.in_proj(x)
+        spike = torch.sigmoid(self.spike_sharpness * (v - self.threshold))
+        return v - spike * self.threshold
 
 
 class _StreamingMHA(nn.Module):
@@ -341,6 +401,23 @@ class TemporalTrackTransformerV3(nn.Module):
             config.embed_dim, config.embedding_dim,
         )
         self.validity_head = nn.Linear(config.embed_dim, 1)
+        # R5 explicit-state cell — created only when enabled so v3/v4
+        # checkpoints (no state params) still load strict=True.
+        if config.state_enabled:
+            cells = {
+                "lru": _LRUCell,
+                "lif": _LIFCell,
+                "gru": nn.GRUCell,
+            }
+            self.state_cell: nn.Module | None = cells[config.state_cell](
+                config.embed_dim, config.state_dim,
+            )
+            self.state_proj: nn.Linear | None = nn.Linear(
+                config.state_dim, config.embed_dim,
+            )
+        else:
+            self.state_cell = None
+            self.state_proj = None
         if config.enable_bbox_mask_head:
             self.bbox_mask_head: _BboxMaskHead | None = _BboxMaskHead(
                 config.embed_dim, config.patch_size,
@@ -427,6 +504,7 @@ class TemporalTrackTransformerV3(nn.Module):
         patches: torch.Tensor,
         events: torch.Tensor,
         event_mask: torch.Tensor,
+        h_in: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
         batch, seq = patches.shape[0], patches.shape[1]
         device = patches.device
@@ -484,6 +562,21 @@ class TemporalTrackTransformerV3(nn.Module):
         cls_out = z[:, 0]
         frame_out = z[:, 1: 1 + seq]
 
+        # R5: update the per-track state from this window's CLS summary and
+        # condition the heads on the accumulated state (additive, so head dims
+        # are unchanged). h_track rides out to the caller for the next window.
+        h_out: torch.Tensor | None = None
+        if self.state_cell is not None and self.state_proj is not None:
+            if h_in is None:
+                h_in = torch.zeros(
+                    batch, self.config.state_dim, device=device,
+                    dtype=cls_out.dtype,
+                )
+            h_out = self.state_cell(cls_out, h_in)
+            cond = self.state_proj(h_out)
+            frame_out = frame_out + cond.unsqueeze(1)
+            cls_out = cls_out + cond
+
         out: dict[str, torch.Tensor] = {
             "drone_logits": self.drone_head(frame_out).squeeze(-1),
             "embeddings": torch_F.normalize(
@@ -491,6 +584,8 @@ class TemporalTrackTransformerV3(nn.Module):
             ),
             "validity": self.validity_head(cls_out).squeeze(-1),
         }
+        if h_out is not None:
+            out["h_track"] = h_out
         if self.bbox_mask_head is not None:
             out["bbox_mask"] = self.bbox_mask_head(frame_out)
         return out
@@ -517,11 +612,17 @@ class TemporalTransformerV3Bundle:
         patches: np.ndarray,
         events: np.ndarray,
         event_mask: np.ndarray,
+        h_in: np.ndarray | None = None,
     ) -> dict[str, np.ndarray]:
         x = torch.from_numpy(np.ascontiguousarray(patches)).to(self.device)
         e = torch.from_numpy(np.ascontiguousarray(events)).to(self.device)
         m = torch.from_numpy(np.ascontiguousarray(event_mask)).to(self.device)
-        out = self.model(x, e, m)
+        h = (
+            torch.from_numpy(np.ascontiguousarray(h_in, dtype=np.float32))
+            .to(self.device)
+            if h_in is not None else None
+        )
+        out = self.model(x, e, m, h_in=h)
         return {
             k: v.detach().cpu().numpy().astype(np.float32)
             for k, v in out.items()

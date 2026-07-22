@@ -87,11 +87,18 @@ def extract_event_patch(
 def normalize_patch(patch: PatchArray) -> FeatureVector:
     """BGR uint8 → unit-norm grayscale float32 feature vector."""
     gray = cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY).astype(np.float32)
-    vec = gray.flatten()
-    norm = float(np.linalg.norm(vec))
-    if norm < 1e-9:
-        return vec  # all-zero patch — return zeros, callers tolerate that
-    return vec / norm
+    return unit_normalize(gray.flatten())
+
+
+def unit_normalize(vec: FeatureVector) -> FeatureVector:
+    """Scale a vector to unit L2 norm; return it unchanged if ~zero.
+
+    Used for both the grayscale patch feature and the v4 ReID embedding so
+    a cosine match is a true dot product in either appearance space.
+    """
+    arr = np.asarray(vec, dtype=np.float32).ravel()
+    norm = float(np.linalg.norm(arr))
+    return arr / norm if norm > 1e-9 else arr
 
 
 def cosine_similarity(a: FeatureVector, b: FeatureVector) -> float:
@@ -102,8 +109,8 @@ def cosine_similarity(a: FeatureVector, b: FeatureVector) -> float:
     return float(np.dot(a, b))
 
 
-class SignatureBuffer:
-    """Bounded queue of normalized patches per track."""
+class _NormedVectorBuffer:
+    """Bounded queue of unit-norm feature vectors; ``signature()`` = mean."""
 
     def __init__(self, capacity: int = 10) -> None:
         if capacity < 1:
@@ -111,26 +118,36 @@ class SignatureBuffer:
             raise ValueError(msg)
         self._vectors: deque[FeatureVector] = deque(maxlen=capacity)
 
-    def add(self, patch: PatchArray) -> None:
-        self._vectors.append(normalize_patch(patch))
-
     def signature(self) -> FeatureVector | None:
-        """Mean of stored normalized patches, re-normalised. None if empty."""
+        """Re-normalised mean of the stored vectors. None if empty."""
         if not self._vectors:
             return None
-        mean = np.mean(self._vectors, axis=0)
-        norm = float(np.linalg.norm(mean))
-        if norm < 1e-9:
-            return mean
-        return mean / norm
+        return unit_normalize(np.mean(self._vectors, axis=0))
 
     def __len__(self) -> int:
         return len(self._vectors)
 
 
+class SignatureBuffer(_NormedVectorBuffer):
+    """Per-track queue of normalized raw-event-patch appearance features."""
+
+    def add(self, patch: PatchArray) -> None:
+        self._vectors.append(normalize_patch(patch))
+
+
+class EmbeddingBuffer(_NormedVectorBuffer):
+    """Per-track queue of the v3/v4 transformer's learned L2-normed ReID
+    embeddings — the learned counterpart to ``SignatureBuffer``."""
+
+    def add(self, embedding: FeatureVector) -> None:
+        self._vectors.append(unit_normalize(embedding))
+
+
 __all__ = [
+    "EmbeddingBuffer",
     "SignatureBuffer",
     "cosine_similarity",
     "extract_event_patch",
     "normalize_patch",
+    "unit_normalize",
 ]

@@ -200,6 +200,7 @@ class TrackTransformerClassifier:
         device: str = "auto",
         window_us: int = 10_000,
         stale_ticks: int = 300,
+        classify_cadence: int = 1,
     ) -> None:
         loaded = load_track_transformer(ckpt, device)
         self._bundle = loaded.bundle
@@ -208,11 +209,27 @@ class TrackTransformerClassifier:
         self.load_warning = loaded.load_warning
         self._window_us = window_us
         self._stale_ticks = stale_ticks
+        # Re-score each mature track at most once per `classify_cadence`
+        # windows (verdict held sticky between). 1 = every window (default,
+        # unchanged); higher divides the transformer's per-window load so a
+        # heavy model (v4's 1024-token event attention) stays real-time at
+        # 6-cam on the Arc — E0 Sub-gate A: v4 needs cadence >= ~14.
+        self._classify_cadence = max(1, classify_cadence)
+        # R5: if the model carries an explicit h_track state, keep a per-track
+        # state vector and thread it across this track's scored windows (fed in,
+        # updated out). Stateless models (v2/v3/v4) leave this inert.
+        self._stateful = getattr(self._bundle, "stateful", None)
+        if self._stateful is None:
+            cfg = getattr(self._bundle, "config", None)
+            self._stateful = bool(getattr(cfg, "state_enabled", False))
+        self._state_dim = _state_dim_of(self._bundle) if self._stateful else 0
+        self._state: dict[tuple[str, str], np.ndarray] = {}
         self._patch_rings: dict[tuple[str, str], deque[np.ndarray]] = {}
         self._bbox_rings: dict[tuple[str, str], deque[tuple[_Bbox, int]]] = {}
         self._batch_rings: dict[str, deque[EventsBatch]] = {}
         self._verdicts: dict[tuple[str, str], float] = {}
         self._seen_tick: dict[tuple[str, str], int] = {}
+        self._scored_tick: dict[tuple[str, str], int] = {}
         self._tick = 0
 
     @property
@@ -270,6 +287,7 @@ class TrackTransformerClassifier:
             (serial, tid)
             for tid in dict.fromkeys(d.track_id for d in tracked if d.track_id)
             if len(self._patch_rings.get((serial, tid), ())) == SEQ_LEN
+            and self._is_due((serial, tid))
         ]
         if not ready:
             return
@@ -282,11 +300,42 @@ class TrackTransformerClassifier:
             events, mask = self._build_event_batch(serial, ready)
             if events is None:
                 return  # event history still warming up; skip this tick
-        probs = predict_drone_probs(
-            self._bundle, patches, events, mask, is_v4=self._is_v4,
-        )
+        if self._stateful:
+            probs = self._score_stateful(ready, patches, events, mask)
+        else:
+            probs = predict_drone_probs(
+                self._bundle, patches, events, mask, is_v4=self._is_v4,
+            )
         for key, prob in zip(ready, probs, strict=True):
             self._verdicts[key] = float(prob)
+            self._scored_tick[key] = self._tick
+
+    def _score_stateful(
+        self,
+        ready: list[tuple[str, str]],
+        patches: np.ndarray,
+        events: np.ndarray | None,
+        mask: np.ndarray | None,
+    ) -> np.ndarray:
+        """Thread each ready track's h_track through one batched R5 forward."""
+        h_in = np.stack(
+            [self._state.get(k, np.zeros(self._state_dim, np.float32))
+             for k in ready],
+            axis=0,
+        ).astype(np.float32)
+        out = self._bundle.predict(patches, events, mask, h_in=h_in)
+        h_out = out["h_track"]
+        for i, key in enumerate(ready):
+            self._state[key] = h_out[i]
+        logits = out["drone_logits"]
+        if self._is_v4:
+            return _sigmoid(logits[:, -1])
+        return _sigmoid(logits).mean(axis=1)
+
+    def _is_due(self, key: tuple[str, str]) -> bool:
+        """True if `key` has never been scored or its cadence has elapsed."""
+        last = self._scored_tick.get(key)
+        return last is None or self._tick - last >= self._classify_cadence
 
     def _build_event_batch(
         self, serial: str, ready: list[tuple[str, str]],
@@ -322,6 +371,8 @@ class TrackTransformerClassifier:
             self._patch_rings.pop(key, None)
             self._bbox_rings.pop(key, None)
             self._verdicts.pop(key, None)
+            self._scored_tick.pop(key, None)
+            self._state.pop(key, None)
 
 
 def _concat_batches(batches: tuple[EventsBatch, ...]) -> EventsBatch:
@@ -339,6 +390,15 @@ def _concat_batches(batches: tuple[EventsBatch, ...]) -> EventsBatch:
 
 def _sigmoid(x: np.ndarray) -> np.ndarray:
     return 0.5 * (np.tanh(0.5 * x) + 1.0)
+
+
+def _state_dim_of(bundle: object) -> int:
+    """h_track width from an OV bundle (`_state_dim`) or torch bundle config."""
+    dim = getattr(bundle, "_state_dim", None)
+    if dim:
+        return int(dim)
+    cfg = getattr(bundle, "config", None)
+    return int(getattr(cfg, "state_dim", 0))
 
 
 __all__ = [
