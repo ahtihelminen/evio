@@ -123,6 +123,93 @@ def _fold(f: float, nyquist: float) -> float:
     return f if f <= nyquist else 2.0 * nyquist - f
 
 
+def series_psd(
+    series: np.ndarray, bin_us: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Hann periodogram ``(freqs_hz, psd)`` of a count series (mean removed)."""
+    n = series.size
+    centered = series - series.mean()
+    window = np.hanning(n)
+    psd = np.abs(np.fft.rfft(centered * window)) ** 2 / float(
+        np.sum(window * window),
+    )
+    freqs = np.fft.rfftfreq(n, d=bin_us * 1e-6)
+    return freqs, psd
+
+
+def comb_score_psd(
+    freqs: np.ndarray,
+    psd: np.ndarray,
+    *,
+    band_hz: tuple[float, float],
+    harmonics: int = 3,
+    sfm_max: float = 0.6,
+    kappa: float = 6.0,
+    fold_nyquist: float | None = None,
+    n_candidates: int = 1,
+) -> tuple[float | None, float, float]:
+    """``(f0_hz, score, sfm)`` harmonic-comb verdict over a uniform PSD grid.
+
+    The scoring core shared by the live per-track estimator and the offline
+    comb-at-locus evaluator. ``fold_nyquist`` aliases super-Nyquist harmonics
+    back in-band (binned-series callers pass ``freqs[-1]``); ``None`` (NDFT
+    grids — no sampling Nyquist) evaluates harmonics at ``h*f0`` directly and
+    skips ones beyond the grid. ``n_candidates > 1`` anchors the comb at each
+    of the top-K prominent in-band peaks and keeps the best — a strong 2nd
+    harmonic no longer steals the fundamental's comb credit.
+    """
+    band = (freqs >= band_hz[0]) & (freqs <= band_hz[1])
+    if not band.any():
+        return None, 0.0, 1.0
+    sfm = _spectral_flatness(psd[band])
+    if sfm > sfm_max:
+        return None, 0.0, sfm
+    step = float(freqs[1] - freqs[0])
+    med = _running_median(
+        psd, half_width=max(1, int(40.0 / step)),
+        guard=max(1, int(5.0 / step)),
+    )
+    prom = psd / (med + 1e-12)
+    banded_prom = np.where(band, prom, 0.0)
+    order = np.argsort(banded_prom)[::-1][: max(1, n_candidates)]
+    peak_indices = [int(i) for i in order if banded_prom[i] > 0.0] or [
+        int(np.argmax(banded_prom)),
+    ]
+
+    def prom_at(f_hz: float) -> float:
+        i = round(f_hz / step)
+        lo, hi = max(0, i - 1), min(prom.size, i + 2)
+        return float(prom[lo:hi].max()) if hi > lo else 0.0
+
+    weights = (1.0, 0.5, 0.25, 0.125)[:harmonics]
+    guard_hz = 5.0
+    grid_hi = float(freqs[-1])
+    best: tuple[float | None, float] = (None, 0.0)
+    for peak_idx in peak_indices:
+        f0 = _parabolic_refine(freqs, np.log(psd + 1e-12), peak_idx)
+        # Fundamental always counts; higher harmonics only with real support
+        # (prominence >= 2) AND a location that is neither back on the
+        # fundamental (3*f0 folds onto f0 near fs/4) nor below the band floor
+        # (1/f clutter shoulder) — else a chance peak inherits comb credit.
+        comb_snr = weights[0] * math.log1p(max(0.0, prom_at(f0) - 1.0))
+        for h, w in zip(range(2, harmonics + 1), weights[1:], strict=False):
+            if fold_nyquist is not None:
+                f_h = _fold(h * f0, fold_nyquist)
+            else:
+                f_h = h * f0
+                if f_h > grid_hi:
+                    continue
+            if f_h < band_hz[0] or abs(f_h - f0) <= guard_hz:
+                continue
+            p = prom_at(f_h)
+            if p >= 2.0:
+                comb_snr += w * math.log1p(p - 1.0)
+        score = 1.0 - math.exp(-comb_snr / kappa)
+        if score > best[1]:
+            best = (f0, score)
+    return best[0], best[1], sfm
+
+
 class RotorPeriodicityEstimator:
     """Accumulate per-track ON/OFF bins and score the blade-pass comb.
 
@@ -307,49 +394,12 @@ class RotorPeriodicityEstimator:
         series = np.asarray(ring.on, dtype=np.float64) - np.asarray(
             ring.off, dtype=np.float64,
         )
-        series = series - series.mean()
-        window = np.hanning(n)
-        psd = np.abs(np.fft.rfft(series * window)) ** 2 / float(
-            np.sum(window * window),
+        freqs, psd = series_psd(series, self._bin_us)
+        f0, score, sfm = comb_score_psd(
+            freqs, psd, band_hz=self._band, harmonics=self._harmonics,
+            sfm_max=self._sfm_max, kappa=self._kappa,
+            fold_nyquist=float(freqs[-1]),
         )
-        freqs = np.fft.rfftfreq(n, d=self._bin_us * 1e-6)
-        band = (freqs >= self._band[0]) & (freqs <= self._band[1])
-        if not band.any():
-            return RotorEstimate(None, 0.0, 1.0, n, n_events, fresh=True)
-        sfm = _spectral_flatness(psd[band])
-        if sfm > self._sfm_max:
-            return RotorEstimate(None, 0.0, sfm, n, n_events, fresh=True)
-        step = float(freqs[1] - freqs[0])
-        med = _running_median(
-            psd, half_width=max(1, int(40.0 / step)),
-            guard=max(1, int(5.0 / step)),
-        )
-        prom = psd / (med + 1e-12)
-        peak_idx = int(np.argmax(np.where(band, prom, 0.0)))
-        f0 = _parabolic_refine(freqs, np.log(psd + 1e-12), peak_idx)
-        nyquist = float(freqs[-1])
-
-        def prom_at(f_hz: float) -> float:
-            i = round(f_hz / step)
-            lo, hi = max(0, i - 1), min(prom.size, i + 2)
-            return float(prom[lo:hi].max()) if hi > lo else 0.0
-
-        weights = (1.0, 0.5, 0.25, 0.125)[: self._harmonics]
-        guard_hz = 5.0
-        # Fundamental always counts; higher harmonics only with real support
-        # (prominence >= 2) AND a folded location that is neither back on the
-        # fundamental (3*f0 folds onto f0 near fs/4) nor below the band floor
-        # (1/f clutter shoulder) — else a chance peak inherits comb credit.
-        comb_snr = weights[0] * math.log1p(max(0.0, prom_at(f0) - 1.0))
-        for h, w in zip(range(2, self._harmonics + 1), weights[1:],
-                        strict=False):
-            f_h = _fold(h * f0, nyquist)
-            if f_h < self._band[0] or abs(f_h - f0) <= guard_hz:
-                continue
-            p = prom_at(f_h)
-            if p >= 2.0:
-                comb_snr += w * math.log1p(p - 1.0)
-        score = 1.0 - math.exp(-comb_snr / self._kappa)
         rotor_hz = f0 if score >= self._floor else None
         return RotorEstimate(rotor_hz, score, sfm, n, n_events, fresh=True)
 
@@ -368,4 +418,6 @@ __all__ = [
     "RotorEstimate",
     "RotorPeriodicityEstimator",
     "bin_events_polarity",
+    "comb_score_psd",
+    "series_psd",
 ]
