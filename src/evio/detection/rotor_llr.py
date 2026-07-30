@@ -84,6 +84,12 @@ def fit_rotor_llr(
     if x.shape[0] != y.shape[0] or x.shape[0] == 0:
         msg = "scores and labels must be non-empty and aligned"
         raise ValueError(msg)
+    if y.min() == y.max():
+        msg = (
+            "labels contain a single class - a degenerate fit maps every "
+            "score to a constant LLR (fusion_G3 lesson); supply both classes"
+        )
+        raise ValueError(msg)
     coef, intercept = _fit_logistic_irls(x, y, l2=l2, max_iter=max_iter)
     prior = float(np.clip(y.mean(), 1e-6, 1.0 - 1e-6))
     return RotorLLR(
