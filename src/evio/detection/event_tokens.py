@@ -45,6 +45,8 @@ def tokenize_events_in_track(
     timestamps_us: list[int],
     window_us: int,
     e_max: int = DEFAULT_E_MAX,
+    per_pixel_cap: int | None = None,
+    with_pixel_count: bool = False,
 ) -> tuple[NDArray[np.float32], NDArray[np.bool_]]:
     """Crop + normalise + sub-sample events for one track sequence.
 
@@ -63,7 +65,7 @@ def tokenize_events_in_track(
         msg = f"e_max must be >= 1, got {e_max}"
         raise ValueError(msg)
     if not bboxes:
-        return _empty(e_max)
+        return _empty(e_max, with_pixel_count=with_pixel_count)
 
     x0u = min(b[0] for b in bboxes)
     y0u = min(b[1] for b in bboxes)
@@ -85,7 +87,7 @@ def tokenize_events_in_track(
     lo = int(np.searchsorted(batch.timestamps, t_min, side="left"))
     hi = int(np.searchsorted(batch.timestamps, t_max, side="right"))
     if hi <= lo:
-        return _empty(e_max)
+        return _empty(e_max, with_pixel_count=with_pixel_count)
     ts_slice = batch.timestamps[lo:hi]
     xs_slice = batch.x_coords[lo:hi]
     ys_slice = batch.y_coords[lo:hi]
@@ -97,7 +99,37 @@ def tokenize_events_in_track(
     )
     local_indices = np.where(in_box)[0]
     if local_indices.size == 0:
-        return _empty(e_max)
+        return _empty(e_max, with_pixel_count=with_pixel_count)
+
+    # Per-pixel token cap (R1 spoof-lane fix): a kHz stuck pixel inside the
+    # union box otherwise claims tokens proportional to its rate and forges
+    # periodic structure. Capping BEFORE the stride subsample bounds any
+    # single (x, y) to per_pixel_cap tokens while the pre-cap count is
+    # preserved as an optional 5th feature (log-compressed), so "one pixel
+    # firing fast" stays separable from "spatially coherent object".
+    if with_pixel_count or per_pixel_cap is not None:
+        pixel_ids = (
+            ys_slice[local_indices].astype(np.int64) * 16384
+            + xs_slice[local_indices].astype(np.int64)
+        )
+        _, inverse, pix_counts = np.unique(
+            pixel_ids, return_inverse=True, return_counts=True,
+        )
+        counts_per_event = pix_counts[inverse]
+    if per_pixel_cap is not None:
+        order = np.argsort(inverse, kind="stable")
+        rank = np.empty(order.size, dtype=np.int64)
+        boundaries = np.flatnonzero(
+            np.diff(inverse[order], prepend=inverse[order[0]] ^ 1),
+        )
+        rank[order] = np.arange(order.size) - np.repeat(
+            boundaries, np.diff(np.append(boundaries, order.size)),
+        )
+        keep_cap = rank < per_pixel_cap
+        local_indices = local_indices[keep_cap]
+        counts_per_event = counts_per_event[keep_cap]
+        if local_indices.size == 0:
+            return _empty(e_max, with_pixel_count=with_pixel_count)
 
     if local_indices.size > e_max:
         # Uniform-stride subsample preserves temporal distribution
@@ -106,8 +138,11 @@ def tokenize_events_in_track(
         step = local_indices.size / e_max
         keep = (np.arange(e_max) * step).astype(np.int64)
         local_indices = local_indices[keep]
+        if with_pixel_count:
+            counts_per_event = counts_per_event[keep]
 
-    out = np.zeros((e_max, 4), dtype=np.float32)
+    dims = 5 if with_pixel_count else 4
+    out = np.zeros((e_max, dims), dtype=np.float32)
     n = int(local_indices.size)
     ts = ts_slice[local_indices].astype(np.float32)
     xs = xs_slice[local_indices].astype(np.float32)
@@ -117,15 +152,22 @@ def tokenize_events_in_track(
     out[:n, 1] = (xs - x0u) / width
     out[:n, 2] = (ys - y0u) / height
     out[:n, 3] = ps
+    if with_pixel_count:
+        # log1p of the PRE-cap per-pixel count, /10 to keep the feature
+        # O(1) (log1p(50k ev/px) ~ 10.8 -> ~1.08).
+        out[:n, 4] = np.log1p(
+            counts_per_event.astype(np.float32)) / 10.0
 
     mask = np.zeros(e_max, dtype=np.bool_)
     mask[:n] = True
     return out, mask
 
 
-def _empty(e_max: int) -> tuple[NDArray[np.float32], NDArray[np.bool_]]:
+def _empty(
+    e_max: int, *, with_pixel_count: bool = False,
+) -> tuple[NDArray[np.float32], NDArray[np.bool_]]:
     return (
-        np.zeros((e_max, 4), dtype=np.float32),
+        np.zeros((e_max, 5 if with_pixel_count else 4), dtype=np.float32),
         np.zeros(e_max, dtype=np.bool_),
     )
 

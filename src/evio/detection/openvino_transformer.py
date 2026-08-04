@@ -224,6 +224,7 @@ def export_v3_to_openvino(
     path ignores it; the Phase-2 learned-association arm consumes it).
     Batch axis is dynamic.
     """
+
     import torch
     from torch import nn
 
@@ -238,6 +239,13 @@ def export_v3_to_openvino(
     )
 
     cfg = bundle.config
+    if getattr(cfg, "conditioning_dim", 0) > 0:
+        msg = (
+            "conditioning_dim > 0 is not yet threaded through the OpenVINO "
+            "export — the IR would silently freeze conditioning at zero, "
+            "diverging live inference from offline eval. Export refused."
+        )
+        raise NotImplementedError(msg)
 
     class _LogitsAndEmbeddings(nn.Module):
         def __init__(self, inner: nn.Module) -> None:

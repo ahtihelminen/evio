@@ -59,6 +59,15 @@ class TemporalTransformerV3Config:
     # forward is byte-identical and existing checkpoints load unchanged.
     state_enabled: bool = False
     state_dim: int = 256
+    # R1: optional per-sequence conditioning vector (bias registers, rates,
+    # regime one-hot, log pre-subsample count ...) applied as an ADDITIVE
+    # projection onto frame+CLS features (the h_track pattern; final layer
+    # zero-init => exact warm-start neutrality). 0 = disabled; the forward
+    # is byte-identical and existing checkpoints load unchanged.
+    conditioning_dim: int = 0
+    # R1: serve-time tokenizer contract carried in the checkpoint meta so
+    # live wrappers reproduce training tokenization (5th feature + cap).
+    token_per_pixel_cap: int | None = None
     # State-cell type: "gru" (nn.GRUCell, gated), "lru" (diagonal linear
     # recurrence — gate-free, exports to OV as elementwise ops → cheaper/cleaner
     # on the Arc) or "lif" (soft leaky integrate-and-fire — decayed membrane
@@ -396,6 +405,23 @@ class TemporalTrackTransformerV3(nn.Module):
             self.transformer = nn.TransformerEncoder(
                 layer, num_layers=config.n_layers,
             )
+        if config.conditioning_dim > 0:
+            final = nn.Linear(max(32, config.embed_dim // 4),
+                              config.embed_dim)
+            # Zero-init the output layer: a freshly added conditioning path
+            # contributes EXACTLY nothing until training moves it, so
+            # loading a pre-conditioning checkpoint stays warm-start
+            # neutral (same contract as expand_event_encoder).
+            nn.init.zeros_(final.weight)
+            nn.init.zeros_(final.bias)
+            self.cond_encoder: nn.Module | None = nn.Sequential(
+                nn.Linear(config.conditioning_dim,
+                          max(32, config.embed_dim // 4)),
+                nn.GELU(),
+                final,
+            )
+        else:
+            self.cond_encoder = None
         self.drone_head = nn.Linear(config.embed_dim, 1)
         self.embedding_head = nn.Linear(
             config.embed_dim, config.embedding_dim,
@@ -505,6 +531,7 @@ class TemporalTrackTransformerV3(nn.Module):
         events: torch.Tensor,
         event_mask: torch.Tensor,
         h_in: torch.Tensor | None = None,
+        cond: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
         batch, seq = patches.shape[0], patches.shape[1]
         device = patches.device
@@ -565,6 +592,16 @@ class TemporalTrackTransformerV3(nn.Module):
         # R5: update the per-track state from this window's CLS summary and
         # condition the heads on the accumulated state (additive, so head dims
         # are unchanged). h_track rides out to the caller for the next window.
+        if self.cond_encoder is not None:
+            if cond is None:
+                cond = torch.zeros(
+                    batch, self.config.conditioning_dim,
+                    device=device, dtype=cls_out.dtype,
+                )
+            cond_add = self.cond_encoder(cond)
+            frame_out = frame_out + cond_add.unsqueeze(1)
+            cls_out = cls_out + cond_add
+
         h_out: torch.Tensor | None = None
         if self.state_cell is not None and self.state_proj is not None:
             if h_in is None:
