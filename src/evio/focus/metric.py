@@ -14,8 +14,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import cv2
 import numpy as np
 from numpy.typing import NDArray
+
+# Absolute SNR gate: raw AC band power must exceed the noise floor by
+# this factor or the window scores 0. Measured separation: pure-noise
+# windows (incl. rare leak spikes) stay <= ~1.06x floor, the weakest
+# legitimate dim stimulus ~1.6x, focused scenes ~31x.
+_SNR_GATE = 1.2
+# Isolated-delta guard: a pixel may hold at most this multiple of its
+# 3x3 neighborhood sum. Real optical structure is never a lone 1-px
+# delta; an unmasked warm pixel accumulates COHERENT power the Poisson
+# floor cannot model (it under-corrects by ~acc x G1/G2) and inverts
+# the focus ordering on dim scenes.
+_DELTA_NEIGHBOR_K = 2.0
+# Keep 1-2 windows of accumulator memory even on bright scenes: a
+# blinking stimulus otherwise scores raw 0 on every OFF half-cycle
+# (alpha=1 hard cutover), wobbling the EMA ~34% peak-to-peak.
+_ALPHA_MAX = 0.7
 
 _HANN_CACHE: dict[tuple[int, int], NDArray[np.float32]] = {}
 _BAND_CACHE: dict[
@@ -28,7 +45,9 @@ _BAND_CACHE: dict[
 class FocusResult:
     """One window's focus reading."""
 
-    hf: float  # HF band energy / total AC energy, 0..1
+    # HF fraction of noise-corrected AC power; ~0..1, may slightly
+    # exceed 1 when LF energy falls below the subtracted noise floor.
+    hf: float
     roi_rate: float  # events/s inside the ROI (post-mask)
     frame_rate: float  # events/s over the full frame (pre-mask)
 
@@ -113,9 +132,10 @@ def hf_ratio(
     # bands only where they exceed the floor by 3 sigma of its own sum.
     margin_hf = 1.0 + 3.0 * float(np.sqrt(8.0 / max(n_hf, 1)))
     margin_ac = 1.0 + 3.0 * float(np.sqrt(8.0 / max(n_ac, 1)))
-    ac_power = (
-        float(power[ac_mask].sum()) - floor_per_bin * n_ac * margin_ac
-    )
+    raw_ac = float(power[ac_mask].sum())
+    if raw_ac <= _SNR_GATE * floor_per_bin * n_ac:
+        return 0.0  # no stimulus: below the absolute SNR gate
+    ac_power = raw_ac - floor_per_bin * n_ac * margin_ac
     if ac_power <= 0.0:
         return 0.0
     hf_power = max(
@@ -211,7 +231,7 @@ class WindowScorer:
             alpha = float(
                 np.clip(
                     self._events_ema / self._target, self._alpha_min,
-                    1.0,
+                    _ALPHA_MAX,
                 ),
             )
             keep = 1.0 - alpha
@@ -221,13 +241,31 @@ class WindowScorer:
             self._g2 = self._g2 * keep * keep + 1.0
         return FocusResult(
             hf=hf_ratio(
-                self._acc,
+                _suppress_isolated_deltas(self._acc),
                 hf_cutoff=self._hf_cutoff,
                 floor_scale=self._g2 / self._g1,
             ),
             roi_rate=roi_events / self._window_s,
             frame_rate=float(x_coords.size) / self._window_s,
         )
+
+
+def _suppress_isolated_deltas(
+    image: NDArray[np.float32],
+) -> NDArray[np.float32]:
+    """Clamp every pixel to ``k x`` its 3x3 neighborhood sum.
+
+    An unmasked warm pixel (even a few ev/window — below every
+    boot-scan gate) accumulates a coherent spatial delta whose power
+    grows quadratically while the Poisson floor only credits it
+    linearly; on dim scenes that single pixel inverts the focus
+    ordering. Isolated deltas have ~empty neighborhoods, so the clamp
+    zeroes them while leaving real (extended) structure untouched.
+    """
+    neighborhood = cv2.boxFilter(
+        image, -1, (3, 3), normalize=False,
+    ) - image
+    return np.minimum(image, _DELTA_NEIGHBOR_K * neighborhood)
 
 
 class ScoreHistory:

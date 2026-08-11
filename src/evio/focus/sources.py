@@ -21,10 +21,17 @@ from evio.focus.metric import FocusResult, ScoreHistory, WindowScorer
 SENSOR_W = 1280
 SENSOR_H = 720
 _ENV_EVERY_WINDOWS = 100  # ~1 Hz die-temp/lux sampling at 100 Hz windows
-_REVIVE_ATTEMPTS = 2  # rotor-box lesson: >2 is hopeless until physical fix
+_REVIVE_BACKOFF_S = (2.0, 4.0, 8.0, 15.0)  # transient bus loss recovery
 _DT8_X_MASK = 0x3FFF
 _DT8_Y_SHIFT = 14
 _DT8_P_SHIFT = 28
+# Back-to-back opens of N>1 cameras leave some half-claimed and poll()
+# throws seconds later (multicamera.py post_open_delay_s rationale).
+_POST_OPEN_SETTLE_S = 0.25
+_MAX_WINDOW_BACKLOG = 4  # drop-to-latest beyond 40 ms of stale windows
+# Replay stuck-pixel seeding: pixels sustaining >= this rate over the
+# seed pass get masked (OnlineHotMask convention — conservative).
+_REPLAY_STUCK_EV_S = 1000.0
 
 # Sensor-init register writes contend on the USB controller when several
 # cameras open concurrently (ISSD failures on the 3rd+ camera) — open +
@@ -39,6 +46,7 @@ class PaneConfig:
     clip: float = 10.0
     hf_cutoff: float = 0.25
     target_events: float = 4000.0
+    dem_mask_dir: Path | None = None  # None = CWD-relative (discouraged)
     view_ds: int = 4
     view_decay: float = 0.65
     boot_scan_s: float = 3.0
@@ -105,21 +113,28 @@ class PaneState:
         with self.lock:
             self.status = status
 
+    def _set_roi(self, roi: tuple[int, int, int, int]) -> None:
+        """Under self.lock: apply a new ROI; peak-hold resets because
+        scores from different ROIs are not comparable."""
+        if roi != self.roi:
+            self.roi = roi
+            self.history.reset_peak()
+
     def move_roi(self, dx: int, dy: int) -> None:
         with self.lock:
-            self.roi = _clamp_roi(
+            self._set_roi(_clamp_roi(
                 self.roi[0] + dx, self.roi[1] + dy,
                 self.roi[2], self.roi[3],
-            )
+            ))
 
     def resize_roi(self, delta: int) -> None:
         with self.lock:
             rx, ry, rw, rh = self.roi
             size = int(np.clip(rw + delta, 64, min(SENSOR_W, SENSOR_H)))
             cx, cy = rx + rw // 2, ry + rh // 2
-            self.roi = _clamp_roi(
+            self._set_roi(_clamp_roi(
                 cx - size // 2, cy - size // 2, size, size,
-            )
+            ))
 
     def center_roi_on_activity(self) -> None:
         """Recenter the ROI on the brightest view block (delta-locate)."""
@@ -132,7 +147,9 @@ class PaneState:
             )
             cx, cy = int(bx) * ds + ds // 2, int(by) * ds + ds // 2
             _, _, rw, rh = self.roi
-            self.roi = _clamp_roi(cx - rw // 2, cy - rh // 2, rw, rh)
+            self._set_roi(
+                _clamp_roi(cx - rw // 2, cy - rh // 2, rw, rh),
+            )
 
     def reset_peak(self) -> None:
         with self.lock:
@@ -179,11 +196,26 @@ class PaneWorker(threading.Thread):
         y_coords: NDArray[np.integer],
     ) -> None:
         cfg = self.pane.config
+        # One corrupt/out-of-range coordinate (replay corruption, driver
+        # skew) must not kill the worker via the bincount reshape.
+        valid = (
+            (x_coords >= 0) & (x_coords < SENSOR_W)
+            & (y_coords >= 0) & (y_coords < SENSOR_H)
+        )
+        if not valid.all():
+            x_coords = x_coords[valid]
+            y_coords = y_coords[valid]
         with self.pane.lock:
             roi = self.pane.roi
         result = self._scorer.score(
             x_coords, y_coords, roi=roi, stuck_mask=self.stuck_mask,
         )
+        if self.stuck_mask is not None and x_coords.size:
+            # The view drives auto-ROI ('r') and display scaling — a
+            # stuck pixel would otherwise be its brightest block.
+            keep = ~self.stuck_mask[y_coords, x_coords]
+            x_coords = x_coords[keep]
+            y_coords = y_coords[keep]
         view_h, view_w = self._view_shape
         flat = (
             (y_coords.astype(np.intp) // cfg.view_ds) * view_w
@@ -194,10 +226,11 @@ class PaneWorker(threading.Thread):
         self._view_acc += counts.astype(np.float32).reshape(
             self._view_shape,
         )
+        fresh_view = self._view_acc.copy()  # never alias the live acc
         with self.pane.lock:
             self.pane.history.push(result.hf)
             self.pane.last = result
-            self.pane.view = self._view_acc
+            self.pane.view = fresh_view
             self.pane.windows += 1
 
 
@@ -213,30 +246,47 @@ class LiveCameraWorker(PaneWorker):
         from evio.io.imx636_camera import Imx636CameraSource
 
         cfg = self.pane.config
-        for attempt in range(1 + _REVIVE_ATTEMPTS):
+        for attempt in range(1 + len(_REVIVE_BACKOFF_S)):
             if self.stop_event.is_set():
                 return
             if attempt:
-                self.pane.set_status(f"reviving ({attempt})")
-                time.sleep(2.0)
+                backoff = _REVIVE_BACKOFF_S[attempt - 1]
+                self.pane.set_status(
+                    f"reviving ({attempt}, wait {backoff:.0f}s)",
+                )
+                if self.stop_event.wait(backoff):
+                    return
             source = Imx636CameraSource(
                 serial=self.pane.serial,
                 window_length_us=int(cfg.window_ms * 1000),
+                dem_mask_dir=cfg.dem_mask_dir,
             )
             try:
                 self._stream(source)
             except RuntimeError as exc:
                 self.pane.set_status(f"USB dead: {exc}")
+            except (OSError, ValueError) as exc:
+                self.pane.set_status(f"worker died: {exc}")
+                return  # not a USB drop — reviving would loop pointlessly
             else:
                 return  # clean stop
         self.pane.set_status("dead (revive attempts exhausted)")
 
     def _stream(self, source: object) -> None:
+        from evio.core.window import drain_window_backlog
+
         cfg = self.pane.config
         self.pane.set_status("opening")
         with _OPEN_LOCK:
+            if self.stop_event.is_set():
+                return
             source.__enter__()
+            # Settle before the next camera opens — back-to-back opens
+            # leave cameras half-claimed (poll() throws seconds later).
+            time.sleep(_POST_OPEN_SETTLE_S)
         try:
+            if self.stop_event.is_set():
+                return
             if cfg.boot_scan_s > 0:
                 self.pane.set_status(
                     f"boot scan {cfg.boot_scan_s:.0f}s (keep scene still)",
@@ -248,6 +298,9 @@ class LiveCameraWorker(PaneWorker):
             for batch in source:
                 if self.stop_event.is_set():
                     return
+                batch, _, _ = drain_window_backlog(
+                    source.window_queue, batch, _MAX_WINDOW_BACKLOG,
+                )
                 self._consume(batch.x_coords, batch.y_coords)
                 since_env += 1
                 if since_env >= _ENV_EVERY_WINDOWS:
@@ -301,6 +354,7 @@ class ReplayWorker(PaneWorker):
             return
         words = source.event_words
         order = source.order
+        self.stuck_mask = _seed_replay_stuck_mask(words, order)
         self.pane.set_status(f"replay {self.path.name}")
         pace = cfg.window_s / self.speed
         while not self.stop_event.is_set():
@@ -321,6 +375,27 @@ class ReplayWorker(PaneWorker):
                 leftover = pace - (time.monotonic() - begin)
                 if leftover > 0:
                     time.sleep(leftover)
+
+
+def _seed_replay_stuck_mask(
+    words: np.ndarray, order: np.ndarray, seed_events: int = 2_000_000,
+) -> NDArray[np.bool_] | None:
+    """Offline hard rule: never analyze stuck pixels. One cheap pass
+    over the head of the recording masks sustained >=1 kev/s pixels."""
+    head = np.asarray(words[order[: min(seed_events, order.size)]],
+                      dtype=np.uint32)
+    if head.size == 0:
+        return None
+    xs = (head & _DT8_X_MASK).astype(np.intp)
+    ys = ((head >> _DT8_Y_SHIFT) & _DT8_X_MASK).astype(np.intp)
+    keep = (xs < SENSOR_W) & (ys < SENSOR_H)
+    counts = np.bincount(
+        ys[keep] * SENSOR_W + xs[keep], minlength=SENSOR_W * SENSOR_H,
+    ).reshape(SENSOR_H, SENSOR_W)
+    # Seed span is unknown in wall time; be conservative: only pixels
+    # holding >0.1% of the head pass each (a real target never does).
+    mask = counts > max(_REPLAY_STUCK_EV_S, 0.001 * head.size)
+    return mask if mask.any() else None
 
 
 @dataclass

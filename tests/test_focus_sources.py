@@ -90,3 +90,65 @@ def test_mask_from_coords() -> None:
     assert mask is not None
     assert mask[7, 5] and mask[719, 1279]
     assert mask.sum() == 2
+
+
+def test_consume_survives_out_of_bounds_coordinates() -> None:
+    pane = PaneState("x", PaneConfig())
+    worker = SyntheticWorker(pane, threading.Event())
+    worker._consume(
+        np.array([100, 1300, -1, 5000], dtype=np.int32),
+        np.array([100, 100, 100, 900], dtype=np.int32),
+    )
+    snap = pane.snapshot(graph_samples=8)
+    assert snap.windows == 1  # did not raise; window still scored
+
+
+def test_roi_change_resets_peak_hold() -> None:
+    pane = PaneState("x", PaneConfig())
+    with pane.lock:
+        pane.history.push(0.5)
+        pane.history.push(0.1)
+    assert pane.history.peak_ema > pane.history.ema
+    pane.move_roi(16, 0)
+    assert pane.history.peak_ema == pane.history.ema
+    # a clamped no-op move must NOT reset an established peak
+    pane.move_roi(-10_000, 0)  # park at the left edge
+    with pane.lock:
+        pane.history.push(0.5)
+        pane.history.push(0.1)
+    peak = pane.history.peak_ema
+    assert peak > pane.history.ema
+    pane.move_roi(-16, 0)  # clamps to the same position = no-op
+    assert pane.history.peak_ema == peak
+
+
+def test_snapshot_view_does_not_alias_worker_accumulator() -> None:
+    pane = PaneState("x", PaneConfig())
+    worker = SyntheticWorker(pane, threading.Event())
+    xs = np.full(100, 640, dtype=np.int32)
+    ys = np.full(100, 360, dtype=np.int32)
+    worker._consume(xs, ys)
+    snap = pane.snapshot(graph_samples=8)
+    before = snap.view.copy()
+    worker._consume(xs, ys)
+    assert np.array_equal(snap.view, before)
+
+
+def test_view_excludes_stuck_pixels() -> None:
+    """Auto-ROI must never center on a masked stuck pixel."""
+    pane = PaneState("x", PaneConfig())
+    worker = SyntheticWorker(pane, threading.Event())
+    worker.stuck_mask = _mask_from_coords([(200, 300)])
+    xs = np.concatenate([
+        np.full(500, 200, dtype=np.int32),  # stuck pixel flood
+        np.full(20, 900, dtype=np.int32),  # real activity
+    ])
+    ys = np.concatenate([
+        np.full(500, 300, dtype=np.int32),
+        np.full(20, 400, dtype=np.int32),
+    ])
+    worker._consume(xs, ys)
+    pane.center_roi_on_activity()
+    rx, ry, rw, rh = pane.roi
+    assert abs((rx + rw // 2) - 900) <= pane.config.view_ds
+    assert abs((ry + rh // 2) - 400) <= pane.config.view_ds

@@ -6,6 +6,7 @@ import numpy as np
 
 from evio.focus.metric import (
     ScoreHistory,
+    WindowScorer,
     bin_count_image,
     hf_ratio,
     score_window,
@@ -118,6 +119,63 @@ def test_score_window_rates() -> None:
 
 def test_hf_ratio_empty_image_is_zero() -> None:
     assert hf_ratio(np.zeros((64, 64), dtype=np.float32)) == 0.0
+
+
+def _dim_windows(
+    blur: float, n_per_window: int, windows: int, warm_px_rate: int = 0,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Dim blinking scene; optional unmasked warm pixel inside the ROI."""
+    out = []
+    for i in range(windows):
+        if i % 2 == 0:  # ON half-cycle
+            xs, ys = _dot_scene_events(blur, n_per_window, seed=i)
+        else:
+            xs = np.zeros(0, dtype=np.int32)
+            ys = np.zeros(0, dtype=np.int32)
+        if warm_px_rate:
+            xs = np.concatenate(
+                [xs, np.full(warm_px_rate, 640, dtype=np.int32)],
+            )
+            ys = np.concatenate(
+                [ys, np.full(warm_px_rate, 360, dtype=np.int32)],
+            )
+        out.append((xs, ys))
+    return out
+
+
+def _tail_mean_score(
+    feed: list[tuple[np.ndarray, np.ndarray]],
+) -> float:
+    scorer = WindowScorer(window_s=0.01)
+    scores = [
+        scorer.score(xs, ys, roi=ROI).hf for xs, ys in feed
+    ]
+    tail = scores[len(scores) // 2 :]
+    return float(np.mean(tail))
+
+
+def test_warm_pixel_does_not_invert_ordering_in_accumulation() -> None:
+    """A few-ev/window warm pixel (below every boot-scan gate) must not
+    make defocus outscore focus in the dim/accumulate regime — the
+    field-critical inversion the isolated-delta guard exists for."""
+    focused = _tail_mean_score(_dim_windows(0.5, 200, 300, 5))
+    defocused = _tail_mean_score(_dim_windows(5.0, 200, 300, 5))
+    assert focused > 2.0 * defocused
+
+
+def test_pure_noise_accumulation_never_spikes() -> None:
+    """No-stimulus panes must stay at ~0 (no EMA/peak poisoning)."""
+    rng = np.random.default_rng(3)
+    scorer = WindowScorer(window_s=0.01)
+    worst = 0.0
+    for _ in range(300):
+        score = scorer.score(
+            rng.integers(0, 1280, 300).astype(np.int32),
+            rng.integers(0, 720, 300).astype(np.int32),
+            roi=ROI,
+        ).hf
+        worst = max(worst, score)
+    assert worst <= 0.05
 
 
 def test_score_history_wrap_peak_and_reset() -> None:
