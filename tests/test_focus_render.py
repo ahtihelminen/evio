@@ -50,6 +50,20 @@ def test_pool_to_width_keeps_peaks() -> None:
     assert _pool_to_width(short, 400) is short
 
 
+def test_zoom_pane_renders_native_roi() -> None:
+    import dataclasses
+
+    from evio.focus.render import render_pane
+
+    cfg = RenderConfig()
+    roi_view = np.zeros((128, 128), dtype=np.float32)
+    roi_view[64, 60:68] = 50.0  # an 8-px edge segment
+    snap = dataclasses.replace(_snap("z"), zoom=True, roi_view=roi_view)
+    pane = render_pane(snap, cfg, selected=False)
+    assert pane.shape == (cfg.pane_h, cfg.view_w, 3)
+    assert pane[: cfg.view_h].max() > 0  # the edge is visible
+
+
 def test_compose_canvas_shapes() -> None:
     cfg = RenderConfig()
     two = compose_canvas(

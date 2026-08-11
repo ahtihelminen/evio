@@ -95,23 +95,43 @@ def render_pane(
 
     # --- event view + ROI ------------------------------------------------
     view_rect = pane[: cfg.view_h]
-    if snap.view is not None:
-        gray = _normalize_view(snap.view)
-        resized = cv2.resize(
-            gray, (cfg.view_w, cfg.view_h),
+    if snap.zoom and snap.roi_view is not None:
+        # Native-pixel ROI evidence (what the metric scores): the
+        # operator judges focus by edge WIDTH, so scale by an integer
+        # factor with nearest-neighbor and never smooth.
+        gray = _normalize_view(snap.roi_view)
+        scale = max(1, cfg.view_h // gray.shape[0])
+        scaled = cv2.resize(
+            gray, None, fx=scale, fy=scale,
             interpolation=cv2.INTER_NEAREST,
+        )[: cfg.view_h, : cfg.view_w]
+        y0 = (cfg.view_h - scaled.shape[0]) // 2
+        x0 = (cfg.view_w - scaled.shape[1]) // 2
+        view_rect[
+            y0 : y0 + scaled.shape[0], x0 : x0 + scaled.shape[1],
+        ] = scaled[:, :, None]
+        cv2.putText(
+            view_rect, f"ZOOM {scale}x (1 sensor px = {scale} px)",
+            (6, 14), _FONT, 0.42, _ROI, 1, cv2.LINE_AA,
         )
-        view_rect[:] = resized[:, :, None]
-    sx = cfg.view_w / SENSOR_W
-    sy = cfg.view_h / SENSOR_H
-    rx, ry, rw, rh = snap.roi
-    cv2.rectangle(
-        view_rect,
-        (int(rx * sx), int(ry * sy)),
-        (int((rx + rw) * sx), int((ry + rh) * sy)),
-        _ROI,
-        1,
-    )
+    else:
+        if snap.view is not None:
+            gray = _normalize_view(snap.view)
+            resized = cv2.resize(
+                gray, (cfg.view_w, cfg.view_h),
+                interpolation=cv2.INTER_NEAREST,
+            )
+            view_rect[:] = resized[:, :, None]
+        sx = cfg.view_w / SENSOR_W
+        sy = cfg.view_h / SENSOR_H
+        rx, ry, rw, rh = snap.roi
+        cv2.rectangle(
+            view_rect,
+            (int(rx * sx), int(ry * sy)),
+            (int((rx + rw) * sx), int((ry + rh) * sy)),
+            _ROI,
+            1,
+        )
 
     # --- score graph (raw dim, EMA bright, peak line) ---------------------
     strip = pane[cfg.view_h : cfg.view_h + cfg.graph_h]

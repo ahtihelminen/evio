@@ -75,6 +75,11 @@ class PaneSnapshot:
     peak_ema: float
     die_temp_c: float | None
     windows: int
+    zoom: bool = False
+    # Native-pixel ROI evidence image (what the metric scores) for the
+    # zoom view — the operator judges focus by edge WIDTH, which the
+    # downsampled overview cannot show.
+    roi_view: NDArray[np.float32] | None = None
 
 
 class PaneState:
@@ -91,6 +96,8 @@ class PaneState:
         self.last: FocusResult | None = None
         self.die_temp_c: float | None = None
         self.windows = 0
+        self.zoom = False
+        self.roi_view: NDArray[np.float32] | None = None
 
     def snapshot(self, graph_samples: int) -> PaneSnapshot:
         with self.lock:
@@ -107,6 +114,11 @@ class PaneState:
                 peak_ema=self.history.peak_ema,
                 die_temp_c=self.die_temp_c,
                 windows=self.windows,
+                zoom=self.zoom,
+                roi_view=(
+                    None if self.roi_view is None
+                    else self.roi_view.copy()
+                ),
             )
 
     def set_status(self, status: str) -> None:
@@ -155,6 +167,12 @@ class PaneState:
         with self.lock:
             self.history.reset_peak()
 
+    def toggle_zoom(self) -> None:
+        with self.lock:
+            self.zoom = not self.zoom
+            if not self.zoom:
+                self.roi_view = None
+
 
 def _centered_roi(size: int) -> tuple[int, int, int, int]:
     size = min(size, SENSOR_H)
@@ -183,6 +201,7 @@ class PaneWorker(threading.Thread):
             SENSOR_H // cfg.view_ds, SENSOR_W // cfg.view_ds,
         )
         self._view_acc = np.zeros(self._view_shape, dtype=np.float32)
+        self._zoom_skip = 0
         self._scorer = WindowScorer(
             window_s=cfg.window_s,
             clip=cfg.clip,
@@ -207,9 +226,15 @@ class PaneWorker(threading.Thread):
             y_coords = y_coords[valid]
         with self.pane.lock:
             roi = self.pane.roi
+            zoom = self.pane.zoom
         result = self._scorer.score(
             x_coords, y_coords, roi=roi, stuck_mask=self.stuck_mask,
         )
+        roi_view = None
+        if zoom and self._scorer.acc_image is not None:
+            self._zoom_skip = (self._zoom_skip + 1) % 3
+            if self._zoom_skip == 0:  # ~33 Hz is plenty for the eye
+                roi_view = self._scorer.acc_image.copy()
         if self.stuck_mask is not None and x_coords.size:
             # The view drives auto-ROI ('r') and display scaling — a
             # stuck pixel would otherwise be its brightest block.
@@ -231,6 +256,8 @@ class PaneWorker(threading.Thread):
             self.pane.history.push(result.hf)
             self.pane.last = result
             self.pane.view = fresh_view
+            if roi_view is not None:
+                self.pane.roi_view = roi_view
             self.pane.windows += 1
 
 

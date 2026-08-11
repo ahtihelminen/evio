@@ -205,6 +205,12 @@ class WindowScorer:
         self._g1 = 1.0
         self._g2 = 1.0
 
+    @property
+    def acc_image(self) -> NDArray[np.float32] | None:
+        """Accumulated masked/clipped ROI count image — the exact
+        evidence the score is computed on (callers must copy)."""
+        return self._acc
+
     def score(
         self,
         x_coords: NDArray[np.integer],
