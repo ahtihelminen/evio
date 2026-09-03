@@ -92,6 +92,16 @@ class _DormantTrack:
 @dataclass(slots=True)
 class TrackManagerConfig:
     match_iou_threshold: float = 0.2
+    # "eiou" association scores centre/size proximity even for disjoint
+    # boxes — built for far (1-2 px) and fast-approaching targets where
+    # plain IoU zeroes out and the track dies at confirmation. EIoU is in
+    # (-1, 1]; for SMALL boxes the enclosing-box normalisation makes the
+    # centre term dominate (two 2-px boxes one pixel apart already score
+    # ~-0.31), so the threshold is NEGATIVE: -0.3 associates pipeline-scale
+    # (32 px) boxes across ~45 px single-window jumps while rejecting
+    # cross-target distances.
+    match_metric: str = "iou"  # "iou" | "eiou" | "diou" (diou recommended)
+    match_eiou_threshold: float = -0.3
     max_miss_frames: int = 8
     process_noise_pos_px_per_s: float = 5.0
     process_noise_vel_px_per_s2: float = 200.0
@@ -558,13 +568,20 @@ class TrackManager:
     def _match_by_iou(
         self, det: Detection, candidates: list[_Track],
     ) -> _Track | None:
-        best_iou = self._cfg.match_iou_threshold
+        metric = {"eiou": _eiou, "diou": _diou}.get(
+            self._cfg.match_metric, _iou,
+        )
+        best_score = (
+            self._cfg.match_eiou_threshold
+            if self._cfg.match_metric in ("eiou", "diou")
+            else self._cfg.match_iou_threshold
+        )
         best_track: _Track | None = None
         det_box = (det.x0, det.y0, det.x1, det.y1)
         for track in candidates:
-            iou = _iou(det_box, self._predicted_bbox(track))
-            if iou > best_iou:
-                best_iou = iou
+            score = metric(det_box, self._predicted_bbox(track))
+            if score > best_score:
+                best_score = score
                 best_track = track
         return best_track
 
@@ -899,6 +916,58 @@ def _passes_velocity_coherence(
         return False
     straightness = _straightness(track.path_history)
     return straightness >= cfg.velocity_straightness_min
+
+
+def _eiou(
+    a: tuple[float, float, float, float],
+    b: tuple[float, float, float, float],
+) -> float:
+    """Efficient-IoU similarity in (-1, 1] (Zhang 2021, as a metric).
+
+    IoU minus three penalties — centre distance, width mismatch, height
+    mismatch — each normalised by the smallest enclosing box. Unlike plain
+    IoU it degrades GRACEFULLY for the small/changing-size targets this
+    tracker exists for: two 2-px far-drone boxes one pixel apart score
+    IoU 0 (association death) but EIoU ~ -0.05 (still matchable), and an
+    approaching drone whose box doubles between windows keeps credit for
+    the centred position instead of being punished twice via the union.
+    """
+    iou = _iou(a, b)
+    # smallest enclosing box
+    cw = max(a[2], b[2]) - min(a[0], b[0])
+    ch = max(a[3], b[3]) - min(a[1], b[1])
+    if cw <= 0.0 or ch <= 0.0:
+        return iou
+    ax, ay = (a[0] + a[2]) / 2.0, (a[1] + a[3]) / 2.0
+    bx, by = (b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0
+    centre = ((ax - bx) ** 2 + (ay - by) ** 2) / (cw**2 + ch**2)
+    wa, ha = a[2] - a[0], a[3] - a[1]
+    wb, hb = b[2] - b[0], b[3] - b[1]
+    size = (wa - wb) ** 2 / cw**2 + (ha - hb) ** 2 / ch**2
+    return iou - centre - size
+
+
+def _diou(
+    a: tuple[float, float, float, float],
+    b: tuple[float, float, float, float],
+) -> float:
+    """Distance-IoU similarity in (-1, 1] — the ASSOCIATION variant.
+
+    IoU minus the centre penalty ONLY. EIoU's extra width/height terms
+    exist to sharpen bbox-REGRESSION gradients; as a matching metric they
+    punish a centred, size-changing target (approaching drone: box doubles
+    -> EIoU drops below plain IoU). DIoU keeps the graceful disjoint-box
+    grading without that regression artifact.
+    """
+    iou = _iou(a, b)
+    cw = max(a[2], b[2]) - min(a[0], b[0])
+    ch = max(a[3], b[3]) - min(a[1], b[1])
+    if cw <= 0.0 or ch <= 0.0:
+        return iou
+    ax, ay = (a[0] + a[2]) / 2.0, (a[1] + a[3]) / 2.0
+    bx, by = (b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0
+    centre = ((ax - bx) ** 2 + (ay - by) ** 2) / (cw**2 + ch**2)
+    return iou - centre
 
 
 def _iou(
