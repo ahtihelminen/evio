@@ -165,8 +165,8 @@ This represents the package’s primary end-to-end reference flow today.
 - `scripts/event_stats.py` uses `GridConfig` + `GridState` + feature functions.
 - `src/evio/multiprocessing/multicamera.py` builds grid stats per camera by
   feature name (via `get_feature_fn(...)`).
-- `src/evio/streaming/panorama_control.py` manages feature-grid runtime state
-  and selection in control-plane messages.
+- `scripts/run_ops.py` manages feature-grid runtime state and selection in
+  control-plane messages.
 
 ### Background-only diagnostics
 

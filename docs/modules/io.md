@@ -93,11 +93,8 @@ Used by:
 
 Used by:
 
-- `scripts/play_live_panorama.py`
-- `scripts/stream_live_panorama.py`
-- `scripts/bench_live_render.py`
-- `scripts/play_live_mono.py`
-- `scripts/bench_event_generation.py`
+- `scripts/run_ops.py` (mono footage capture)
+- `scripts/stream_raw_cameras.py`
 - multicamera worker (`src/evio/multiprocessing/multicamera.py`).
 
 ## File-by-file reference
