@@ -14,104 +14,80 @@ background/detection experiments.
 
 ```text
 .
-├─ AGENTS.md
-├─ README.md
-├─ pyproject.toml
-├─ uv.lock
-├─ data/              # sample recordings (*.dat)
-├─ diagnostics/       # generated CSV diagnostics
-├─ docs/              # design and pipeline notes
+├─ AGENTS.md / CLAUDE.md   # working conventions
+├─ pyproject.toml, uv.lock, Makefile, SETUP.md
+├─ config/            # calibration, site and LLR configs
+├─ deploy/            # systemd units, netplan, dnsmasq for the mast NUC
+├─ docs/              # module notes and design docs
+├─ plans/             # design/work plans
 ├─ notebooks/         # analysis notebooks
-├─ scripts/           # runnable entry points
+├─ scripts/           # runnable entry points (_archive/ = retired)
 ├─ src/evio/
+│  ├─ analysis/       # frame-metric instrumentation
+│  ├─ aug/            # event-stream augmentation
+│  ├─ bias_eval/      # flight scoring, range ladders, comb analysis
+│  ├─ calibration/    # rig calibration capture, solver, Qt GUI
 │  ├─ codec/          # DT8 / EVT3 codec logic
+│  ├─ control/        # control plane, healthz, telemetry, web UI
 │  ├─ core/           # events, windows, pacing, recording helpers
-│  ├─ detection/      # features, background model, detection pipeline
+│  ├─ detection/      # pipelines, tracker, classifier, evaluation
+│  ├─ edge/           # test-site edge-node data plane (WS egress)
+│  ├─ focus/          # lens-focus metric and viewer
+│  ├─ geometry/       # calibration IO, FOV, projection, geodesy
+│  ├─ groundtruth/    # flight ground-truth ingest, labels, audit
 │  ├─ io/             # file/camera readers and conversion
+│  ├─ media/          # detection clip encode + HTTP serving
 │  ├─ multiprocessing/# camera and worker process orchestration
+│  ├─ ptz/            # Axis PTZ slew-to-cue follower
+│  ├─ recording/      # hour-bucketed footage capture + recovery
 │  ├─ rendering/      # frame, heatmap, panorama rendering
-│  ├─ streaming/      # RTSP and control-plane utilities
+│  ├─ sapient/        # SAPIENT capability + detection mapper
+│  ├─ streaming/      # RTSP, bias autotuner, ROI, camera health
+│  ├─ time/           # clock discipline
 │  └─ ui/             # PySide6 app, controllers, widgets, styles
-└─ tests/             # test assets (currently minimal)
+└─ tests/
 ```
 
 ## Setup
 
+See `SETUP.md` for the full sibling-repo bootstrap. Short version:
+
 ```bash
-uv sync
+make install     # build the IMX636 driver, uv sync, link the .pth shim
 ```
 
 ## Script run examples
 
-Use `--help` with any script for full options.
-
-### File playback and conversion
-
-```bash
-# DT8 DAT playback (single process)
-uv run scripts/play_dat.py data/fred1.dat --fps 60 --window 10 --speed 1
-
-# DT8 DAT playback (multiprocessing source)
-uv run scripts/play_dat_mp.py data/fred1.dat --fps 60 --window 10 --speed 1
-
-# EVT3 RAW playback (single RAW file)
-uv run scripts/play_raw_mp.py path/to/events.raw --fps 60 --window 10 --speed 1
-
-# EVT3 RAW playback (folder of RAW files)
-uv run scripts/play_raw_folder.py path/to/raw_folder --fps 60 --window 10
-
-# EVT3 RAW -> DT8 DAT conversion
-uv run scripts/convert_raw_to_dat.py \
-  --input path/to/input.raw \
-  --output data/converted.dat
-```
-
-### Stats, diagnostics, and detection
+`scripts/README.md` documents each entry point; `--help` gives full
+options. The ones you most likely want:
 
 ```bash
-# Grid feature heatmap/stat view over DAT playback
-uv run scripts/event_stats.py data/fred1.dat --fps 60 --stat entropy
+# The mast appliance: detect -> SAPIENT + panorama RTSP + web dashboard.
+# systemd runs this in production (deploy/systemd/evio-mast.service).
+uv run scripts/run_ops.py --calibration config/calibration.yaml \
+    --footage-root /var/lib/evio/footage
 
-# Background anomaly scoring + optional diagnostics CSV
-uv run scripts/bg_stats.py data/fred1.dat --fps 60 --diagnostics
+# Live cameras with no detection and nothing drawn on top.
+uv run scripts/stream_raw_cameras.py
 
-# End-to-end detection pipeline MVP visualizer
-uv run scripts/run_detection_pipeline_mvp.py data/fred1.dat --display-fps 30
+# Play back one recording, no inference.
+uv run scripts/play_dat.py /path/to/file.dat --fps 30 --window 50
 
-# Synthetic anomaly/background scenario generator and player
-uv run scripts/synthetic_background_test.py --total-windows 400 --playback-fps 30
-```
+# Same, through the live detection engine with tracker overlays.
+uv run scripts/play_dat_with_detection.py /path/to/file.dat --fps 30 \
+    --transformer-ckpt models/live_detect_v3.pt --device mps
 
-### Live camera and panorama tools
-
-```bash
-# Single mono camera view (or event view with --event)
-uv run scripts/play_live_mono.py --fps 60
-
-# Multi-camera local panorama UI
-uv run scripts/play_live_panorama.py --window-ms 10 --fps 60 --view-width 1920
-
-# Stream live panorama to RTSP (requires mediamtx + ffmpeg)
-uv run scripts/stream_live_panorama.py \
-  --rtsp-url rtsp://127.0.0.1:8554/panorama \
-  --fps 60
-
-# View/control RTSP panorama stream
-uv run scripts/play_stream.py --host-ip 127.0.0.1 --path panorama
-
-# eMovie launcher UI (source selector for recording/RTSP)
+# Qt viewer (recordings, RTSP panorama, or a remote mast).
 uv run scripts/emovie.py
+
+# Map physical cameras to serials during mast bring-up.
+sudo uv run scripts/identify_event_cameras.py
+
+# Talk to a deployed mast's control plane.
+uv run scripts/evio_dev.py --host mast.lan:5006 status
 ```
 
-### Benchmarks
-
-```bash
-# Event generation benchmark from mono camera frames
-uv run scripts/bench_event_generation.py --seconds 3 --threshold 8
-
-# Numba vs numpy live render benchmark
-uv run scripts/bench_live_render.py --method both --frames 300 --warmup 30
-```
+Retired entry points live in `scripts/_archive/`.
 
 ## Optional runtime dependencies
 - Live camera scripts need supported hardware plus camera runtime libraries.
