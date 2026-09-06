@@ -11,8 +11,6 @@ Files covered:
 - `src/evio/core/streaming_pacer.py`
 - `src/evio/core/recording.py`
 - `src/evio/core/generate_events.py`
-- `src/evio/core/synthetic_events.py`
-- `src/evio/core/index_scheduler.py`
 - `src/evio/core/__init__.py`
 
 ## What this module owns
@@ -188,25 +186,6 @@ Used by:
 - `src/evio/io/mono_camera.py` (`iter_events`).
 
 This is useful for emulating event output from grayscale frame cameras.
-
-### `synthetic_events.py`
-
-Synthetic data helpers for experiments:
-
-- `poisson_event_volume(...)`: random event tensor `(x, y, t)` with Bernoulli
-  occupancy derived from Poisson draws and random polarity.
-- `plot_event_volume(...)`: 3D scatter visualization.
-
-Used primarily for experimentation/prototyping rather than runtime pipelines.
-
-### `index_scheduler.py`
-
-Contains `build_windows(recording, window_duration_us)`:
-
-- builds `[start, stop)` index windows over sorted `Recording.timestamps`.
-- drops empty windows, but guarantees at least one range when events exist.
-
-This is a utility not currently wired into main playback scripts.
 
 ### `__init__.py`
 

@@ -189,7 +189,7 @@ Currently empty (no package-level re-exports).
 
 ### Panorama streaming and local UI
 
-- `scripts/stream_live_panorama.py` and `src/evio/ui/controllers/local_panorama.py`:
+- `scripts/run_ops.py` and `src/evio/ui/controllers/local_panorama.py`:
   - `render_panorama_view`, `render_loading_screen`.
 - `src/evio/ui/controllers/rtsp_panorama.py`:
   - loading-screen rendering while stream is not ready.
