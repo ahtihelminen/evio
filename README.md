@@ -1,94 +1,91 @@
-# evio
+# evioF
 
-Toolkit for event-camera playback, live capture, panorama streaming, and
-background/detection experiments.
+The field-deployable event-camera detection appliance. One program runs a
+mast: read the IMX636 ring live, detect → track → classify, emit SAPIENT
+detection reports, publish a panorama over RTSP, serve a browser
+dashboard, and record footage to disk.
+
+Its research sibling is **evioR**, which depends on this repo for its base
+components. Anything that exists to *develop* detection methods —
+training, evaluation, flight scoring, ground-truth ingest, rig
+calibration, the Qt viewer, notebooks, the test-site edge integration —
+lives there, not here. See `plans/repo_split_evioF_evioR.md`.
 
 ## What this repo contains
-- DT8 (`.dat`) and EVT3 (`.raw`) readers plus conversion tooling.
-- Frame and panorama rendering utilities (OpenCV + Numba paths).
-- Live local camera capture and RTSP panorama streaming tools.
-- Detection/background pipeline components and diagnostics scripts.
-- PySide6 desktop UIs for local and streamed visualization.
 
-## Current repository structure
+- IMX636 event-camera and IDS Peak mono-camera capture.
+- The live detection chain: GMM-online / simplified pipeline → Kalman
+  tracker → temporal-transformer classifier → verdict gate.
+- The bias autotuner (v2 controller + the legacy adaptive SNR loop).
+- SAPIENT egress, detection media clips, and the control plane
+  (JSON-over-TCP, healthz, telemetry, browser UI).
+- Hour-bucketed footage recording with crash recovery.
+- Panorama rendering and RTSP publishing.
+- Mast bring-up tools: camera identification, lens focus, stuck-pixel scan.
+
+## Repository structure
 
 ```text
 .
 ├─ AGENTS.md / CLAUDE.md   # working conventions
 ├─ pyproject.toml, uv.lock, Makefile, SETUP.md
-├─ config/            # calibration, site and LLR configs
+├─ config/            # calibration, site configs, DEM masks, LLR tables
 ├─ deploy/            # systemd units, netplan, dnsmasq for the mast NUC
-├─ docs/              # module notes and design docs
-├─ plans/             # design/work plans
-├─ notebooks/         # analysis notebooks
-├─ scripts/           # runnable entry points (_archive/ = retired)
+├─ docs/modules/      # per-package notes
+├─ plans/             # the evioF/evioR split plan
+├─ scripts/           # the six field entry points + sync_footage.sh
 ├─ src/evio/
-│  ├─ analysis/       # frame-metric instrumentation
-│  ├─ aug/            # event-stream augmentation
-│  ├─ bias_eval/      # flight scoring, range ladders, comb analysis
-│  ├─ calibration/    # rig calibration capture, solver, Qt GUI
-│  ├─ codec/          # DT8 / EVT3 codec logic
+│  ├─ codec/          # DT8 codec
 │  ├─ control/        # control plane, healthz, telemetry, web UI
 │  ├─ core/           # events, windows, pacing, recording helpers
-│  ├─ detection/      # pipelines, tracker, classifier, evaluation
-│  ├─ edge/           # test-site edge-node data plane (WS egress)
+│  ├─ detection/      # pipelines, tracker, classifier, verdict gate
 │  ├─ focus/          # lens-focus metric and viewer
 │  ├─ geometry/       # calibration IO, FOV, projection, geodesy
-│  ├─ groundtruth/    # flight ground-truth ingest, labels, audit
-│  ├─ io/             # file/camera readers and conversion
+│  ├─ io/             # IMX636 + IDS Peak sources, .dat readers
 │  ├─ media/          # detection clip encode + HTTP serving
-│  ├─ multiprocessing/# camera and worker process orchestration
-│  ├─ ptz/            # Axis PTZ slew-to-cue follower
+│  ├─ multiprocessing/# per-camera worker processes
 │  ├─ recording/      # hour-bucketed footage capture + recovery
-│  ├─ rendering/      # frame, heatmap, panorama rendering
+│  ├─ rendering/      # frame, panorama, overlay, MJPEG
 │  ├─ sapient/        # SAPIENT capability + detection mapper
-│  ├─ streaming/      # RTSP, bias autotuner, ROI, camera health
-│  ├─ time/           # clock discipline
-│  └─ ui/             # PySide6 app, controllers, widgets, styles
+│  ├─ streaming/      # RTSP, bias autotuner, camera health
+│  └─ time/           # clock discipline
 └─ tests/
 ```
 
 ## Setup
 
-See `SETUP.md` for the full sibling-repo bootstrap. Short version:
+See `SETUP.md`. Short version, with `sapient/` and `IMX636/` cloned as
+siblings:
 
 ```bash
 make install     # build the IMX636 driver, uv sync, link the .pth shim
 ```
 
-## Script run examples
+## Running it
 
-`scripts/README.md` documents each entry point; `--help` gives full
-options. The ones you most likely want:
+In production systemd owns this — see `deploy/README.md`. By hand:
 
 ```bash
-# The mast appliance: detect -> SAPIENT + panorama RTSP + web dashboard.
-# systemd runs this in production (deploy/systemd/evio-mast.service).
+# The appliance: detect -> SAPIENT + panorama RTSP + web dashboard.
 uv run scripts/run_ops.py --calibration config/calibration.yaml \
     --footage-root /var/lib/evio/footage
+
+# Panorama + dashboard only, no fusion link.
+uv run scripts/run_ops.py --calibration config/calibration.yaml --no-sapient
 
 # Live cameras with no detection and nothing drawn on top.
 uv run scripts/stream_raw_cameras.py
 
-# Play back one recording, no inference.
-uv run scripts/play_dat.py /path/to/file.dat --fps 30 --window 50
-
-# Same, through the live detection engine with tracker overlays.
-uv run scripts/play_dat_with_detection.py /path/to/file.dat --fps 30 \
-    --transformer-ckpt models/live_detect_v3.pt --device mps
-
-# Qt viewer (recordings, RTSP panorama, or a remote mast).
-uv run scripts/emovie.py
-
-# Map physical cameras to serials during mast bring-up.
+# Mast bring-up.
 sudo uv run scripts/identify_event_cameras.py
-
-# Talk to a deployed mast's control plane.
-uv run scripts/evio_dev.py --host mast.lan:5006 status
+uv run scripts/focus_meter.py
 ```
 
-Retired entry points live in `scripts/_archive/`.
+`scripts/README.md` documents each entry point; `--help` gives full options.
 
 ## Optional runtime dependencies
-- Live camera scripts need supported hardware plus camera runtime libraries.
-- RTSP streaming scripts need `mediamtx` and `ffmpeg` on `PATH`.
+
+- Live capture needs the IMX636 driver built (`make build-externals`) and,
+  for the mono camera, the IDS Peak GenTL producer on
+  `GENICAM_GENTL64_PATH`.
+- RTSP publishing needs `mediamtx` and `ffmpeg` on `PATH`.

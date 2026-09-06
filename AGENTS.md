@@ -1,3 +1,17 @@
+## Repo boundary (evioF)
+
+This is the field repo. It must stay runnable on a mast with nothing else
+installed.
+
+- Nothing here may import or reference `evior` — evioR depends on evioF,
+  never the reverse. `tests/test_repo_boundary.py` enforces it.
+- Before adding a dependency, check it is needed by the *appliance*.
+  Training, evaluation, plotting, notebooks, Qt and the test-site edge
+  integration belong in evioR.
+- Promoting a detection method from evioR: move the module into
+  `src/evio/detection/`, register it in `detection/pipeline/registry.py`,
+  and delete it from evioR.
+
 ## Readability
 
 The code should remain as human readable as possible in the development stage.
