@@ -12,10 +12,5 @@ AGENTS.md
 .claude/
 STATE.md
 
-# FlytBase ground-truth credentials — never commit
-config/flytbase.env
-# Axis PTZ camera credentials + site-specific follower config — never commit
-config/axis.env
-config/ptz.yaml
 .env
 focus_sessions/

@@ -1,79 +1,46 @@
 [project]
 name = "evio"
-version = "1.3.1"
-description = "Minimal library for standardized handling of event camera data."
+version = "2.0.0"
+description = "Field-deployable event-camera detection appliance."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "Ahti Helminen" }]
-keywords = ["event-camera", "DVS", "neuromorphic", "stream", "asyncio"]
+keywords = ["event-camera", "DVS", "neuromorphic", "detection", "SAPIENT"]
 classifiers = [
 "Programming Language :: Python :: 3",
 "License :: OSI Approved :: MIT License",
 "Topic :: Scientific/Engineering :: Image Processing",
 ]
 
+# Measured against the whole tree (src + scripts + tests): cv2, imx636,
+# ids_peak(+_ipl), numba, numpy, openvino, sapient, torch, yaml. Nothing
+# else. The research half of the old repo (Qt viewer, notebooks, training,
+# flight scoring, test-site edge) lives in evioR and carries its own deps.
 dependencies = [
-    "jupyter>=1.1.1",
-    "matplotlib>=3.10.8",
-    "numba>=0.62.1",
     "numpy>=1.24",
     "opencv-python>=4.11.0.86",
-    "pandas>=2.3.3",
-    "pyside6>=6.10.1",
-    "pyserial>=3.5",
+    "numba>=0.62.1",
     "pyyaml>=6.0.3",
-    "sapient",
-    "torch>=2.6",
-    # torch's +xpu wheels need triton-xpu, which is published only on the
-    # PyTorch xpu index (mapped in [tool.uv.sources]). uv applies sources to
-    # direct deps but not to this transitive one, so declare it directly,
-    # gated to linux — on macOS torch comes from PyPI and never needs it.
-    "triton-xpu; sys_platform == 'linux'",
-    "websockets>=16.0",
-    "tensorboard>=2.20.0",
-    "h5py>=3.16.0",
     "openvino>=2026.2.0",
+    "sapient",
+    # Loads the .pt classifier checkpoint the mast runs today. OpenVINO IR
+    # inference needs only numpy+openvino, so this becomes an optional extra
+    # once the field switches to IR (plans/repo_split_evioF_evioR.md F3).
+    "torch>=2.6",
+    # torch's +xpu wheels need triton-xpu, published only on the PyTorch xpu
+    # index (mapped in [tool.uv.sources]). uv applies sources to direct deps
+    # but not to this transitive one, so declare it directly, gated to linux.
+    "triton-xpu; sys_platform == 'linux'",
     # IDS-peak mono camera SDK. Linux-only wheels; the marker filters out
-    # macOS dev machines. Now a default dep so a plain `uv sync` on a fresh
-    # NUC installs everything the systemd service needs — no `--extra ids`
-    # gotcha after a venv rebuild.
+    # macOS dev machines. A default dep so a plain `uv sync` on a fresh NUC
+    # installs everything the systemd service needs.
     "ids-peak; platform_system != 'Darwin'",
     "ids-peak-ipl; platform_system != 'Darwin'",
-    "python-socketio[client]>=5.11",
-    "requests>=2.31",
 ]
 
 [project.optional-dependencies]
-
-# Dataset-acquisition tools: install with `uv pip install '.[data]'`.
-data = [
-    "gdown>=5.2.0",        # Google Drive (FRED, NeRDD)
-    "datasets>=3.0.0",     # HuggingFace (Ev-Flying)
-    "kagglehub>=0.3.0",    # Kaggle (Drone-vs-Bird)
-]
-
-# iGPU inference backend: the Arc 140T on the field NUC runs the v2
-# transformer at FP16. The CPU plugin also works on macOS arm64, so the
-# export + parity test are developable off-rig. Install with
-# `uv pip install '.[openvino]'`.
-openvino = [
-    "openvino>=2025.0",
-]
-
-# Test-site edge-node compliance surface: `uv sync --extra testsite`.
-# Opt-in so the core install stays lean; the data plane vendors the shared
-# wire models, the control sidecar is FastAPI. See
-# docs/integration/test-site-compliance-plan.md.
-testsite = [
-    "test-site-protocol",  # shared WS envelope + payload models (authoritative)
-    "fastapi>=0.110",      # control sidecar (port 18001)
-    "uvicorn>=0.29",       # ASGI server for the sidecar
-    "pyarrow>=17",         # gt_convert: flight-session parquet -> gt-*.ndjson
-]
-
 dev = [
-    "pyarrow>=17",  # exercises the parquet -> gt-*.ndjson converter tests
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
     "ruff>=0.6",
@@ -105,13 +72,10 @@ explicit = true
 [tool.uv.sources]
 sapient = { path = "../sapient", editable = true }
 torch = [{ index = "pytorch-xpu", marker = "sys_platform == 'linux'" }]
-# triton-xpu (declared above as a direct linux dep) is published only here, not
-# on PyPI. Declaring it directly + this source pins the linux torch to the
-# >=2.10 line that depends on triton-xpu (older +xpu used pytorch-triton-xpu).
+# triton-xpu (declared above as a direct linux dep) is published only here,
+# not on PyPI. Declaring it directly + this source pins the linux torch to
+# the >=2.10 line that depends on triton-xpu.
 triton-xpu = [{ index = "pytorch-xpu" }]
-# Pinned to the published tag (vendor from a tag, not a loose path) so it
-# resolves in CI -- matches how the backend vendors the shared protocol models.
-test-site-protocol = { git = "ssh://git@git.sensofusion.com/testsite/test-site-protocol.git", tag = "v0.3.0" }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -120,7 +84,7 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 80
 target-version = "py312"
-extend-exclude = ["*.ipynb", "tests/fixtures", "scripts/_archive"]
+extend-exclude = ["tests/fixtures"]
 
 [tool.ruff.lint]
 select = [
@@ -154,60 +118,25 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Corpus-build and predecode scripts must set OMP/MKL/OpenBLAS env vars
-# BEFORE importing numpy so worker BLAS pools stay capped — this is what
-# avoids the thread storm that previously wedged the multiprocessing
-# pool on the trainer (documented in the corpus-build-lessons memory).
-# That forces imports to come after a small block of statements, which
-# is exactly what E402 disallows.
-"scripts/build_temporal_corpus_parallel.py" = ["E402"]
-"scripts/predecode_event_caches.py" = ["E402"]
-"scripts/extract_rain_84.py" = ["E402"]
-"scripts/extract_fred_neg.py" = ["E402"]
-# run_ops applies the same BLAS/numexpr thread caps before numpy import so the
+# run_ops applies BLAS/numexpr thread caps before numpy import so the
 # per-camera forked workers don't each spawn an all-core pool and pin the
 # P-cores; that requires statements before the imports, which E402 forbids.
 "scripts/run_ops.py" = ["E402"]
 # The emitter deliberately catches any subscriber exception to keep the
 # detection pipeline running when a downstream consumer misbehaves.
 "src/evio/detection/emitter.py" = ["BLE001"]
-# The deploy lifecycle's last-resort handler catches ANY unexpected failure
-# to revert + emit `reverted` -- a silent half-deployed node is the one
-# unacceptable outcome of a code deploy.
-"src/evio/edge/deploy.py" = ["BLE001"]
-# The GUI catches arbitrary exceptions from camera grab() / solver so a
-# transient failure surfaces in the UI rather than killing the session.
-"src/evio/calibration/gui.py" = ["BLE001"]
 # The encoder worker catches arbitrary exceptions so a buggy clip encode
 # logs and continues instead of killing the worker thread.
 "src/evio/media/manager.py" = ["BLE001"]
-# Detection is best-effort overlay: any error trips a kill-switch and the
-# panorama keeps streaming, so the chain is wrapped in a blind except.
-"src/evio/streaming/live_detection.py" = ["BLE001"]
-# Worker-side detection is best-effort too: safe_update swallows any failure
-# so a detector bug disables detection for one camera instead of killing the
+# Worker-side detection is best-effort: safe_update swallows any failure so
+# a detector bug disables detection for one camera instead of killing the
 # streaming/recording worker process.
 "src/evio/detection/live_camera.py" = ["BLE001"]
 # Mono-footage capture runs on a background thread against the IDS Peak SDK;
 # any open/grab failure is logged and ends capture rather than crashing the
 # runner, so the camera-grab boundary is wrapped in a blind except.
 "src/evio/recording/mono_capture.py" = ["BLE001"]
-# The JIT warm-up in __enter__ is best-effort: a numba compile failure must not
-# kill mono footage capture, which only reads raw frames, so it is wrapped in a
-# blind except.
+# The JIT warm-up in __enter__ is best-effort: a numba compile failure must
+# not kill mono footage capture, which only reads raw frames, so it is
+# wrapped in a blind except.
 "src/evio/io/mono_camera.py" = ["BLE001"]
-# The WS client's on_register hook re-asserts node state (fov_update) after
-# each register; a failing hook must never kill the reconnecting spine, so
-# the hook call is wrapped in a blind except (log + keep serving).
-"src/evio/edge/ws_client.py" = ["BLE001"]
-# The calibration-reload route rejects ANY handler failure with an enveloped
-# 400 so a malformed YAML cannot 500 bare nor crash the sidecar; the old
-# calibration stays in force (validate-before-swap in the handler).
-"src/evio/control/sidecar.py" = ["BLE001"]
-# The FlytBase ground-truth feed runs on a background thread; any socket /
-# network / discovery error must be logged and retried (or the feed disabled)
-# rather than crash the always-on run, so its boundaries are blind excepts.
-"src/evio/groundtruth/flytbase_feed.py" = ["BLE001"]
-# Same contract for its test-site sibling: the /api/stream consumer's
-# reconnect cycle catches everything, surfaces it via status(), and retries.
-"src/evio/groundtruth/testsite_feed.py" = ["BLE001"]
