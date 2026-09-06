@@ -1,7 +1,7 @@
 """CameraDetector: the torch-free detect -> track -> patch/tokenize stage.
 
 These exercise the worker-runnable detector in isolation (no torch, no
-metavision_hal): the ready-track patch stacking, the v3 event tokenizer,
+camera driver): the ready-track patch stacking, the v3 event tokenizer,
 ring bookkeeping, and the best-effort ``safe_update`` wrapper.
 """
 
