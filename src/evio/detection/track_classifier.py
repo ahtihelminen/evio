@@ -64,24 +64,12 @@ def load_track_transformer(
     A ``<stem>_meta.json`` sidecar carrying ``e_max`` in its ``config``
     marks a v3 (dual-branch) checkpoint; otherwise it's treated as v2 and
     an OpenVINO IR is preferred on an Intel iGPU when present.
+
+    The IR path (meta parsing + OpenVINO load) needs only numpy + openvino
+    and is tried *before* anything imports torch, so the live field path —
+    an IR checkpoint next to the ``.pt`` — never touches torch at runtime.
+    torch is only imported as a fallback, for a checkpoint with no IR.
     """
-    try:
-        import torch
-
-        from evio.detection.temporal_transformer_v2 import (
-            load_temporal_transformer_v2,
-        )
-        from evio.detection.temporal_transformer_v3 import (
-            load_temporal_transformer_v3,
-        )
-    except ImportError as exc:
-        warning = (
-            f"transformer disabled (torch import failed: {exc}) — "
-            "detector+tracker boxes only"
-        )
-        _log.warning(warning)
-        return LoadedTransformer(None, False, False, warning)
-
     ckpt = Path(ckpt)
     meta_path = ckpt.with_name(f"{ckpt.stem}_meta.json")
     is_v3 = False
@@ -99,6 +87,23 @@ def load_track_transformer(
         ov_bundle = _try_load_openvino(ckpt, is_v3=is_v3)
         if ov_bundle is not None:
             return LoadedTransformer(ov_bundle, is_v3, is_v4, None)
+
+    try:
+        import torch
+
+        from evio.detection.temporal_transformer_v2 import (
+            load_temporal_transformer_v2,
+        )
+        from evio.detection.temporal_transformer_v3 import (
+            load_temporal_transformer_v3,
+        )
+    except ImportError as exc:
+        warning = (
+            f"transformer disabled (torch import failed: {exc}) — "
+            "detector+tracker boxes only"
+        )
+        _log.warning(warning)
+        return LoadedTransformer(None, False, False, warning)
 
     try:
         dev = (
@@ -123,12 +128,13 @@ def load_track_transformer(
 
 
 def _try_load_openvino(ckpt: Path, *, is_v3: bool) -> object | None:
-    """Load an Arc iGPU IR for v2/v3/v4, or None to fall back to torch.
+    """Load the IR checkpoint (Arc iGPU, falling back to OpenVINO CPU), or
+    None to fall back to torch.
 
-    Opt-in: export an IR with ``scripts/export_transformer_openvino.py
-    --checkpoint <ckpt>``. Returns None when the IR is absent, openvino
-    isn't installed, or no Intel GPU is present — dev machines
-    transparently stay on the torch path.
+    Produce the IR with ``scripts/convert_checkpoint_to_ir.py --checkpoint
+    <ckpt>``. Returns None only when the IR is absent, openvino isn't
+    installed, or openvino itself can't run it on any device — everything
+    else stays on OpenVINO (never on torch) once an IR exists.
     """
     ir_path = ckpt.with_name(f"{ckpt.stem}_ov.xml")
     if not ir_path.exists():
@@ -144,10 +150,15 @@ def _try_load_openvino(ckpt: Path, *, is_v3: bool) -> object | None:
         load_openvino_transformer_v3 if is_v3
         else load_openvino_transformer_v2
     )
-    try:
-        bundle = loader(ir_path, device="GPU")
-    except (RuntimeError, OSError) as exc:
-        _log.info("OpenVINO GPU unavailable (%s); using torch", exc)
+    bundle = None
+    for device in ("GPU", "CPU"):
+        try:
+            bundle = loader(ir_path, device=device)
+            break
+        except (RuntimeError, OSError) as exc:
+            _log.info("OpenVINO %s unavailable (%s)", device, exc)
+    if bundle is None:
+        _log.info("OpenVINO IR unusable on this machine; using torch")
         return None
     variant = "v3/v4" if is_v3 else "v2"
     _log.info(
