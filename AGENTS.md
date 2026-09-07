@@ -36,45 +36,52 @@ Before finishing:
 
 ## Git
 
-Feature branches off `main`, merged back with `--no-ff` and tagged with SN-IDs in the merge subject.
+Feature branches off `dev`, the integration branch, merged into `dev` via a GitLab merge
+request with SN-IDs in the MR title. A human promotes `dev` to `main` on their own
+schedule; `main` stays the default branch and receives no direct pushes.
 
 Before creating a branch:
 - Format: `<type>/<short-slug>` — `feat/`, `fix/`, `refactor/`, `chore/`, `docs/`, `test/`.
 - Slug: 2-5 hyphenated words, e.g. `feat/evio-detection-emitter`.
 - Do not use Linear's auto-generated `feature/sn-NN-<long-title>` names.
-- Branch from `main`, not from another feature branch.
-- Multi-issue branches are fine — list all SN-IDs in the merge subject.
+- Branch from `dev`, not from `main` and not from another feature branch.
+- Multi-issue branches are fine — list all SN-IDs in the MR title.
 
 Before committing:
 - Conventional prefix: `feat:`, `fix:`, `refactor:`, `chore:`, `test:`, `docs:`.
 - Subject: lowercase after the colon, ~5-10 words.
 - Body: optional, at most a couple of lines. Long rationale belongs in Linear.
-- No SN-IDs in subjects or bodies — they live on the branch name and merge commit.
+- No SN-IDs in subjects or bodies — they live on the branch name and the MR title.
 - No `Closes: SN-X` / `Fixes: SN-X` trailers (GitHub convention, unused here).
 - Aim for 2-5 cohesive commits per branch.
 - `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>` trailer is fine when Claude authored the changes.
 
-Before merging:
+Before opening a merge request:
 - Run `make lint && make test` (or repo equivalents). Must pass.
-- `git checkout main && git merge --no-ff <branch>`.
-- Merge subject: `Merge branch '<branch>' into 'main' (SN-XXX)` — multiple issues: `(SN-XXX, SN-YYY)`.
-- No body on the merge commit.
-- Delete the local feature branch: `git branch -d <branch>`.
+- Gate with `uv run --frozen`. A plain `uv run` re-resolves `uv.lock` for the host
+  platform and strips this repo's pinned Linux/xpu package set.
+- Target `dev`, never `main`.
+- MR title: imperative, with SN-IDs in parentheses — multiple issues: `(SN-XXX, SN-YYY)`.
+- Delete the local feature branch once the MR has merged: `git branch -d <branch>`.
 
 Before pushing:
 - Wait for an explicit "push" or "go ahead" from the user. Show `git log --oneline -10` and stop.
-- `git push origin main`. No `--force`, `--no-verify`, or `--no-gpg-sign` unless asked.
-- GitLab MRs are not used for OPS work — direct push to `main` is the pattern.
+- Push the feature branch only: `git push -u origin <branch>`. No `--force`,
+  `--no-verify`, or `--no-gpg-sign` unless asked.
+- Never push to `main`. Never push to `dev` directly — `dev` takes work through
+  merge requests only.
 
 ## Linear
 
 Scope: OPS project, team `team-samuli`, prefix `SN-`. Never touch issues outside this scope.
 
 Before changing issue state:
-- Work flows Todo → In Progress → Done. No "In Review" state.
+- Work flows Todo → In Progress → In Review → Done. `team-samuli` does have an
+  `In Review` state.
 - Start of work: Todo → In Progress (when the feature branch is first pushed).
-- After push to main: In Progress → Done.
-- Use `mcp__claude_ai_Linear__save_issue` with `state: "In Progress"` or `state: "Done"`.
+- MR opened against `dev`: In Progress → In Review.
+- After the MR merges into `dev`: In Review → Done.
+- Use `mcp__claude_ai_Linear__save_issue` with `state: "In Progress"`, `"In Review"` or `"Done"`.
 
 Before writing or editing a description:
 - One paragraph or a short bullet list. No "Steps to Reproduce" / "Expected/Actual" headings.
