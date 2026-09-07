@@ -4,6 +4,7 @@ from evio.geometry.calibration_io import (
     Calibration,
     CameraCalibration,
     load_calibration,
+    require_cameras,
     save_calibration,
 )
 from evio.geometry.extrinsics import CameraExtrinsics
@@ -27,5 +28,6 @@ __all__ = [
     "pixel_to_camera_ray",
     "pixel_to_world_az_el",
     "ray_to_az_el",
+    "require_cameras",
     "save_calibration",
 ]

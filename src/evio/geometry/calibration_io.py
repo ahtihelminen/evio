@@ -18,9 +18,9 @@ Schema:
           cx: 640.0     # optional, defaults to width/2
           cy: 360.0     # optional, defaults to height/2
         extrinsics:
-          yaw_deg: 0.0
-          pitch_deg: 0.0
-          roll_deg: 0.0
+          yaw_deg: 0.0      # mandatory; a null angle is rejected on load
+          pitch_deg: 0.0    # mandatory; a null angle is rejected on load
+          roll_deg: 0.0     # optional, defaults to 0; null is rejected
         max_range_m: 800.0   # optional — operator-tunable useful detection
                              # range for the fov_publish cone (NOT calibration;
                              # see evio.geometry.fov)
@@ -59,7 +59,25 @@ class Calibration:
 def load_calibration(path: Path | str) -> Calibration:
     with Path(path).open() as f:
         data = yaml.safe_load(f)
-    return _from_dict(data)
+    return _from_dict(data, Path(path))
+
+
+def require_cameras(
+    calibration: Calibration, serials: list[str], path: Path | str,
+) -> None:
+    """Raise unless every requested serial is calibrated.
+
+    A serial the calibration has never heard of means the operator pointed
+    the runner at the wrong site file; say so at startup, naming the file,
+    rather than letting the camera drop silently out of the panorama.
+    """
+    missing = [s for s in serials if s not in calibration.cameras]
+    if missing:
+        msg = (
+            f"{path}: requested camera(s) {missing} are not in the "
+            f"calibration (known: {sorted(calibration.cameras)})"
+        )
+        raise ValueError(msg)
 
 
 def save_calibration(calibration: Calibration, path: Path | str) -> None:
@@ -67,17 +85,39 @@ def save_calibration(calibration: Calibration, path: Path | str) -> None:
         yaml.safe_dump(_to_dict(calibration), f, sort_keys=False)
 
 
-def _from_dict(data: dict[str, Any]) -> Calibration:
+def _from_dict(data: dict[str, Any], path: Path) -> Calibration:
     mount = MountPose(**data["mount"])
     cameras = {
         serial: CameraCalibration(
             intrinsics=CameraIntrinsics(**entry["intrinsics"]),
-            extrinsics=CameraExtrinsics(**entry["extrinsics"]),
+            extrinsics=_extrinsics(entry["extrinsics"], serial, path),
             max_range_m=entry.get("max_range_m"),
         )
         for serial, entry in data["cameras"].items()
     }
     return Calibration(mount=mount, cameras=cameras)
+
+
+def _extrinsics(
+    entry: dict[str, Any], serial: str, path: Path,
+) -> CameraExtrinsics:
+    """Build one camera's pose, rejecting a half-finished calibration.
+
+    A `yaw_deg: null` used to load without complaint and then kill the
+    appliance several frames later inside the panorama's yaw sort, with a
+    message that named neither the file nor the camera. Under systemd that
+    read as a crash-loop, so the angles are checked here instead.
+    """
+    for angle in ("yaw_deg", "pitch_deg"):
+        if entry.get(angle) is None:
+            msg = f"{path}: camera {serial!r} has no {angle}"
+            raise ValueError(msg)
+    # roll_deg stays optional (it defaults to level), but an explicit null
+    # is an unfinished entry, not a default.
+    if "roll_deg" in entry and entry["roll_deg"] is None:
+        msg = f"{path}: camera {serial!r} has a null roll_deg"
+        raise ValueError(msg)
+    return CameraExtrinsics(**entry)
 
 
 def _to_dict(calibration: Calibration) -> dict[str, Any]:
