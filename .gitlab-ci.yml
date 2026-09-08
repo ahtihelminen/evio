@@ -1,0 +1,43 @@
+# Run the quality gate on every merge request and every push to an
+# integration branch. Nothing ran the test suite before this file existed.
+#
+# Two things make this repo awkward to build in CI, both handled below:
+#   1. `sapient` is a sibling path dependency (`[tool.uv.sources]` in
+#      pyproject), so it has to be cloned next to this checkout before
+#      `uv sync` can resolve. CI_JOB_TOKEN covers same-instance repos.
+#   2. `IMX636` is a locally-built C++ extension and is deliberately NOT
+#      built here: `make check` never needs it. `evio.io.imx636_camera`
+#      degrades gracefully when the native module is absent, which is the
+#      same path a dev laptop takes.
+
+stages:
+  - check
+
+check:
+  stage: check
+  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+  rules:
+    # Merge requests (all of them target dev) and pushes to the two
+    # long-lived branches. Never manual-only.
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "dev"
+  variables:
+    UV_CACHE_DIR: .uv-cache
+  cache:
+    key:
+      files:
+        - uv.lock
+    paths:
+      - .uv-cache
+  before_script:
+    # libGL/libglib are opencv-python's runtime deps; git is needed for the
+    # sibling clone. ffmpeg and mediamtx are NOT installed — the tests that
+    # touch them assert on the binary-absent path.
+    - apt-get update -qq
+    - apt-get install -y -qq --no-install-recommends git libgl1 libglib2.0-0
+    - git clone --depth 1
+        "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/ops/sapient.git"
+        ../sapient
+  script:
+    - make check
