@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from evio.geometry import (
     Calibration,
     CameraCalibration,
@@ -11,6 +13,7 @@ from evio.geometry import (
     CameraIntrinsics,
     MountPose,
     load_calibration,
+    require_cameras,
     save_calibration,
 )
 
@@ -82,3 +85,104 @@ def test_optional_max_range_omitted_when_unset(tmp_path: Path) -> None:
     evt1_block = text.split("evt-cam-1:")[1].split("mono-cam-0:")[0]
     assert "max_range_m:" not in evt0_block
     assert "max_range_m: 550.0" in evt1_block
+
+
+_MOUNT_BLOCK = """
+mount:
+  latitude_deg: 60.1699
+  longitude_deg: 24.9384
+  altitude_m: 20.0
+  world_yaw_deg: 0.0
+"""
+
+
+def _write_cal(path: Path, cameras: str) -> Path:
+    path.write_text(f"{_MOUNT_BLOCK}cameras:\n{cameras}")
+    return path
+
+
+_INTRINSICS = (
+    "    intrinsics:\n"
+    "      width_px: 1280\n"
+    "      height_px: 720\n"
+    "      h_fov_deg: 65.0\n"
+    "      v_fov_deg: 40.0\n"
+)
+
+
+def _camera_block(serial: str, extrinsics: str) -> str:
+    return f"  {serial}:\n{_INTRINSICS}    extrinsics:\n{extrinsics}"
+
+
+@pytest.mark.parametrize("field", ["yaw_deg", "pitch_deg", "roll_deg"])
+def test_null_extrinsic_names_file_serial_and_field(
+    tmp_path: Path, field: str,
+) -> None:
+    """A null angle must not load — it kills the panorama sort much later."""
+    angles = {"yaw_deg": "0.0", "pitch_deg": "0.0", "roll_deg": "0.0"}
+    angles[field] = "null"
+    path = _write_cal(
+        tmp_path / "calibration.ops001.yaml",
+        _camera_block(
+            "evt-cam-0",
+            "".join(f"      {k}: {v}\n" for k, v in angles.items()),
+        ),
+    )
+    with pytest.raises(ValueError, match=r"calibration\.ops001\.yaml") as exc:
+        load_calibration(path)
+    assert "evt-cam-0" in str(exc.value)
+    assert field in str(exc.value)
+
+
+@pytest.mark.parametrize("field", ["yaw_deg", "pitch_deg"])
+def test_absent_required_extrinsic_names_file_serial_and_field(
+    tmp_path: Path, field: str,
+) -> None:
+    angles = {"yaw_deg": "0.0", "pitch_deg": "0.0"}
+    del angles[field]
+    path = _write_cal(
+        tmp_path / "calibration.ops001.yaml",
+        _camera_block(
+            "evt-cam-0",
+            "".join(f"      {k}: {v}\n" for k, v in angles.items()),
+        ),
+    )
+    with pytest.raises(ValueError, match=r"calibration\.ops001\.yaml") as exc:
+        load_calibration(path)
+    assert "evt-cam-0" in str(exc.value)
+    assert field in str(exc.value)
+
+
+def test_absent_roll_keeps_its_documented_default(tmp_path: Path) -> None:
+    """`roll_deg` is optional per the schema; only a null value is a fault."""
+    path = _write_cal(
+        tmp_path / "cal.yaml",
+        _camera_block(
+            "evt-cam-0", "      yaw_deg: 10.0\n      pitch_deg: 2.0\n",
+        ),
+    )
+    cameras = load_calibration(path).cameras
+    assert cameras["evt-cam-0"].extrinsics.roll_deg == 0.0
+
+
+def test_require_cameras_rejects_disjoint_serials(tmp_path: Path) -> None:
+    path = _write_cal(
+        tmp_path / "calibration.ops001.yaml",
+        _camera_block(
+            "evt-cam-0", "      yaw_deg: 0.0\n      pitch_deg: 0.0\n",
+        ),
+    )
+    calibration = load_calibration(path)
+    with pytest.raises(ValueError, match=r"calibration\.ops001\.yaml") as exc:
+        require_cameras(calibration, ["other-cam-1", "other-cam-2"], path)
+    assert "other-cam-1" in str(exc.value)
+    assert "evt-cam-0" in str(exc.value)
+
+
+def test_require_cameras_accepts_a_known_subset(tmp_path: Path) -> None:
+    path = _write_cal(
+        tmp_path / "cal.yaml",
+        _camera_block("a", "      yaw_deg: 0.0\n      pitch_deg: 0.0\n")
+        + _camera_block("b", "      yaw_deg: 1.0\n      pitch_deg: 0.0\n"),
+    )
+    require_cameras(load_calibration(path), ["b"], path)

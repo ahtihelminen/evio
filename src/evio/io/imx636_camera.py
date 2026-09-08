@@ -398,7 +398,7 @@ class Imx636CameraSource:
         _exc: BaseException | None,
         _tb: TracebackType | None,
     ) -> None:
-        if self.cam is None or not self._streaming:
+        if self.cam is None:
             return
         # cam.stop() writes the ISSD_STOP register sequence over USB.
         # If we're tearing down because of a prior USB error (poll()
@@ -406,8 +406,17 @@ class Imx636CameraSource:
         # register write throws "ISSD write_field failed at step 0".
         # Cleanup should be best-effort here — swallow the secondary
         # failure so the worker exits cleanly.
-        with contextlib.suppress(RuntimeError):
-            self.cam.stop()
+        if self._streaming:
+            with contextlib.suppress(RuntimeError):
+                self.cam.stop()
+        # Drop the last reference: the binding exposes no close(), so the
+        # C++ destructor is what releases the libusb interface claim. Held
+        # past here, the claim outlives this source for the life of the
+        # process -- boot diagnostics opens every camera in the parent, so
+        # leaking left each forked worker unable to open ANY of them
+        # ("no compatible camera found").
+        self.cam = None
+        self._streaming = False
 
     def __iter__(self) -> Imx636CameraSource:
         return self
