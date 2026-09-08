@@ -10,19 +10,22 @@ upstream in the detection authority
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import cv2
+import numpy as np
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    import numpy as np
-
     from evio.core.events import EventsBatch
     from evio.detection.types import Detection
 
     FrameSnapshot = tuple[EventsBatch, list[Detection]]
+
+# One tile's overlay pass: `draw_fn(serial, frame) -> frame`. Named because
+# the panorama composite, the MJPEG route and the app's frame_draw_fn hook
+# all pass this same shape around.
+DrawFn = Callable[[str, np.ndarray], np.ndarray]
 
 # BGR. Pure green/red are taken by ON/OFF event pixels in the renderer.
 DRONE_COLOR = (0, 255, 255)  # yellow — classifier says drone
@@ -56,7 +59,7 @@ def draw_detection_boxes(
 
 def make_box_draw_fn(
     latest_getter: Callable[[str], FrameSnapshot | None],
-) -> Callable[[str, np.ndarray], np.ndarray]:
+) -> DrawFn:
     """Build a per-tile ``draw_fn(serial, frame)`` for ``ordered_frame_views``.
 
     Reads the latest ``(batch, tracked)`` for the camera (the same snapshot
