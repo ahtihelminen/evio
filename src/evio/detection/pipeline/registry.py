@@ -14,8 +14,11 @@ are no circular-import concerns because the registry imports nothing
 from the pipeline modules — the wiring goes the other way.
 
 A swap mid-flight resets calibration. `SimplifiedDetectionPipeline`
-loses ~1 s to its 10-window warmup; `GmmOnlineBgDetectionPipeline`
-loses its 3 s skip. The control-plane status surface reports
+loses ~1 s to its 100-window warmup (the deployed default, set by this
+module's `_build_simplified` factory — not `SimplifiedPipelineConfig`'s
+own, unused-in-deployment 10-window dataclass default);
+`GmmOnlineBgDetectionPipeline` loses its 3 s skip. The control-plane
+status surface reports
 `pipeline_state: "calibrating"` during that window so the dev viewer
 can grey out outputs.
 """

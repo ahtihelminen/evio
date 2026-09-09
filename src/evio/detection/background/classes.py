@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from numba import njit, types
+from numba.typed import Dict
 from numpy.typing import NDArray
 
 from evio.core.events import EventsBatch
@@ -50,6 +52,19 @@ class BackgroundClassesClassifier:
         self._feature_std: NDArray[np.float32] | None = None
         self._cluster_centers: NDArray[np.float32] | None = None
         self._class_map: NDArray[np.int32] | None = None
+
+        # Trigger compilation up front with a tiny array, the same way
+        # NumbaEventRenderer.__init__ does, so JIT cost isn't paid on
+        # the first real window inside systemd's startup budget.
+        _fused_feature_kernel(
+            np.zeros(1, dtype=np.int16),
+            np.zeros(1, dtype=np.int16),
+            np.zeros(1, dtype=np.int8),
+            1,
+            1,
+            1,
+            1,
+        )
 
     def update(self, events: EventsBatch) -> BgClassesResult:
         if self._class_map is not None:
@@ -134,10 +149,15 @@ class BackgroundClassesClassifier:
         ).astype(np.int32)
 
 
-def _compute_feature_matrix(
+def _compute_feature_matrix_reference(
     events: EventsBatch,
     grid: GridConfig,
 ) -> NDArray[np.float32]:
+    """Readable numpy reference: five whole-array passes over `events`.
+
+    Kept as the spec `_compute_feature_matrix`'s fused numba kernel is
+    checked against — see the equivalence test.
+    """
     feature_functions = (
         cell_event_count,
         cell_active_pixels,
@@ -152,6 +172,141 @@ def _compute_feature_matrix(
         )
         matrix[:, index] = values
     return matrix
+
+
+@njit(cache=True)
+def _fused_feature_kernel(
+    x_coords: NDArray[np.int16],
+    y_coords: NDArray[np.int16],
+    polarities: NDArray[np.int8],
+    rows: int,
+    cols: int,
+    cell_w: int,
+    cell_h: int,
+) -> NDArray[np.float32]:
+    """One pass over events, one pass over the touched-pixel list.
+
+    Computes the same five columns as `_compute_feature_matrix_reference`
+    (event count, active pixels, fano factor, 8-coactivity, polarity
+    skewness) without materializing a dense per-pixel volume: touched
+    (cell, local-pixel) pairs live in a hash map built while walking the
+    events once, then a single pass over that sparse map derives the
+    per-cell aggregates, using the map itself for the 8-neighbor lookups
+    `cell_8_coactivity` needs.
+    """
+    cells = rows * cols
+    cell_area = cell_w * cell_h
+
+    event_count = np.zeros(cells, dtype=np.int64)
+    pos_count = np.zeros(cells, dtype=np.int64)
+    neg_count = np.zeros(cells, dtype=np.int64)
+    touched = Dict.empty(key_type=types.int64, value_type=types.int64)
+
+    for i in range(x_coords.size):
+        x_coord = int(x_coords[i])
+        y_coord = int(y_coords[i])
+
+        col = x_coord // cell_w
+        col = min(max(col, 0), cols - 1)
+        row = y_coord // cell_h
+        row = min(max(row, 0), rows - 1)
+        cell_id = row * cols + col
+        event_count[cell_id] += 1
+
+        polarity = int(polarities[i])
+        if polarity > 0:
+            pos_count[cell_id] += 1
+        elif polarity < 0:
+            neg_count[cell_id] += 1
+
+        local_x = x_coord % cell_w
+        local_y = y_coord % cell_h
+        pixel_id = cell_id * cell_area + local_y * cell_w + local_x
+        if pixel_id in touched:
+            touched[pixel_id] += 1
+        else:
+            touched[pixel_id] = 1
+
+    active_pixels = np.zeros(cells, dtype=np.int64)
+    sum_sq = np.zeros(cells, dtype=np.int64)
+    coactivity = np.zeros(cells, dtype=np.int64)
+
+    for pixel_id in touched:
+        count = touched[pixel_id]
+        cell_id = pixel_id // cell_area
+        local_id = pixel_id % cell_area
+        local_y = local_id // cell_w
+        local_x = local_id % cell_w
+
+        active_pixels[cell_id] += 1
+        sum_sq[cell_id] += count * count
+
+        neighbor_sum = 0
+        for d_row in (-1, 0, 1):
+            n_row = local_y + d_row
+            if n_row < 0 or n_row >= cell_h:
+                continue
+            for d_col in (-1, 0, 1):
+                if d_row == 0 and d_col == 0:
+                    continue
+                n_col = local_x + d_col
+                if n_col < 0 or n_col >= cell_w:
+                    continue
+                neighbor_id = cell_id * cell_area + n_row * cell_w + n_col
+                if neighbor_id in touched:
+                    neighbor_sum += 1
+        coactivity[cell_id] += neighbor_sum
+
+    matrix = np.zeros((cells, 5), dtype=np.float32)
+    for cell_id in range(cells):
+        count_f = np.float32(event_count[cell_id])
+        matrix[cell_id, 0] = count_f
+        matrix[cell_id, 1] = np.float32(active_pixels[cell_id])
+
+        mean = count_f / np.float32(cell_area)
+        var = np.float32(sum_sq[cell_id]) / np.float32(cell_area)
+        var -= mean * mean
+        var = max(var, np.float32(0.0))
+        fano = np.float32(1.0)
+        if mean > np.float32(0.0):
+            fano = var / mean
+        matrix[cell_id, 2] = fano
+
+        matrix[cell_id, 3] = np.float32(coactivity[cell_id])
+
+        pos_f = np.float32(pos_count[cell_id])
+        neg_f = np.float32(neg_count[cell_id])
+        denom = pos_f + neg_f
+        skew = np.float32(0.0)
+        if denom > np.float32(0.0):
+            skew = (pos_f - neg_f) / denom
+        matrix[cell_id, 4] = skew
+
+    return matrix
+
+
+def _compute_feature_matrix(
+    events: EventsBatch,
+    grid: GridConfig,
+) -> NDArray[np.float32]:
+    """Fused numba path; falls back to the reference on empty batches.
+
+    `_compute_feature_matrix_reference`'s per-function empty-batch
+    early-returns are quirky enough (e.g. `cell_fano_factor` returns
+    zeros rather than the per-cell default of 1.0) that delegating for
+    the rare empty case is simpler than replicating them in the kernel.
+    """
+    if events.x_coords.size == 0:
+        return _compute_feature_matrix_reference(events, grid)
+    return _fused_feature_kernel(
+        events.x_coords,
+        events.y_coords,
+        events.polarities,
+        grid.rows,
+        grid.cols,
+        grid.cell_w,
+        grid.cell_h,
+    )
 
 
 def _prepare_feature_matrix(
