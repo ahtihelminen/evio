@@ -39,10 +39,18 @@ check:
     # job's whole script is `make check`. libGL/libglib are opencv-python's
     # runtime deps; git is needed for the sibling clone. ffmpeg and mediamtx
     # are NOT installed — the tests that touch them assert on the
-    # binary-absent path.
+    # binary-absent path. nodejs is different: it exists solely to run
+    # webui.html's selection-handling JS (selectCamera, updateCameraPanel,
+    # updateMapSelection, updateSelectionOverlay) inside
+    # test_webui.py::test_selecting_the_same_camera_again_reverts_all_four_surfaces
+    # (SN-418) — it is never shipped to a mast unit. That test is
+    # skip-on-node-absent, and skipping here would mean it silently
+    # provides no guard in the one environment that gates merges, so node
+    # has to be installed rather than left optional. Debian bookworm's
+    # apt package is Node 18, which the test is verified to run on.
     - apt-get update -qq
     - apt-get install -y -qq --no-install-recommends
-        git make libgl1 libglib2.0-0
+        git make libgl1 libglib2.0-0 nodejs
     - git clone --depth 1
         "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/ops/sapient.git"
         ../sapient
