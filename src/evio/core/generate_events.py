@@ -18,7 +18,7 @@ def get_mean_change(prev_frame: np.ndarray, curr_frame: np.ndarray) -> float:
     return total_change / (frame_height * frame_width)
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+@njit(cache=True, fastmath=True)
 def get_event_count(
     prev_frame: np.ndarray,
     curr_frame: np.ndarray,
@@ -27,7 +27,7 @@ def get_event_count(
 ) -> int:
     frame_height, frame_weight = prev_frame.shape
     event_count = 0
-    for row in prange(frame_height):
+    for row in range(frame_height):
         row_count = 0
         for col in range(frame_weight):
             normalized_change = (
