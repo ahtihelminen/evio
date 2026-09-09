@@ -30,6 +30,7 @@ from numpy.typing import NDArray
 
 from evio.core.events import EventsBatch
 from evio.core.window import RollingWindowBatchProcessor
+from evio.io.camera_serial_report import describe_serial_read
 
 
 def _empty_batch() -> EventsBatch:
@@ -50,8 +51,11 @@ def get_camera_serials() -> list[str]:
     the Treuzell read path landed in (commit 4dc6006 on the imx636 repo)
     — rebuild the driver on the host before deploying.
     """
-    serials = [s for s in imx636.IMX636.list_cameras() if s]
-    return sorted(serials)
+    raw = imx636.IMX636.list_cameras()
+    warning = describe_serial_read(raw)
+    if warning:
+        print(f"[warn] {warning}", flush=True)
+    return sorted(s for s in raw if s)
 
 
 # An interval-summed ERC drop ratio is only statistically meaningful
