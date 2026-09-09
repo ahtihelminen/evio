@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -14,10 +15,16 @@ class _FakeSource:
     frame on each `read`, so the capture loop runs with no IDS hardware.
     """
 
-    def __init__(self, width: int, height: int) -> None:
+    def __init__(
+        self,
+        width: int,
+        height: int,
+        on_read: Callable[[], None] | None = None,
+    ) -> None:
         self.width = width
         self.height = height
         self._frame = np.full((height, width), 7, dtype=np.uint8)
+        self._on_read = on_read
 
     def __enter__(self) -> _FakeSource:
         return self
@@ -27,6 +34,8 @@ class _FakeSource:
 
     def read(self, timeout_ms: int = 2000) -> np.ndarray:
         time.sleep(0.005)  # mimic a blocking grab so the loop yields
+        if self._on_read is not None:
+            self._on_read()
         return self._frame
 
 
@@ -43,6 +52,7 @@ def test_capture_writes_frames_and_finalises_on_stop(tmp_path: Path) -> None:
         on_frame=on_frame,
         source_factory=lambda: _FakeSource(4, 3),
     )
+    capture.set_recording(True)  # write gate defaults closed; enable here
     capture.start()
     assert saw_frame.wait(2.0)
     capture.stop()
@@ -76,6 +86,63 @@ def test_stop_without_start_is_safe(tmp_path: Path) -> None:
     capture.stop()
 
 
+def test_capture_writes_nothing_until_recording_enabled(tmp_path: Path) -> None:
+    """The write gate defaults closed, matching RuntimeState.recording_enabled
+    = False: a freshly constructed capture must produce no frames/files until
+    set_recording(True) is called.
+    """
+    on_frame_count = {"n": 0}
+    reading = threading.Event()
+
+    def on_frame() -> None:
+        on_frame_count["n"] += 1
+
+    capture = MonoFootageCapture(
+        root=tmp_path, camera_id="mono-0",
+        on_frame=on_frame,
+        source_factory=lambda: _FakeSource(4, 3, on_read=reading.set),
+    )
+    capture.start()
+    assert reading.wait(2.0), "capture never started reading frames"
+    time.sleep(0.05)
+    assert on_frame_count["n"] == 0, "on_frame fired before recording enabled"
+    assert list(tmp_path.glob("**/*.mraw")) == []
+
+    capture.set_recording(True)
+    deadline = time.monotonic() + 2.0
+    while on_frame_count["n"] == 0 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert on_frame_count["n"] > 0, "enabling recording should resume writes"
+    capture.stop()
+    assert list(tmp_path.glob("**/*.mraw"))
+
+
+def test_read_loop_keeps_grabbing_while_gate_closed(tmp_path: Path) -> None:
+    """source.read() must run every loop iteration regardless of the
+    recording gate, so the IDS Peak source stays open and warm.
+    """
+    read_count = {"n": 0}
+
+    def on_read() -> None:
+        read_count["n"] += 1
+
+    capture = MonoFootageCapture(
+        root=tmp_path,
+        source_factory=lambda: _FakeSource(4, 3, on_read=on_read),
+    )
+    capture.start()
+    deadline = time.monotonic() + 2.0
+    while read_count["n"] < 3 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    first = read_count["n"]
+    assert first >= 3, "source.read should run while the write gate is closed"
+
+    while read_count["n"] < first + 3 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert read_count["n"] >= first + 3, "read loop stalled while recording off"
+    capture.stop()
+
+
 def test_set_recording_pauses_writes_but_not_grabs(tmp_path: Path) -> None:
     """set_recording(False) stops `on_frame` ticks and disk writes while
     keeping the SDK source open. Verifies unified-recording-toggle: mono
@@ -93,6 +160,7 @@ def test_set_recording_pauses_writes_but_not_grabs(tmp_path: Path) -> None:
         on_frame=on_frame,
         source_factory=lambda: _FakeSource(4, 3),
     )
+    capture.set_recording(True)  # write gate defaults closed; enable here
     capture.start()
     assert saw_frame.wait(2.0)
     capture.set_recording(False)

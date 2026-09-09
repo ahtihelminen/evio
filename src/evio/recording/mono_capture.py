@@ -63,11 +63,11 @@ class MonoFootageCapture:
         self._source_factory = source_factory
         self._stop = threading.Event()
         # `_recording` gates writes only; the read loop keeps grabbing
-        # frames so the IDS Peak source stays open and warm. Operator
-        # toggle (web UI /api/recording) flips this in lockstep with the
-        # event-camera recorders so both stop / both resume.
+        # frames so the IDS Peak source stays open and warm. Starts unset
+        # (closed) to match RuntimeState.recording_enabled = False at boot.
+        # Operator toggle (web UI /api/recording) flips this in lockstep
+        # with the event-camera recorders so both stop / both resume.
         self._recording = threading.Event()
-        self._recording.set()
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
