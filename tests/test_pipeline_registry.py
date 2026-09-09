@@ -29,3 +29,12 @@ def test_build_gmm_online_returns_correct_class() -> None:
 def test_build_unknown_raises() -> None:
     with pytest.raises(KeyError, match="unknown pipeline"):
         build("does-not-exist")
+
+
+def test_build_simplified_calibration_time_matches_documented_warmup() -> None:
+    """Drift guard for registry.py's docstring: fails if the factory default
+    or the documented ~1 s / 100-window warmup figure moves without the
+    other.
+    """
+    pipe = build("simplified", {})
+    assert pipe._classifier._calibration_time_us == 1_000_000
