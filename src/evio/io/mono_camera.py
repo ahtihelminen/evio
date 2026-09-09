@@ -54,6 +54,7 @@ class MonoCameraSource:
     width: int = field(init=False, default=0)
     height: int = field(init=False, default=0)
     _acquiring: bool = field(init=False, default=False)
+    _warmup_error: Exception | None = field(init=False, default=None)
 
     def __enter__(self) -> MonoCameraSource:
         ids_peak.Library.Initialize()
@@ -106,16 +107,15 @@ class MonoCameraSource:
 
         # Warm up the JIT kernels so the first iter_events() yield doesn't pay
         # the compile cost. Footage capture only reads raw frames and never
-        # calls iter_events(), so a compile failure here must not be fatal.
+        # calls iter_events(), so a compile failure here must not be fatal:
+        # record it and let iter_events() raise it on first use instead.
         try:
             dummy_prev = np.zeros((self.height, self.width), dtype=np.uint8)
             dummy_curr = np.zeros((self.height, self.width), dtype=np.uint8)
             get_events_from_frames(dummy_prev, dummy_curr, 0, 8)
-        except Exception:
-            _log.warning(
-                "mono JIT warm-up failed; iter_events() will compile lazily",
-                exc_info=True,
-            )
+        except Exception as exc:
+            self._warmup_error = exc
+            _log.error("mono JIT warm-up failed", exc_info=True)
 
         return self
 
@@ -150,6 +150,8 @@ class MonoCameraSource:
         threshold: int = 8,
         timeout_ms: int = 1000,
     ) -> Iterator[EventsBatch]:
+        if self._warmup_error is not None:
+            raise self._warmup_error
         prev, _ = self.read(timeout_ms=timeout_ms, with_ts=True)
         while True:
             curr, ts_us = self.read(timeout_ms=timeout_ms, with_ts=True)
