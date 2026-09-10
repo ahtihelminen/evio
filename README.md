@@ -67,11 +67,11 @@ In production systemd owns this — see `deploy/README.md`. By hand:
 
 ```bash
 # The appliance: detect -> SAPIENT + panorama RTSP + web dashboard.
-uv run scripts/run_ops.py --calibration config/calibration.yaml \
+uv run scripts/run_ops.py --calibration calibration.yaml \
     --footage-root /var/lib/evio/footage
 
 # Panorama + dashboard only, no fusion link.
-uv run scripts/run_ops.py --calibration config/calibration.yaml --no-sapient
+uv run scripts/run_ops.py --calibration calibration.yaml --no-sapient
 
 # Live cameras with no detection and nothing drawn on top.
 uv run scripts/stream_raw_cameras.py
