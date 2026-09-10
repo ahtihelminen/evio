@@ -28,7 +28,7 @@ lives there, not here. See `plans/repo_split_evioF_evioR.md`.
 ```text
 .
 ├─ AGENTS.md / CLAUDE.md   # working conventions
-├─ pyproject.toml, uv.lock, Makefile, SETUP.md
+├─ pyproject.toml, uv.lock, Makefile
 ├─ config/            # calibration, site configs, DEM masks, LLR tables
 ├─ deploy/            # systemd units, netplan, dnsmasq for the mast NUC
 ├─ docs/modules/      # per-package notes
@@ -54,7 +54,7 @@ lives there, not here. See `plans/repo_split_evioF_evioR.md`.
 
 ## Setup
 
-See `SETUP.md`. Short version, with `sapient/` and `IMX636/` cloned as
+Setup notes are being rewritten. With `sapient/` and `IMX636/` cloned as
 siblings:
 
 ```bash
