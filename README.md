@@ -30,7 +30,6 @@ lives there, not here. See `plans/repo_split_evioF_evioR.md`.
 ├─ AGENTS.md / CLAUDE.md   # working conventions
 ├─ pyproject.toml, uv.lock, Makefile
 ├─ config/            # calibration, site configs, DEM masks, LLR tables
-├─ deploy/            # systemd units, netplan, dnsmasq for the mast NUC
 ├─ docs/modules/      # per-package notes
 ├─ plans/             # the evioF/evioR split plan
 ├─ scripts/           # the six field entry points + sync_footage.sh
@@ -63,7 +62,7 @@ make install     # build the IMX636 driver, uv sync, link the .pth shim
 
 ## Running it
 
-In production systemd owns this — see `deploy/README.md`. By hand:
+In production OpenRC owns this. By hand:
 
 ```bash
 # The appliance: detect -> SAPIENT + panorama RTSP + web dashboard.
