@@ -15,7 +15,7 @@ All Python code MUST pass Ruff without warnings.
 Before finishing:
 - Run: `uv run --extra dev ruff check .`
 - If auto-fixable issues exist, run: `uv run --extra dev ruff check . --fix`
-- `ruff` lives in the opt-in `dev` extra (see `SETUP.md`), so `--extra dev` is
+- `ruff` lives in the opt-in `dev` extra, so `--extra dev` is
   required — a bare `uv run ruff` cannot find the binary on a clean checkout.
 - Do not consider the task complete if Ruff reports any errors.
 - Never disable Ruff rules with `# noqa` unless explicitly requested.
