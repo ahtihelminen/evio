@@ -80,6 +80,45 @@ def require_cameras(
         raise ValueError(msg)
 
 
+PLACEHOLDER_SERIAL_PREFIX = "REPLACE_ME_"
+
+
+def is_placeholder_serial(serial: str) -> bool:
+    """True for an obviously-not-real-hardware sentinel serial.
+
+    A shipped template must fail this check for every default camera serial,
+    so a deployment that never overrides them fails fast and visibly instead
+    of silently matching nothing on real hardware (SN-469).
+    """
+    return serial.startswith(PLACEHOLDER_SERIAL_PREFIX)
+
+
+def check_live_cameras(configured: list[str], live: set[str]) -> list[str]:
+    """Compare configured camera serials against what is actually on the bus.
+
+    Raises, naming every configured serial that matched no live camera and
+    every serial actually found, when any configured serial is missing --
+    whether none match or only some do. A CAMERA_SERIALS/--serial value that
+    doesn't match the connected hardware must fail loudly at startup rather
+    than silently run with an empty or reduced camera set (SN-469).
+
+    Returns the live serials that are present but not configured, so the
+    caller can name them too -- a healthy connected camera outside the
+    configured list is reported, not silently ignored.
+    """
+    missing = sorted(s for s in configured if s not in live)
+    unconfigured = sorted(s for s in live if s not in configured)
+    if missing:
+        msg = (
+            f"configured camera(s) not found on the bus: {missing} "
+            f"(live cameras found: {sorted(live)})"
+        )
+        if unconfigured:
+            msg += f"; found on the bus but not configured: {unconfigured}"
+        raise ValueError(msg)
+    return unconfigured
+
+
 def save_calibration(calibration: Calibration, path: Path | str) -> None:
     with Path(path).open("w") as f:
         yaml.safe_dump(_to_dict(calibration), f, sort_keys=False)

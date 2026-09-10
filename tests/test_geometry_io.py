@@ -16,6 +16,10 @@ from evio.geometry import (
     require_cameras,
     save_calibration,
 )
+from evio.geometry.calibration_io import (
+    check_live_cameras,
+    is_placeholder_serial,
+)
 
 
 def _sample() -> Calibration:
@@ -186,3 +190,42 @@ def test_require_cameras_accepts_a_known_subset(tmp_path: Path) -> None:
         + _camera_block("b", "      yaw_deg: 1.0\n      pitch_deg: 0.0\n"),
     )
     require_cameras(load_calibration(path), ["b"], path)
+
+
+def test_check_live_cameras_names_missing_and_found_on_zero_match() -> None:
+    """SN-469: no configured serial is live -- fail loudly, not silently."""
+    with pytest.raises(ValueError) as exc:
+        check_live_cameras(["cam-a", "cam-b"], {"cam-x", "cam-y"})
+    message = str(exc.value)
+    assert "cam-a" in message
+    assert "cam-b" in message
+    assert "cam-x" in message
+    assert "cam-y" in message
+
+
+def test_check_live_cameras_names_specific_missing_and_unconfigured() -> None:
+    """SN-469: a partial match names specifics, not just a count mismatch."""
+    with pytest.raises(ValueError) as exc:
+        check_live_cameras(["cam-a", "cam-b"], {"cam-b", "cam-x"})
+    message = str(exc.value)
+    assert "cam-a" in message
+    assert "cam-x" in message
+
+
+def test_check_live_cameras_accepts_an_exact_match() -> None:
+    """SN-469: every configured serial live -- no error, nothing to report."""
+    unconfigured = check_live_cameras(["cam-a", "cam-b"], {"cam-a", "cam-b"})
+    assert unconfigured == []
+
+
+def test_check_live_cameras_reports_present_but_unconfigured_cameras() -> None:
+    """A healthy connected camera outside the configured list is named, not
+    silently ignored -- returned for the caller to report, without raising.
+    """
+    unconfigured = check_live_cameras(["cam-a"], {"cam-a", "cam-extra"})
+    assert unconfigured == ["cam-extra"]
+
+
+def test_is_placeholder_serial_flags_the_replace_me_sentinel() -> None:
+    assert is_placeholder_serial("REPLACE_ME_0")
+    assert not is_placeholder_serial("4110022520")
