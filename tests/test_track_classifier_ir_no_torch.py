@@ -31,7 +31,11 @@ ovt = pytest.importorskip("evio.detection.openvino_transformer")
 
 def _build_ir_checkpoint(tmp_path: Path) -> Path:
     """Export a random-init v2 checkpoint to IR, torch still available."""
-    import torch
+    torch = pytest.importorskip(
+        "torch",
+        reason="torch not installed (field/no-extras venv) - IR fixture "
+        "export needs the dev extra to build the checkpoint it converts",
+    )
 
     from evio.detection.temporal_transformer_v2 import (
         TemporalTrackTransformerV2,
