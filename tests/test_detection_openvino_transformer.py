@@ -88,13 +88,22 @@ def _write_random_v3_checkpoint(tmp_path: Path) -> Path:
 
 
 def test_openvino_v3_matches_torch_with_embeddings(tmp_path: Path) -> None:
-    """v3/v4 export: both drone_logits AND the ReID embeddings match torch."""
+    """v3/v4 export: both drone_logits AND the ReID embeddings match torch.
+
+    Pins the CPU plugin to fp32 (its default there is fp16 — see
+    ``load_openvino_transformer_v3``'s docstring): this is a numerical
+    parity check against the fp32 torch reference, and the plugin's
+    default reduced-precision kernel selection is itself sensitive to
+    system load, which made this flaky under a busy machine (SN-443).
+    """
     ckpt = _write_random_v3_checkpoint(tmp_path)
     ir_path = ovt.export_v3_to_openvino(ckpt, tmp_path)
 
     cpu = torch.device("cpu")
     torch_bundle = load_temporal_transformer_v3(ckpt, device=cpu)
-    ov_bundle = ovt.load_openvino_transformer_v3(ir_path, device="CPU")
+    ov_bundle = ovt.load_openvino_transformer_v3(
+        ir_path, device="CPU", config={"INFERENCE_PRECISION_HINT": "f32"},
+    )
     cfg = torch_bundle.config
 
     rng = np.random.default_rng(0)
