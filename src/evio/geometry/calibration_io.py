@@ -49,11 +49,30 @@ class CameraCalibration:
 
 
 @dataclass(frozen=True, slots=True)
+class CalibrationFault:
+    """A camera-serial/config mismatch, reported instead of exiting (SN-481).
+
+    `message` is the operator-facing text (unchanged from SN-469); the
+    other fields let a future UI render specifics without re-parsing it.
+    """
+
+    message: str
+    missing: tuple[str, ...] = ()
+    live: tuple[str, ...] = ()
+    unconfigured: tuple[str, ...] = ()
+    placeholders: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class Calibration:
     """All geometry config for one appliance."""
 
     mount: MountPose
     cameras: dict[str, CameraCalibration]
+    # Set when boot's calibration-matching found a serial/config mismatch
+    # (SN-481). The process still starts; this is reported fault state for
+    # a later UI/API surface, not a reason to exit.
+    fault: CalibrationFault | None = None
 
 
 def load_calibration(path: Path | str) -> Calibration:
