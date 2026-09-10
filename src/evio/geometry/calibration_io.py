@@ -1,6 +1,8 @@
 """Load and save the calibration YAML.
 
-Schema:
+Schema (today's single-file layout; see `evio.geometry.site_config` and
+`evio.geometry.rig_config` for the two-file split of the same schema,
+SN-486):
 
     mount:
       latitude_deg: 60.123
@@ -37,15 +39,22 @@ import yaml
 from evio.geometry.extrinsics import CameraExtrinsics
 from evio.geometry.intrinsics import CameraIntrinsics
 from evio.geometry.mount import MountPose
+from evio.geometry.rig_config import CameraCalibration, load_rig, parse_cameras
+from evio.geometry.site_config import load_site, parse_mount
 
-
-@dataclass(frozen=True, slots=True)
-class CameraCalibration:
-    intrinsics: CameraIntrinsics
-    extrinsics: CameraExtrinsics
-    # Operator-authored useful detection range for the fov_publish cone
-    # (project_test_site_calibration_fov); None -> the fov builder's default.
-    max_range_m: float | None = None
+__all__ = [
+    "Calibration",
+    "CalibrationFault",
+    "CameraCalibration",
+    "CameraExtrinsics",
+    "CameraIntrinsics",
+    "check_live_cameras",
+    "is_placeholder_serial",
+    "load_calibration",
+    "load_calibration_from_files",
+    "require_cameras",
+    "save_calibration",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +88,21 @@ def load_calibration(path: Path | str) -> Calibration:
     with Path(path).open() as f:
         data = yaml.safe_load(f)
     return _from_dict(data, Path(path))
+
+
+def load_calibration_from_files(
+    site_path: Path | str, rig_path: Path | str,
+) -> Calibration:
+    """Assemble a `Calibration` from a site file + a rig config (SN-486).
+
+    Produces the exact same `Calibration(mount, cameras)` shape as
+    `load_calibration`, so every existing consumer keeps working against it
+    unchanged. Each file is parsed independently (`site_config.load_site`,
+    `rig_config.load_rig`) and raises its own named error on malformation.
+    """
+    mount = load_site(site_path)
+    cameras = load_rig(rig_path)
+    return Calibration(mount=mount, cameras=cameras)
 
 
 def require_cameras(
@@ -144,38 +168,9 @@ def save_calibration(calibration: Calibration, path: Path | str) -> None:
 
 
 def _from_dict(data: dict[str, Any], path: Path) -> Calibration:
-    mount = MountPose(**data["mount"])
-    cameras = {
-        serial: CameraCalibration(
-            intrinsics=CameraIntrinsics(**entry["intrinsics"]),
-            extrinsics=_extrinsics(entry["extrinsics"], serial, path),
-            max_range_m=entry.get("max_range_m"),
-        )
-        for serial, entry in data["cameras"].items()
-    }
+    mount = parse_mount(data, path)
+    cameras = parse_cameras(data["cameras"], path)
     return Calibration(mount=mount, cameras=cameras)
-
-
-def _extrinsics(
-    entry: dict[str, Any], serial: str, path: Path,
-) -> CameraExtrinsics:
-    """Build one camera's pose, rejecting a half-finished calibration.
-
-    A `yaw_deg: null` used to load without complaint and then kill the
-    appliance several frames later inside the panorama's yaw sort, with a
-    message that named neither the file nor the camera. Under systemd that
-    read as a crash-loop, so the angles are checked here instead.
-    """
-    for angle in ("yaw_deg", "pitch_deg"):
-        if entry.get(angle) is None:
-            msg = f"{path}: camera {serial!r} has no {angle}"
-            raise ValueError(msg)
-    # roll_deg stays optional (it defaults to level), but an explicit null
-    # is an unfinished entry, not a default.
-    if "roll_deg" in entry and entry["roll_deg"] is None:
-        msg = f"{path}: camera {serial!r} has a null roll_deg"
-        raise ValueError(msg)
-    return CameraExtrinsics(**entry)
 
 
 def _to_dict(calibration: Calibration) -> dict[str, Any]:
