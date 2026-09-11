@@ -61,16 +61,22 @@ def load_openvino_transformer_v2(
     ir_path: Path,
     *,
     device: str = "GPU",
+    config: dict[str, str] | None = None,
 ) -> OpenVINOTransformerV2Bundle:
     """Compile a saved IR for ``device`` and wrap it in a bundle.
 
     ``device`` is an OpenVINO device name: ``GPU`` (Arc 140T), ``CPU``,
     or ``AUTO``. Raises if the device is unavailable so the caller can
     fall back to the torch backend.
+    ``config`` passes plugin properties straight to ``compile_model`` —
+    e.g. the parity test pins ``INFERENCE_PRECISION_HINT: "f32"`` on CPU,
+    since that plugin's default there is fp16 and its reduced-precision
+    kernel selection is sensitive to system load, occasionally drifting
+    past the parity test's tolerance under a busy machine (SN-443).
     """
     core = ov.Core()
     model = core.read_model(Path(ir_path))
-    compiled = core.compile_model(model, device)
+    compiled = core.compile_model(model, device, config or {})
     return OpenVINOTransformerV2Bundle(compiled)
 
 

@@ -41,12 +41,19 @@ def _write_random_checkpoint(tmp_path: Path) -> Path:
 
 
 def test_openvino_matches_torch(tmp_path: Path) -> None:
+    """Pins the CPU plugin to fp32 (its default there is fp16): this is a
+    numerical parity check against the fp32 torch reference, and the
+    plugin's default reduced-precision kernel selection is itself
+    sensitive to system load, which made a sibling test flaky under a
+    busy machine (SN-443)."""
     ckpt = _write_random_checkpoint(tmp_path)
     ir_path = ovt.export_v2_to_openvino(ckpt, tmp_path)
 
     cpu = torch.device("cpu")
     torch_bundle = load_temporal_transformer_v2(ckpt, device=cpu)
-    ov_bundle = ovt.load_openvino_transformer_v2(ir_path, device="CPU")
+    ov_bundle = ovt.load_openvino_transformer_v2(
+        ir_path, device="CPU", config={"INFERENCE_PRECISION_HINT": "f32"},
+    )
 
     rng = np.random.default_rng(0)
     patches = rng.integers(0, 256, (5, 16, 32, 32, 3), dtype=np.uint8)
@@ -143,13 +150,21 @@ def _write_random_r5_checkpoint(tmp_path: Path) -> Path:
 
 def test_openvino_r5_stateful_matches_torch(tmp_path: Path) -> None:
     """R5 export: drone_logits, embeddings AND h_track match torch, and the
-    IR is stateful (4 inputs / 3 outputs — h_in threads to h_out)."""
+    IR is stateful (4 inputs / 3 outputs — h_in threads to h_out).
+
+    Pins the CPU plugin to fp32 (its default there is fp16): this is a
+    numerical parity check against the fp32 torch reference, and the
+    plugin's default reduced-precision kernel selection is itself
+    sensitive to system load, which made a sibling test flaky under a
+    busy machine (SN-443)."""
     ckpt = _write_random_r5_checkpoint(tmp_path)
     ir_path = ovt.export_v3_to_openvino(ckpt, tmp_path)
 
     cpu = torch.device("cpu")
     torch_bundle = load_temporal_transformer_v3(ckpt, device=cpu)
-    ov_bundle = ovt.load_openvino_transformer_v3(ir_path, device="CPU")
+    ov_bundle = ovt.load_openvino_transformer_v3(
+        ir_path, device="CPU", config={"INFERENCE_PRECISION_HINT": "f32"},
+    )
     assert ov_bundle.stateful
     cfg = torch_bundle.config
 
