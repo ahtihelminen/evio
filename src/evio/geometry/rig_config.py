@@ -51,10 +51,26 @@ class CameraCalibration:
     max_range_m: float | None = None
 
 
+def parse_yaml(path: Path, kind: type[ValueError]) -> object:
+    """Parse `path` as YAML, reporting a syntax error as a config error.
+
+    Each loader owns its file format, so a malformed file is a bad config --
+    not a `yaml.YAMLError` leaking out to whatever happens to be calling.
+    Semantic errors below already raise `ValueError` subclasses; without
+    this, syntactically invalid files raised something callers could not
+    anticipate and staged boot died on them (SN-520).
+    """
+    with path.open() as f:
+        try:
+            return yaml.safe_load(f)
+        except yaml.YAMLError as exc:
+            msg = f"{path}: invalid YAML ({exc})"
+            raise kind(msg) from exc
+
+
 def load_rig(path: Path | str) -> dict[str, CameraCalibration]:
     path = Path(path)
-    with path.open() as f:
-        data = yaml.safe_load(f)
+    data = parse_yaml(path, RigConfigError)
     if not isinstance(data, dict) or "cameras" not in data:
         msg = f"{path}: missing top-level 'cameras' block"
         raise RigConfigError(msg)

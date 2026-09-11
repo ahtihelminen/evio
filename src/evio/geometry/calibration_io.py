@@ -39,7 +39,12 @@ import yaml
 from evio.geometry.extrinsics import CameraExtrinsics
 from evio.geometry.intrinsics import CameraIntrinsics
 from evio.geometry.mount import MountPose
-from evio.geometry.rig_config import CameraCalibration, load_rig, parse_cameras
+from evio.geometry.rig_config import (
+    CameraCalibration,
+    load_rig,
+    parse_cameras,
+    parse_yaml,
+)
 from evio.geometry.site_config import load_site, parse_mount
 
 __all__ = [
@@ -84,9 +89,12 @@ class Calibration:
     fault: CalibrationFault | None = None
 
 
+class CalibrationFileError(ValueError):
+    """A combined calibration file failed to parse. The message names it."""
+
+
 def load_calibration(path: Path | str) -> Calibration:
-    with Path(path).open() as f:
-        data = yaml.safe_load(f)
+    data = parse_yaml(Path(path), CalibrationFileError)
     return _from_dict(data, Path(path))
 
 
