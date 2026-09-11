@@ -142,4 +142,4 @@ ignore = [
 # The JIT warm-up in __enter__ is best-effort: a numba compile failure must
 # not kill mono footage capture, which only reads raw frames, so it is
 # wrapped in a blind except.
-"src/evio/io/mono_camera.py" = ["BLE001"]
+"src/evio/io/mono_backends/ids_peak.py" = ["BLE001"]
