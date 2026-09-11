@@ -16,18 +16,19 @@
 PY        ?= 3.12
 EVIO_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 IMX636_DIR ?= $(EVIO_ROOT)/../IMX636
+U3V_DIR   ?= $(EVIO_ROOT)/../U3V
 VENV      := $(EVIO_ROOT)/.venv
 SITE_PKGS := $(VENV)/lib/python$(PY)/site-packages
 
-.PHONY: install sync link-locals build-externals build-imx636 \
+.PHONY: install sync link-locals build-externals build-imx636 build-u3v \
         lint test test-hardware check clean-venv help
 
 help:
 	@echo "Targets:"
 	@echo "  install         clone-and-go: build externals, uv sync, link .pth"
 	@echo "  sync            uv sync + relink the .pth file (use after pulling)"
-	@echo "  link-locals     just (re)write the IMX636 .pth file"
-	@echo "  build-externals build IMX636 if its .so is missing"
+	@echo "  link-locals     just (re)write the IMX636/U3V .pth files"
+	@echo "  build-externals build IMX636 and U3V if their .so is missing"
 	@echo "  lint            uv run ruff check ."
 	@echo "  test            uv run pytest -q -m \"not hardware\""
 	@echo "  test-hardware   uv run pytest -q -m hardware (real OPS-unit camera required)"
@@ -36,6 +37,7 @@ help:
 	@echo ""
 	@echo "Env overrides:"
 	@echo "  IMX636_DIR=$(IMX636_DIR)"
+	@echo "  U3V_DIR=$(U3V_DIR)"
 
 install: build-externals sync
 
@@ -43,9 +45,9 @@ sync:
 	uv sync
 	$(MAKE) link-locals
 
-# Builds IMX636 only when the Python .so is missing. Idempotent — safe to
-# re-run; cmake handles incremental rebuilds.
-build-externals: build-imx636
+# Builds IMX636 and U3V only when their Python .so is missing. Idempotent —
+# safe to re-run; cmake handles incremental rebuilds.
+build-externals: build-imx636 build-u3v
 
 build-imx636:
 	@if [ ! -f "$(IMX636_DIR)/src/build/imx636.cpython-$(subst .,,$(PY))-x86_64-linux-gnu.so" ]; then \
@@ -60,7 +62,24 @@ build-imx636:
 		echo ">>> IMX636 already built"; \
 	fi
 
-# The .pth file survives `uv sync` only as long as we re-write it after.
+# Builds U3V's pybind11 extension only when its .so is missing. Unlike
+# build-imx636, the .so name isn't hardcoded to one platform tag (pybind11
+# names it e.g. u3v.cpython-312-darwin.so or ...-x86_64-linux-gnu.so
+# depending on the build host) — glob for any u3v.cpython-*.so instead.
+build-u3v:
+	@if ! ls "$(U3V_DIR)/src/build"/u3v.cpython-*.so >/dev/null 2>&1; then \
+		echo ">>> building U3V at $(U3V_DIR)"; \
+		test -d "$(U3V_DIR)/src" || { \
+			echo "U3V missing at $(U3V_DIR); clone git@git.sensofusion.com:ops/u3v.git" >&2; \
+			exit 1; \
+		}; \
+		cd "$(U3V_DIR)/src" && cmake -B build -S . -DCMAKE_BUILD_TYPE=Release && \
+		    cmake --build build -j; \
+	else \
+		echo ">>> U3V already built"; \
+	fi
+
+# The .pth files survive `uv sync` only as long as we re-write them after.
 # Hooked into `make sync` so a `git pull && make sync` is the standard
 # update loop.
 link-locals:
@@ -70,6 +89,12 @@ link-locals:
 		echo "linked imx636 → $(SITE_PKGS)/imx636.pth"; \
 	else \
 		echo "skip imx636.pth (no $(IMX636_DIR)/src/build)"; \
+	fi
+	@if [ -d "$(U3V_DIR)/src/build" ]; then \
+		echo "$(U3V_DIR)/src/build" > "$(SITE_PKGS)/u3v.pth"; \
+		echo "linked u3v → $(SITE_PKGS)/u3v.pth"; \
+	else \
+		echo "skip u3v.pth (no $(U3V_DIR)/src/build)"; \
 	fi
 
 lint:
