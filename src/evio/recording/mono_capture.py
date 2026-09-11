@@ -81,6 +81,10 @@ class MonoFootageCapture:
         if self._thread is not None:
             self._thread.join(timeout_s)
 
+    def is_alive(self) -> bool:
+        """Whether the capture thread is still running (for soak monitoring)."""
+        return self._thread is not None and self._thread.is_alive()
+
     def set_recording(self, enabled: bool) -> None:
         """Pause/resume writes without tearing down the camera source.
 
