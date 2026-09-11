@@ -64,13 +64,17 @@ make install     # build the IMX636 driver, uv sync, link the .pth shim
 
 In production OpenRC owns this. By hand:
 
+Config ships as `config/site.yaml` + `config/rig.yaml`; `--calibration`
+still takes a single combined YAML until consumer wiring for the two-file
+layout lands (separate issue).
+
 ```bash
 # The appliance: detect -> SAPIENT + panorama RTSP + web dashboard.
-uv run scripts/run_ops.py --calibration config/calibration.yaml \
+uv run scripts/run_ops.py --calibration combined-calibration.yaml \
     --footage-root /var/lib/evio/footage
 
 # Panorama + dashboard only, no fusion link.
-uv run scripts/run_ops.py --calibration config/calibration.yaml --no-sapient
+uv run scripts/run_ops.py --calibration combined-calibration.yaml --no-sapient
 
 # Live cameras with no detection and nothing drawn on top.
 uv run scripts/stream_raw_cameras.py
