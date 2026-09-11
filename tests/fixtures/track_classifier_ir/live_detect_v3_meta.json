@@ -1,0 +1,1 @@
+{"config": {"seq_len": 16, "patch_size": 32, "in_channels": 3, "embed_dim": 128, "n_heads": 4, "n_layers": 4, "ffn_dim": 512, "embedding_dim": 128, "dropout": 0.1, "aux_dim": 12, "enable_bbox_mask_head": true}}
