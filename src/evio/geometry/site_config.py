@@ -19,9 +19,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import yaml
-
 from evio.geometry.mount import MountPose
+from evio.geometry.rig_config import parse_yaml
 
 
 class SiteConfigError(ValueError):
@@ -30,8 +29,7 @@ class SiteConfigError(ValueError):
 
 def load_site(path: Path | str) -> MountPose:
     path = Path(path)
-    with path.open() as f:
-        data = yaml.safe_load(f)
+    data = parse_yaml(path, SiteConfigError)
     return parse_mount(data, path)
 
 
