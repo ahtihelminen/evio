@@ -20,7 +20,7 @@ VENV      := $(EVIO_ROOT)/.venv
 SITE_PKGS := $(VENV)/lib/python$(PY)/site-packages
 
 .PHONY: install sync link-locals build-externals build-imx636 \
-        lint test check clean-venv help
+        lint test test-hardware check clean-venv help
 
 help:
 	@echo "Targets:"
@@ -29,7 +29,8 @@ help:
 	@echo "  link-locals     just (re)write the IMX636 .pth file"
 	@echo "  build-externals build IMX636 if its .so is missing"
 	@echo "  lint            uv run ruff check ."
-	@echo "  test            uv run pytest -q"
+	@echo "  test            uv run pytest -q -m \"not hardware\""
+	@echo "  test-hardware   uv run pytest -q -m hardware (real OPS-unit camera required)"
 	@echo "  check           lint && test"
 	@echo "  clean-venv      blow away .venv (next sync will rebuild)"
 	@echo ""
@@ -75,7 +76,11 @@ lint:
 	uv run ruff check .
 
 test:
-	uv run pytest -q
+	uv run pytest -q -m "not hardware"
+
+# Runs only the hardware-marked subset, against a real OPS-unit camera.
+test-hardware:
+	uv run pytest -q -m hardware
 
 check: lint test
 

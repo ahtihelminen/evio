@@ -83,6 +83,9 @@ triton-xpu = [{ index = "pytorch-xpu" }]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "hardware: requires real OPS-unit camera hardware; excluded from the default run",
+]
 
 [tool.ruff]
 line-length = 80
