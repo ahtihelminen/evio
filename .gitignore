@@ -17,3 +17,9 @@ focus_sessions/
 
 # Model checkpoints and IRs are artifacts, not source (repo_split_evioF_evioR.md 3.4).
 models/
+
+# A unit's live calibration is local state, never tracked: the repo ships
+# config/{rig,site}.yaml.example templates and boot reports the live files
+# as a fault when absent (SN-518). R2.2's calibration page writes these.
+config/rig.yaml
+config/site.yaml

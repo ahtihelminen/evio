@@ -64,7 +64,10 @@ make install     # build the IMX636 driver, uv sync, link the .pth shim
 
 In production OpenRC owns this. By hand:
 
-Config ships as `config/site.yaml` + `config/rig.yaml`; `--calibration`
+Config ships as templates `config/site.yaml.example` +
+`config/rig.yaml.example`; copy each to `config/site.yaml` /
+`config/rig.yaml` (gitignored, per-unit) and fill in the real serials.
+`--calibration`
 still takes a single combined YAML until consumer wiring for the two-file
 layout lands (separate issue).
 
