@@ -13,17 +13,22 @@ import u3v  # type: ignore[import-not-found]
 from evio.core.events import EventsBatch
 from evio.core.generate_events import get_events_from_frames
 
+# U3vUsb::PID: the real OPS mono camera. Other 0x1409-vendor PIDs (e.g.
+# 0x8e00) are event cameras -- they carry ordinary non-empty serials too,
+# so the PID is the only valid discriminator (SN-530).
+MONO_CAMERA_PID = 0x8000
+
 
 def get_mono_camera_serials() -> list[str]:
     """Returns attached U3V mono-camera serials in ascending order.
 
     `u3v.enumerate()` filters by VID 0x1409 only — it also returns an
-    entry per attached 0x1409:0x8e00 event camera, whose serial comes
-    back empty (the PID itself isn't exposed through the binding), so
-    dropping empty entries is the only PID-equivalent filter available
-    from Python today.
+    entry per attached 0x1409:0x8e00 event camera, so entries are
+    filtered by PID (`MONO_CAMERA_PID`), not by serial emptiness.
     """
-    return sorted(serial for serial in u3v.enumerate() if serial)
+    return sorted(
+        serial for serial, pid in u3v.enumerate() if pid == MONO_CAMERA_PID
+    )
 
 
 # ---------------- Camera source ----------------
