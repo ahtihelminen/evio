@@ -89,6 +89,9 @@ uv run scripts/focus_meter.py
 ## Optional runtime dependencies
 
 - Live capture needs the IMX636 driver built (`make build-externals`) and,
-  for the mono camera, the IDS Peak GenTL producer on
-  `GENICAM_GENTL64_PATH`.
+  for the mono camera, either the IDS Peak GenTL producer on
+  `GENICAM_GENTL64_PATH` (default backend) or, with
+  `EVIO_MONO_BACKEND=u3v`, the in-house U3V driver — also built by `make
+  build-externals` when `U3V_DIR` (siblings-shaped by default) points at
+  a checkout of it.
 - RTSP publishing needs `mediamtx` and `ffmpeg` on `PATH`.
