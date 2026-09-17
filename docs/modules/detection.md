@@ -98,23 +98,20 @@ Background model primitives used by phase-1 scoring and overlays.
 
 - microstate construction (`microstate.py`)
 - score/stat helpers (`metrics.py`)
-- Hamiltonian/stat models (`model.py`)
 - 2-class background clustering (`classes.py`)
 
 Key consumers:
 
-- `pipeline/background_stage.py` (main scoring loop)
-- `ui/sources/dat_playback.py` (background class overlay)
-- `scripts/synthetic_background_test.py` (standalone experiments)
+- `pipeline/dual_background.py` (the live sky/not-sky scorer)
+- `pipeline/simplified_pipeline.py` (the default pipeline's class map)
 
 ### `pipeline/*`
 
 Phase-oriented detection pipeline with explicit stage configs/results.
 
-`pipeline/background_stage.py` (Phase 1):
+`pipeline/dual_background.py` (Phase 1):
 
-- region-wise background scoring
-- multinomial arrangement term + coactivity term
+- region-wise background scoring, one model per background class
 - z-maps, update mask, calibration handling
 
 `pipeline/candidate_stage.py` (Phase 2):

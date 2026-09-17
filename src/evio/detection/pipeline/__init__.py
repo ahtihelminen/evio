@@ -3,11 +3,6 @@ from typing import Any
 from evio.detection.grid import GridConfig
 from evio.detection.types import Classification, Detection
 
-from .background_stage import (
-    BackgroundStage,
-    BackgroundStageConfig,
-    BackgroundStageResult,
-)
 from .dual_background import (
     ClassSpecificConfig,
     DualBackgroundConfig,
@@ -84,9 +79,6 @@ def _build_gmm_online(cfg: dict[str, Any]) -> GmmOnlineBgDetectionPipeline:
 
 __all__ = [
     "PIPELINES",
-    "BackgroundStage",
-    "BackgroundStageConfig",
-    "BackgroundStageResult",
     "ClassSpecificConfig",
     "Classification",
     "Detection",
