@@ -83,6 +83,14 @@ triton-xpu = [{ index = "pytorch-xpu" }]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# --strict-markers: an unregistered marker is an error, not a silent no-op, so
+#   a typo'd tier marker cannot select nothing and read green.
+# --strict-config: an unknown key here is an error rather than ignored.
+# xfail_strict: an xfail that starts passing is a failure. Without it a
+#   negative control that stops controlling anything reports green, which
+#   would make every deliberate-red test in plans/test_suite.md unenforceable.
+addopts = ["--strict-markers", "--strict-config"]
+xfail_strict = true
 markers = [
     "hardware: requires real OPS-unit camera hardware; excluded from the default run",
 ]
