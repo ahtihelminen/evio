@@ -26,7 +26,9 @@ pytestmark = pytest.mark.t1
 
 _ROOT = Path(__file__).resolve().parents[1]
 _TESTS = _ROOT / "tests"
-_TIERS = {"t1", "t2"}
+# T3b is a tier of its own, not a slow T2: it runs on a unit, and
+# `make test`'s `-m "not hardware"` must deselect it cleanly.
+_TIERS = {"t1", "t2", "hardware"}
 
 
 def _module_marks(path: Path) -> list[str]:
@@ -51,7 +53,7 @@ def test_every_test_module_declares_exactly_one_tier() -> None:
         if len(set(_module_marks(path)) & _TIERS) != 1
     }
     assert not offenders, (
-        "every test module needs exactly one of t1/t2: " + str(offenders)
+        "every test module needs exactly one tier marker: " + str(offenders)
     )
 
 
