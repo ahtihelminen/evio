@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from evio.rendering.frame import get_frame
 from evio.rendering.numba import NumbaEventRenderer
+
+pytestmark = pytest.mark.t1
 
 BLACK = [0, 0, 0]
 GREEN = [0, 255, 0]

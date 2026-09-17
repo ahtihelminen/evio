@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from evio.focus.metric import FocusResult
 from evio.focus.render import (
@@ -12,6 +13,8 @@ from evio.focus.render import (
     grid_layout,
 )
 from evio.focus.sources import PaneSnapshot
+
+pytestmark = pytest.mark.t1
 
 
 def _snap(serial: str) -> PaneSnapshot:

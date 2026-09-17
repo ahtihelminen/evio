@@ -19,6 +19,8 @@ from evio.geometry.calibration_io import (
 from evio.geometry.rig_config import RigConfigError, load_rig
 from evio.geometry.site_config import SiteConfigError, load_site
 
+pytestmark = pytest.mark.t1
+
 _SITE_YAML = """
 mount:
   latitude_deg: 60.1699

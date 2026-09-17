@@ -26,6 +26,8 @@ from evio.core.events import EventsBatch
 from evio.detection.live_camera import SEQ_LEN
 from evio.detection.types import Detection
 
+pytestmark = pytest.mark.t1
+
 # The ``.pt`` deliberately does not exist: ``TrackTransformerClassifier``
 # reads the ``_meta.json`` sidecar and the ``_ov.xml`` beside this path and
 # never opens the checkpoint itself once an IR is there. That IR-only load

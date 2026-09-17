@@ -13,6 +13,8 @@ from evio.geometry import (
     pixel_to_world_az_el,
 )
 
+pytestmark = pytest.mark.t1
+
 # A representative 1280x720 sensor with a ~65 deg horizontal FoV.
 INTR = CameraIntrinsics(
     width_px=1280, height_px=720, h_fov_deg=65.0, v_fov_deg=40.0,

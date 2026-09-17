@@ -16,11 +16,15 @@ from evio.core.events import EventsBatch
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+import pytest
+
 from evio.detection.rotor_periodicity import (
     RotorPeriodicityEstimator,
     bin_events_polarity,
 )
 from evio.detection.types import Detection
+
+pytestmark = pytest.mark.t1
 
 _BBOX = (100, 100, 130, 130)
 

@@ -27,6 +27,8 @@ from evio.detection.background.classes import (
 )
 from evio.detection.grid import GridConfig
 
+pytestmark = pytest.mark.t1
+
 _GRID = GridConfig(
     width=97, height=71, rows=7, cols=9, time_bins=1, window_us=10_000
 )

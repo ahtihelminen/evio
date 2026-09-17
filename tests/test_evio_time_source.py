@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
 from evio.time import ExternalDisciplinedClock, HostSystemClock
+
+pytestmark = pytest.mark.t2
 
 
 def test_host_system_clock_is_monotonic_within_resolution() -> None:

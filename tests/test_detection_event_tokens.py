@@ -8,6 +8,8 @@ import pytest
 from evio.core.events import EventsBatch
 from evio.detection.event_tokens import DEFAULT_E_MAX, tokenize_events_in_track
 
+pytestmark = pytest.mark.t1
+
 
 def _batch(
     ts: Sequence[int],

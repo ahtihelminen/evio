@@ -16,6 +16,8 @@ from evio.geometry.project import (
     world_az_el_to_pixel,
 )
 
+pytestmark = pytest.mark.t1
+
 _MOUNT = MountPose(
     latitude_deg=65.17738298, longitude_deg=26.04051037,
     altitude_m=0.0, world_yaw_deg=0.0,

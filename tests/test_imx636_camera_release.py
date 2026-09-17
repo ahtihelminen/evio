@@ -24,6 +24,8 @@ import types
 
 import pytest
 
+pytestmark = pytest.mark.t1
+
 
 class _FakeCam:
     def __init__(self) -> None:

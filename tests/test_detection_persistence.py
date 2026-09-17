@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from evio.detection.persistence import PersistenceGateConfig, PersistenceMap
 from evio.detection.tracker import TrackManager, TrackManagerConfig
 from evio.detection.types import Detection
+
+pytestmark = pytest.mark.t1
 
 
 def _det(

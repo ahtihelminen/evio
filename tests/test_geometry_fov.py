@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
+
 from evio.geometry.calibration_io import Calibration, CameraCalibration
 from evio.geometry.extrinsics import CameraExtrinsics
 from evio.geometry.fov import DEFAULT_MAX_RANGE_M, build_fov_cones, fov_response
 from evio.geometry.intrinsics import CameraIntrinsics
 from evio.geometry.mount import MountPose
+
+pytestmark = pytest.mark.t1
 
 
 def _calibration(*, world_yaw_deg: float = 0.0) -> Calibration:

@@ -27,6 +27,8 @@ from evio.detection.temporal_transformer_v2 import (
     TemporalTransformerV2Config,
 )
 
+pytestmark = pytest.mark.t1
+
 
 def test_convert_v2_checkpoint_writes_ir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,

@@ -11,6 +11,10 @@ import importlib
 import sys
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.t1
+
 _ROOT = Path(__file__).resolve().parents[1]
 _TREES = ("src", "scripts", "tests")
 

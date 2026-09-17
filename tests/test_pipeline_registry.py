@@ -9,6 +9,8 @@ from evio.detection.pipeline import (
     list_pipelines,
 )
 
+pytestmark = pytest.mark.t1
+
 
 def test_registry_includes_known_pipelines() -> None:
     names = list_pipelines()

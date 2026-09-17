@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
+
 from evio.detection.verdict_gate import PersistenceGate
+
+pytestmark = pytest.mark.t1
 
 THRESH = 0.5
 

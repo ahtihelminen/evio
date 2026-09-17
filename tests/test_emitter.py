@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+
 from evio.detection.emitter import DetectionEmitter
 from evio.detection.types import Detection
+
+pytestmark = pytest.mark.t1
 
 
 def _make_detection(x0: int = 0) -> Detection:

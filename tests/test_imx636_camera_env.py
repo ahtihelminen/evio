@@ -16,6 +16,8 @@ from dataclasses import dataclass
 
 import pytest
 
+pytestmark = pytest.mark.t1
+
 
 @dataclass
 class _Counters:

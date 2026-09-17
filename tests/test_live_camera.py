@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import deque
 
 import numpy as np
+import pytest
 
 from evio.core.events import EventsBatch
 from evio.detection.live_camera import (
@@ -21,6 +22,8 @@ from evio.detection.live_camera import (
     _concat_batches,
     safe_update,
 )
+
+pytestmark = pytest.mark.t1
 
 
 class _Det:

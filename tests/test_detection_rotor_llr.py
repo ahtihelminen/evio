@@ -5,10 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pytest
 
 from evio.detection.kinematic_llr import KinematicLLR
 from evio.detection.rotor_llr import RotorLLR, fit_rotor_llr
 from evio.detection.verdict_gate import FusionGate, SequentialGate
+
+pytestmark = pytest.mark.t1
 
 if TYPE_CHECKING:
     from pathlib import Path

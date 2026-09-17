@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 
 import numpy as np
+import pytest
 
 from evio.detection.irstd import (
     IRSTD_FEATURES,
@@ -12,6 +13,8 @@ from evio.detection.irstd import (
     mpcm_score,
     patch_energy_map,
 )
+
+pytestmark = pytest.mark.t1
 
 
 def _baseline_patch() -> np.ndarray:

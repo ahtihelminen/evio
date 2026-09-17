@@ -12,7 +12,11 @@ and leaked global state between tests.
 
 from __future__ import annotations
 
+import pytest
+
 from evio.io.camera_serial_report import describe_serial_read
+
+pytestmark = pytest.mark.t1
 
 
 def test_unreadable_serial_warns_with_both_counts_and_device_id() -> None:

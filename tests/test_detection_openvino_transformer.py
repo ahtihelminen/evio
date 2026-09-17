@@ -30,6 +30,8 @@ from evio.detection.temporal_transformer_v3 import (
     load_temporal_transformer_v3,
 )
 
+pytestmark = pytest.mark.t1
+
 ovt = pytest.importorskip("evio.detection.openvino_transformer")
 
 

@@ -1,4 +1,8 @@
 
+import pytest
+
+pytestmark = pytest.mark.t1
+
 
 def test_eiou_metric_and_far_target_association() -> None:
     from evio.detection.tracker import (

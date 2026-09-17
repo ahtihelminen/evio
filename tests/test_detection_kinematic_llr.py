@@ -18,6 +18,8 @@ from evio.detection.kinematic_llr import (
     fit_kinematic_llr,
 )
 
+pytestmark = pytest.mark.t1
+
 _NAMES = ("a", "b")
 
 

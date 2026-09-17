@@ -5,9 +5,12 @@ from __future__ import annotations
 from collections import deque
 
 import numpy as np
+import pytest
 
 from evio.core.events import EventsBatch
 from evio.core.window import drain_window_backlog
+
+pytestmark = pytest.mark.t1
 
 
 def _batch(n: int) -> EventsBatch:

@@ -14,6 +14,8 @@ from evio.recording.mono_footage_recorder import (
     mono_frame_stride,
 )
 
+pytestmark = pytest.mark.t1
+
 
 def _epoch(year: int, month: int, day: int, hour: int) -> float:
     return float(calendar.timegm((year, month, day, hour, 0, 0, 0, 0, 0)))

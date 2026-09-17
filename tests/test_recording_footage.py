@@ -5,9 +5,12 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from evio.core.events import EventsBatch
 from evio.recording import FootageRecorder, iter_manifest
+
+pytestmark = pytest.mark.t1
 
 
 def _epoch(year: int, month: int, day: int, hour: int) -> float:

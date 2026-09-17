@@ -17,6 +17,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.t1
+
 _ROOT = Path(__file__).resolve().parents[1]
 _DOCS = ("Makefile", "PROJECT.md", "AGENTS.md", "CLAUDE.md")
 _TOOL = re.compile(r"uv run\b(?P<flags>[^\n`\"]*?)\b(?P<tool>ruff|pytest)\b")

@@ -21,6 +21,8 @@ from evio.geometry.calibration_io import (
     is_placeholder_serial,
 )
 
+pytestmark = pytest.mark.t1
+
 
 def _sample() -> Calibration:
     return Calibration(

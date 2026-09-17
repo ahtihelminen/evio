@@ -6,11 +6,14 @@ import struct
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from evio.core.events import EventsBatch
 from evio.core.recording import open_dat_dt8
 from evio.recording import FootageRecorder, iter_manifest, recover_orphans
 from evio.recording.footage_recorder import DAT_FILE_HEADER
+
+pytestmark = pytest.mark.t1
 
 
 def _epoch(year: int, month: int, day: int, hour: int) -> float:

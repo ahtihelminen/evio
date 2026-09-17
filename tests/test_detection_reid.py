@@ -13,6 +13,8 @@ from evio.detection.reid import (
     normalize_patch,
 )
 
+pytestmark = pytest.mark.t1
+
 
 def _batch(n: int = 256) -> EventsBatch:
     rng = np.random.default_rng(0)

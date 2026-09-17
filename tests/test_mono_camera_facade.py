@@ -5,6 +5,8 @@ import sys
 
 import pytest
 
+pytestmark = pytest.mark.t1
+
 
 def test_mono_camera_facade_importable_without_sdk(
     monkeypatch: pytest.MonkeyPatch,

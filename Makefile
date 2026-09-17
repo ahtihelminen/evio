@@ -22,7 +22,7 @@ VENV      := $(EVIO_ROOT)/.venv
 SITE_PKGS := $(VENV)/lib/python$(PY)/site-packages
 
 .PHONY: install sync link-locals build-externals build-imx636 build-u3v \
-        lint test test-hardware check clean-venv help
+        lint fast test test-hardware check clean-venv help
 
 help:
 	@echo "Targets:"
@@ -31,6 +31,7 @@ help:
 	@echo "  link-locals     just (re)write the IMX636/U3V .pth files"
 	@echo "  build-externals build IMX636 and U3V if their .so is missing"
 	@echo "  lint            $(GATE) ruff check ."
+	@echo "  fast            lint + the t1 unit tier (the every-edit loop)"
 	@echo "  test            $(GATE) pytest -q -m \"not hardware\""
 	@echo "  test-hardware   $(GATE) pytest -q -m hardware (real OPS-unit camera required)"
 	@echo "  check           lint && test"
@@ -106,8 +107,12 @@ link-locals:
 lint:
 	$(GATE) ruff check .
 
+# The inner loop: the pure tier, no process, socket, sleep, clock or browser.
+fast: lint
+	$(GATE) pytest -q -m t1 --tier-manifest=t1
+
 test:
-	$(GATE) pytest -q -m "not hardware"
+	$(GATE) pytest -q -m "not hardware" --tier-manifest=t1,t2
 
 # Runs only the hardware-marked subset, against a real OPS-unit camera.
 # pytest exits 5 when nothing carries the marker; that is "nothing to run",

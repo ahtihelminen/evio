@@ -1,10 +1,13 @@
 import numpy as np
+import pytest
 
 from evio.core.generate_events import (
     get_event_count,
     get_events_from_frames,
     get_mean_change,
 )
+
+pytestmark = pytest.mark.t1
 
 # Synthetic 2x2 frames, hand-computed expected values:
 #   change = curr - prev = [[10, -10], [0, 20]]

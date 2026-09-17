@@ -17,6 +17,8 @@ from evio.detection.live_camera import SEQ_LEN
 from evio.detection.track_classifier import TrackTransformerClassifier
 from evio.detection.types import Detection
 
+pytestmark = pytest.mark.t1
+
 
 def _det(track_id: str) -> Detection:
     return Detection(

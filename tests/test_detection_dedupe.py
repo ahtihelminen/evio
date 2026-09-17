@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
+
 from evio.detection.dedupe import deduplicate_by_iou, top_k_by_mcoh
 from evio.detection.types import Detection
+
+pytestmark = pytest.mark.t1
 
 
 def _det(x0: int, y0: int, x1: int, y1: int, m_coh: float) -> Detection:

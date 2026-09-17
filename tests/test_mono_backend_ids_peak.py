@@ -39,6 +39,8 @@ _install_fake_ids_peak()
 
 from evio.io.mono_backends import ids_peak as mono_camera  # noqa: E402
 
+pytestmark = pytest.mark.t1
+
 
 class _FakeNode:
     def __init__(self, value: object = 0) -> None:

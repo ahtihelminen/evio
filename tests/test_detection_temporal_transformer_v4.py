@@ -27,6 +27,8 @@ from evio.detection.temporal_transformer_v3 import (
     _StreamingEncoder,
 )
 
+pytestmark = pytest.mark.t1
+
 
 def _rand_inputs(
     batch: int, seq: int, e_max: int, seed: int = 0,

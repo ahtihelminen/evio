@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
+
 from evio.detection.spawn_density import SpawnDensityConfig, SpawnDensityMap
+
+pytestmark = pytest.mark.t1
 
 
 def _make_map(**overrides: object) -> SpawnDensityMap:

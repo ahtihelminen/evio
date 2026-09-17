@@ -14,6 +14,8 @@ import pytest
 
 from evio.recording import delete_footage_day, list_footage_days
 
+pytestmark = pytest.mark.t1
+
 
 def _day(root: Path, camera: str, day: str, files: dict[str, int]) -> None:
     day_dir = root / camera / day

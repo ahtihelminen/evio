@@ -21,6 +21,8 @@ from evio.detection.verdict_gate import (
     prob_to_log_odds,
 )
 
+pytestmark = pytest.mark.t1
+
 if TYPE_CHECKING:
     from pathlib import Path
 

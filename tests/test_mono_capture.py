@@ -6,8 +6,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from evio.recording import MonoFootageCapture, iter_manifest
+
+pytestmark = pytest.mark.t2
 
 
 class _FakeSource:

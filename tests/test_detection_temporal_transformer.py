@@ -20,6 +20,8 @@ from evio.detection.temporal_transformer import (
     load_temporal_transformer,
 )
 
+pytestmark = pytest.mark.t1
+
 
 def _rand_uint8(
     batch: int, seq: int, size: int = 32, seed: int = 0,

@@ -93,6 +93,9 @@ addopts = ["--strict-markers", "--strict-config"]
 xfail_strict = true
 markers = [
     "hardware: requires real OPS-unit camera hardware; excluded from the default run",
+    "t1: unit tier -- no process, socket, sleep, clock, server or browser",
+    "t2: component tier -- real boot, real HTTP, forked workers, real browser",
+    "browser: drives a real headless Chrome; absent binary must fail, not skip",
 ]
 
 [tool.ruff]

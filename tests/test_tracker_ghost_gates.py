@@ -15,9 +15,12 @@ A good fix drives ghost emits -> ~0 while keeping drone AND faint alive.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from evio.detection.tracker import TrackManager, TrackManagerConfig
 from evio.detection.types import Detection
+
+pytestmark = pytest.mark.t1
 
 _WINDOW_US = 50_000  # matches the field test's --window-ms 50
 _N = 40

@@ -14,6 +14,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.t1
+
 _ROOT = Path(__file__).resolve().parents[1]
 _BACKEND_FILE = "src/evio/io/mono_backends/ids_peak.py"
 _IMPORT_RE = re.compile(r"^\s*(import ids_peak\b|from ids_peak(_\w+)?\b)")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from evio.focus.metric import (
     ScoreHistory,
@@ -11,6 +12,8 @@ from evio.focus.metric import (
     hf_ratio,
     score_window,
 )
+
+pytestmark = pytest.mark.t1
 
 ROI = (448, 168, 384, 384)  # centered 384x384 on the 1280x720 sensor
 

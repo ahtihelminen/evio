@@ -4,6 +4,7 @@ import calendar
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from evio.recording import (
     MonoFootageRecorder,
@@ -16,6 +17,8 @@ from evio.recording.mono_footage_recorder import (
     MONO_TS,
     mono_frame_stride,
 )
+
+pytestmark = pytest.mark.t1
 
 _HEADER_LEN = len(MONO_MAGIC) + MONO_GEOM.size
 

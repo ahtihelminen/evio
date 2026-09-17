@@ -6,6 +6,7 @@ import threading
 import time
 
 import numpy as np
+import pytest
 
 from evio.focus.sources import (
     SENSOR_H,
@@ -16,6 +17,8 @@ from evio.focus.sources import (
     SyntheticWorker,
     _mask_from_coords,
 )
+
+pytestmark = pytest.mark.t2
 
 
 def test_synthetic_scene_is_deterministic() -> None:
