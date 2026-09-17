@@ -13,10 +13,14 @@ Before finishing:
 All Python code MUST pass Ruff without warnings.
 
 Before finishing:
-- Run: `uv run --extra dev ruff check .`
-- If auto-fixable issues exist, run: `uv run --extra dev ruff check . --fix`
-- `ruff` lives in the opt-in `dev` extra, so `--extra dev` is
-  required — a bare `uv run ruff` cannot find the binary on a clean checkout.
+- Run: `uv run --frozen --extra dev ruff check .`
+- If auto-fixable issues exist, run: `uv run --frozen --extra dev ruff check . --fix`
+- The test half of the gate is `uv run --frozen --extra dev pytest -q`, or
+  `make check`, which runs both halves.
+- `ruff` and `pytest` both live in the opt-in `dev` extra, so `--extra dev` is
+  required — without it `uv run` cannot find either binary on a clean checkout.
+  `tests/test_gate_spelling.py` fails if this file, AGENTS.md, PROJECT.md and
+  the Makefile ever disagree again.
 - Do not consider the task complete if Ruff reports any errors.
 - Never disable Ruff rules with `# noqa` unless explicitly requested.
 - Follow the project's existing import ordering and formatting style.

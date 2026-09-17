@@ -27,8 +27,8 @@ Before finishing:
 All Python code MUST pass Ruff without warnings.
 
 Before finishing:
-- Run: `uv run ruff check .`
-- If auto-fixable issues exist, run: `uv run ruff check . --fix`
+- Run: `uv run --frozen --extra dev ruff check .`
+- If auto-fixable issues exist, run: `uv run --frozen --extra dev ruff check . --fix`
 - Do not consider the task complete if Ruff reports any errors.
 - Never disable Ruff rules with `# noqa` unless explicitly requested.
 - Follow the project's existing import ordering and formatting style.

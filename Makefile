@@ -14,6 +14,7 @@
 #   make install IMX636_DIR=/abs/IMX636
 
 PY        ?= 3.12
+GATE      := uv run --frozen --extra dev
 EVIO_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 IMX636_DIR ?= $(EVIO_ROOT)/../IMX636
 U3V_DIR   ?= $(EVIO_ROOT)/../U3V
@@ -29,9 +30,9 @@ help:
 	@echo "  sync            uv sync + relink the .pth file (use after pulling)"
 	@echo "  link-locals     just (re)write the IMX636/U3V .pth files"
 	@echo "  build-externals build IMX636 and U3V if their .so is missing"
-	@echo "  lint            uv run ruff check ."
-	@echo "  test            uv run pytest -q -m \"not hardware\""
-	@echo "  test-hardware   uv run pytest -q -m hardware (real OPS-unit camera required)"
+	@echo "  lint            $(GATE) ruff check ."
+	@echo "  test            $(GATE) pytest -q -m \"not hardware\""
+	@echo "  test-hardware   $(GATE) pytest -q -m hardware (real OPS-unit camera required)"
 	@echo "  check           lint && test"
 	@echo "  clean-venv      blow away .venv (next sync will rebuild)"
 	@echo ""
@@ -97,15 +98,24 @@ link-locals:
 		echo "skip u3v.pth (no $(U3V_DIR)/src/build)"; \
 	fi
 
+# --frozen keeps uv.lock untouched and --extra dev is where ruff and pytest
+# actually live; tests/test_gate_spelling.py fails if any doc drifts from this
+# spelling. Deliberately NOT applied to sync/install: the 2026-09-10 Decisions
+# entry rejected --frozen there, where it would drag the 9.5 GB development
+# environment onto a field unit.
 lint:
-	uv run ruff check .
+	$(GATE) ruff check .
 
 test:
-	uv run pytest -q -m "not hardware"
+	$(GATE) pytest -q -m "not hardware"
 
 # Runs only the hardware-marked subset, against a real OPS-unit camera.
+# pytest exits 5 when nothing carries the marker; that is "nothing to run",
+# not a failure, and it is reported rather than hidden.
 test-hardware:
-	uv run pytest -q -m hardware
+	@$(GATE) pytest -q -m hardware; rc=$$?; \
+	if [ $$rc -eq 5 ]; then echo ">>> no hardware-marked tests collected"; exit 0; fi; \
+	exit $$rc
 
 check: lint test
 
