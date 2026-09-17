@@ -23,3 +23,6 @@ models/
 # as a fault when absent (SN-518). R2.2's calibration page writes these.
 config/rig.yaml
 config/site.yaml
+
+# Benchmark run outputs; the committed baseline lives in tests/fixtures/bench.
+artifacts/

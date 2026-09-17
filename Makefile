@@ -15,6 +15,7 @@
 
 PY        ?= 3.12
 GATE      := uv run --frozen --extra dev
+CASE      ?= simplified
 EVIO_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 IMX636_DIR ?= $(EVIO_ROOT)/../IMX636
 U3V_DIR   ?= $(EVIO_ROOT)/../U3V
@@ -22,7 +23,7 @@ VENV      := $(EVIO_ROOT)/.venv
 SITE_PKGS := $(VENV)/lib/python$(PY)/site-packages
 
 .PHONY: install sync link-locals build-externals build-imx636 build-u3v \
-        lint fast test test-hardware check clean-venv help
+        lint fast test test-hardware bench check clean-venv help
 
 help:
 	@echo "Targets:"
@@ -32,6 +33,7 @@ help:
 	@echo "  build-externals build IMX636 and U3V if their .so is missing"
 	@echo "  lint            $(GATE) ruff check ."
 	@echo "  fast            lint + the t1 unit tier (the every-edit loop)"
+	@echo "  bench           measure a replay case and diff it against the baseline"
 	@echo "  test            $(GATE) pytest -q -m \"not hardware\""
 	@echo "  test-hardware   $(GATE) pytest -q -m hardware (real OPS-unit camera required)"
 	@echo "  check           lint && test"
@@ -121,6 +123,15 @@ test-hardware:
 	@$(GATE) pytest -q -m hardware; rc=$$?; \
 	if [ $$rc -eq 5 ]; then echo ">>> no hardware-marked tests collected"; exit 0; fi; \
 	exit $$rc
+
+# The scoreboard: "for identical output, is this cheaper". Writes an
+# artifact and compares it against the committed baseline; exit 2 is VOID,
+# which is not a pass -- it means measure again on a quiet host.
+bench:
+	$(GATE) python scripts/bench_replay.py --case $(CASE)
+	$(GATE) python scripts/bench_diff.py \
+	    tests/fixtures/bench/$(CASE).baseline.json \
+	    artifacts/bench/$(CASE).json
 
 check: lint test
 
