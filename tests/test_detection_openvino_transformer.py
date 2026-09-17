@@ -14,6 +14,9 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+
+pytest.importorskip("torch")
+
 import torch
 
 from evio.detection.temporal_transformer_v2 import (

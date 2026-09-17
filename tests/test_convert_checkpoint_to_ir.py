@@ -13,9 +13,11 @@ import sys
 from pathlib import Path
 
 import pytest
-import torch
 
+pytest.importorskip("torch")
 pytest.importorskip("evio.detection.openvino_transformer")
+
+import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import convert_checkpoint_to_ir as convert_script
