@@ -16,6 +16,7 @@
 PY        ?= 3.12
 GATE      := uv run --frozen --extra dev
 CASE      ?= simplified
+COVJSON   := artifacts/coverage.json
 EVIO_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 IMX636_DIR ?= $(EVIO_ROOT)/../IMX636
 U3V_DIR   ?= $(EVIO_ROOT)/../U3V
@@ -23,7 +24,7 @@ VENV      := $(EVIO_ROOT)/.venv
 SITE_PKGS := $(VENV)/lib/python$(PY)/site-packages
 
 .PHONY: install sync link-locals build-externals build-imx636 build-u3v \
-        lint fast test test-hardware bench check clean-venv help
+        lint fast test test-hardware bench coverage check clean-venv help
 
 help:
 	@echo "Targets:"
@@ -34,6 +35,7 @@ help:
 	@echo "  lint            $(GATE) ruff check ."
 	@echo "  fast            lint + the t1 unit tier (the every-edit loop)"
 	@echo "  bench           measure a replay case and diff it against the baseline"
+	@echo "  coverage        measure coverage and check the per-file ratchet"
 	@echo "  test            $(GATE) pytest -q -m \"not hardware\""
 	@echo "  test-hardware   $(GATE) pytest -q -m hardware (real OPS-unit camera required)"
 	@echo "  check           lint && test"
@@ -132,6 +134,15 @@ bench:
 	$(GATE) python scripts/bench_diff.py \
 	    tests/fixtures/bench/$(CASE).baseline.json \
 	    artifacts/bench/$(CASE).json
+
+# Coverage as a ratchet: no file may end with more uncovered statements
+# than the committed record. On demand only -- it costs 18 % on the unit
+# tier, whose whole point is that it takes seconds. pytest-cov is pulled in
+# for the invocation rather than added to the lockfile.
+coverage:
+	$(GATE) --with pytest-cov pytest -q -m "not hardware" \
+	    --cov=src/evio --cov-report=json:$(COVJSON) >/dev/null
+	$(GATE) python scripts/coverage_ratchet.py $(COVJSON) $(if $(WRITE),--write,)
 
 check: lint test
 
