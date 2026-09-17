@@ -26,3 +26,8 @@ config/site.yaml
 
 # Benchmark run outputs; the committed baseline lives in tests/fixtures/bench.
 artifacts/
+
+# Coverage database and macOS directory metadata: run artefacts, not sources.
+.coverage
+.coverage.*
+.DS_Store
