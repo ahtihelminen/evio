@@ -23,8 +23,11 @@ class _FakeSource:
     ) -> None:
         self.width = width
         self.height = height
-        self._frame = np.full((height, width), 7, dtype=np.uint8)
         self._on_read = on_read
+        # Each grab hands out a DIFFERENT frame (fill value = grab number),
+        # so a test can tell "serving the newest frame" apart from "serving
+        # the first frame forever" -- a constant frame proves neither.
+        self.grabs = 0
 
     def __enter__(self) -> _FakeSource:
         return self
@@ -34,9 +37,12 @@ class _FakeSource:
 
     def read(self, timeout_ms: int = 2000) -> np.ndarray:
         time.sleep(0.005)  # mimic a blocking grab so the loop yields
+        self.grabs += 1
         if self._on_read is not None:
             self._on_read()
-        return self._frame
+        return np.full(
+            (self.height, self.width), self.grabs % 256, dtype=np.uint8,
+        )
 
 
 def test_capture_writes_frames_and_finalises_on_stop(tmp_path: Path) -> None:
@@ -174,3 +180,48 @@ def test_set_recording_pauses_writes_but_not_grabs(tmp_path: Path) -> None:
         time.sleep(0.01)
     assert count["n"] > pause_count, "resume did not re-enable writes"
     capture.stop()
+
+
+def _wait_for_latest_seq(capture: MonoFootageCapture, minimum: int) -> tuple:
+    """The latest-frame slot once its sequence number reaches `minimum`."""
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        latest = capture.latest_frame()
+        if latest is not None and latest[1] >= minimum:
+            return latest
+        time.sleep(0.005)
+    msg = f"latest_frame never reached sequence {minimum}"
+    raise AssertionError(msg)
+
+
+def test_latest_frame_slot_updates_whether_or_not_recording(
+    tmp_path: Path,
+) -> None:
+    """SN-491 criterion 1: the capture path keeps the newest grabbed frame
+    in memory with the recording gate closed AND open. `_FakeSource` hands
+    out a different frame per grab, so this distinguishes a live slot from
+    one that latched the first frame.
+    """
+    capture = MonoFootageCapture(
+        root=tmp_path, camera_id="mono-0",
+        source_factory=lambda: _FakeSource(4, 3),
+    )
+    assert capture.latest_frame() is None, "slot filled before any grab"
+
+    capture.start()
+    try:
+        frame, seq = _wait_for_latest_seq(capture, 1)  # recording off
+        assert frame.shape == (3, 4)
+        later_frame, later_seq = _wait_for_latest_seq(capture, seq + 2)
+        assert later_seq > seq
+        assert int(later_frame[0][0]) != int(frame[0][0]), "slot went stale"
+        assert list(tmp_path.glob("**/*.mraw")) == []  # still not recording
+
+        capture.set_recording(True)
+        recording_frame, recording_seq = _wait_for_latest_seq(
+            capture, later_seq + 2,
+        )
+        assert recording_seq > later_seq
+        assert int(recording_frame[0][0]) != int(later_frame[0][0])
+    finally:
+        capture.stop()

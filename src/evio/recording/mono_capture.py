@@ -69,6 +69,21 @@ class MonoFootageCapture:
         # with the event-camera recorders so both stop / both resume.
         self._recording = threading.Event()
         self._thread: threading.Thread | None = None
+        # Latest-frame slot (SN-491): the newest grabbed frame, kept
+        # whether or not recording is on, so /mono.mjpg can show the camera
+        # while nothing is being written. The sequence number lets a reader
+        # tell a new frame from the one it already sent. Frames are stored
+        # by reference: copying would cost a 20 MB memcpy per grab even
+        # with nobody watching, and a preview can live with a torn frame.
+        self._latest_lock = threading.Lock()
+        self._latest: tuple[np.ndarray, int] | None = None
+
+    def latest_frame(self) -> tuple[np.ndarray, int] | None:
+        """Newest grabbed frame and its sequence number; None before the
+        first grab.
+        """
+        with self._latest_lock:
+            return self._latest
 
     def start(self) -> None:
         self._thread = threading.Thread(
@@ -130,6 +145,9 @@ class MonoFootageCapture:
         try:
             while not self._stop.is_set():
                 frame = source.read(timeout_ms=self._read_timeout_ms)
+                with self._latest_lock:
+                    seq = self._latest[1] + 1 if self._latest else 1
+                    self._latest = (frame, seq)
                 if self._recording.is_set():
                     recorder.write(frame, time.time_ns())
                     if self._on_frame is not None:
