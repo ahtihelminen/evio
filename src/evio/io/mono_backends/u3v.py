@@ -14,8 +14,12 @@ from evio.core.events import EventsBatch
 from evio.core.generate_events import get_events_from_frames
 
 # U3vUsb::PID: the real OPS mono camera. Other 0x1409-vendor PIDs (e.g.
-# 0x8e00) are event cameras -- they carry ordinary non-empty serials too,
-# so the PID is the only valid discriminator (SN-530).
+# 0x8e00) are event cameras, and the PID is the only discriminator that
+# holds: since SN-551 the driver opens no device it cannot select, so an
+# event camera's serial comes back empty by construction -- and it was
+# already empty in fact, because these cameras leave USB iSerialNumber
+# unset and keep their real serial behind Treuzell (measured on ops001-dev
+# 2026-09-18; `u3v.enumerate()` returned `('', 0x8e00)` six times).
 MONO_CAMERA_PID = 0x8000
 
 
@@ -24,7 +28,9 @@ def get_mono_camera_serials() -> list[str]:
 
     `u3v.enumerate()` filters by VID 0x1409 only — it also returns an
     entry per attached 0x1409:0x8e00 event camera, so entries are
-    filtered by PID (`MONO_CAMERA_PID`), not by serial emptiness.
+    filtered by PID (`MONO_CAMERA_PID`). Filtering on serial emptiness
+    would happen to work on today's cameras and would silently stop
+    working on any event camera that does publish a USB serial.
     """
     return sorted(
         serial for serial, pid in u3v.enumerate() if pid == MONO_CAMERA_PID
