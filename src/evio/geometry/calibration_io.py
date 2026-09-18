@@ -48,11 +48,13 @@ from evio.geometry.rig_config import (
 from evio.geometry.site_config import load_site, parse_mount
 
 __all__ = [
+    "PLACEHOLDER_SERIAL_PREFIX",
     "Calibration",
     "CalibrationFault",
     "CameraCalibration",
     "CameraExtrinsics",
     "CameraIntrinsics",
+    "camera_to_dict",
     "check_live_cameras",
     "is_placeholder_serial",
     "load_calibration",
@@ -185,13 +187,13 @@ def _to_dict(calibration: Calibration) -> dict[str, Any]:
     return {
         "mount": asdict(calibration.mount),
         "cameras": {
-            serial: _camera_to_dict(cam)
+            serial: camera_to_dict(cam)
             for serial, cam in calibration.cameras.items()
         },
     }
 
 
-def _camera_to_dict(cam: CameraCalibration) -> dict[str, Any]:
+def camera_to_dict(cam: CameraCalibration) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "intrinsics": _strip_nones(asdict(cam.intrinsics)),
         "extrinsics": asdict(cam.extrinsics),

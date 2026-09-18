@@ -60,6 +60,16 @@ siblings:
 make install     # build the IMX636 driver, uv sync, link the .pth shim
 ```
 
+**Config directory permissions.** The calibration page writes `rig.yaml`
+and `site.yaml` through the backend (`POST /api/config/rig`,
+`POST /api/config/site`), so the directory `--calibration` points at must
+be writable by the **service's own user** through an ordinary directory
+permission — for example `chown evio: /etc/evio/config` (or a group with
+write access). Never grant this through `sudo`: provisioning must not add
+a `sudoers` drop-in for it, and the write path shells out to nothing.
+Without the permission the write routes answer `400` with the OS error,
+which is what the operator sees in the UI.
+
 ## Running it
 
 In production OpenRC owns this. By hand:
