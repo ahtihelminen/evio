@@ -1,26 +1,24 @@
 """Pipeline registry — name → factory for runtime swap.
 
-The two pipelines on disk (`SimplifiedDetectionPipeline`,
-`GmmOnlineBgDetectionPipeline`) are duck-typed interchangeable via the
-`.update(batch).detections` surface. This module codifies that contract
-as a `DetectionPipeline` Protocol and adds a name-keyed registry so the
-control plane can `swap_pipeline gmm_online` without code edits.
+A pipeline is anything with the `.update(batch).detections` surface. This
+module codifies that as a `DetectionPipeline` Protocol and adds a
+name-keyed registry, so the control plane can swap the active pipeline by
+name without code edits. `SimplifiedDetectionPipeline` is the only entry
+today; the registry is the seam rather than a menu.
 
-Registration is import-time: each pipeline module imports `register`
-and decorates a top-level factory. The package's `__init__.py` imports
-both pipeline modules, so any code that imports
-`evio.detection.pipeline` automatically populates `PIPELINES`. There
-are no circular-import concerns because the registry imports nothing
-from the pipeline modules — the wiring goes the other way.
+Registration is import-time: a pipeline module imports `register` and
+decorates a top-level factory. The package's `__init__.py` imports the
+pipeline modules, so any code that imports `evio.detection.pipeline`
+automatically populates `PIPELINES`. There are no circular-import
+concerns because the registry imports nothing from the pipeline modules
+— the wiring goes the other way.
 
 A swap mid-flight resets calibration. `SimplifiedDetectionPipeline`
 loses ~1 s to its 100-window warmup (the deployed default, set by this
 module's `_build_simplified` factory — not `SimplifiedPipelineConfig`'s
-own, unused-in-deployment 10-window dataclass default);
-`GmmOnlineBgDetectionPipeline` loses its 3 s skip. The control-plane
-status surface reports
-`pipeline_state: "calibrating"` during that window so the dev viewer
-can grey out outputs.
+own, unused-in-deployment 10-window dataclass default). The
+control-plane status surface reports `pipeline_state: "calibrating"`
+during that window so the dev viewer can grey out outputs.
 """
 
 from __future__ import annotations

@@ -9,11 +9,6 @@ from .dual_background import (
     DualBackgroundResult,
     DualBackgroundScorer,
 )
-from .gmm_online_pipeline import (
-    GmmOnlineBgDetectionPipeline,
-    GmmOnlinePipelineConfig,
-    GmmOnlinePipelineResult,
-)
 from .registry import (
     PIPELINES,
     DetectionPipeline,
@@ -67,15 +62,6 @@ def _build_simplified(cfg: dict[str, Any]) -> SimplifiedDetectionPipeline:
     return SimplifiedDetectionPipeline(grid, config)
 
 
-@register("gmm_online")
-def _build_gmm_online(cfg: dict[str, Any]) -> GmmOnlineBgDetectionPipeline:
-    return GmmOnlineBgDetectionPipeline(GmmOnlinePipelineConfig(
-        sensor_width=int(cfg.get("width", 1280)),
-        sensor_height=int(cfg.get("height", 720)),
-        window_us=int(cfg.get("window_us", 10_000)),
-        calibration_start_s=float(cfg.get("calibration_start_s", 3.0)),
-    ))
-
 
 __all__ = [
     "PIPELINES",
@@ -86,9 +72,6 @@ __all__ = [
     "DualBackgroundConfig",
     "DualBackgroundResult",
     "DualBackgroundScorer",
-    "GmmOnlineBgDetectionPipeline",
-    "GmmOnlinePipelineConfig",
-    "GmmOnlinePipelineResult",
     "PipelineFactory",
     "SimplifiedDetectionPipeline",
     "SimplifiedPipelineConfig",

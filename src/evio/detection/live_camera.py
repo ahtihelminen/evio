@@ -96,8 +96,13 @@ class CameraDetector:
         self._window_us = window_us
         self._top_k = top_k
         self._is_v3 = is_v3
+        # The registry's only entry, and the same pipeline the SAPIENT path
+        # runs. This branch is not reachable from the app today -- nothing
+        # passes `detect_enabled=True` -- but it must name a pipeline that
+        # exists, and naming a different one from the rest of the system is
+        # how `gmm_online` came to look like the live background model.
         self._pipeline: DetectionPipeline = build(
-            "gmm_online",
+            "simplified",
             {
                 "width": sensor_width,
                 "height": sensor_height,
