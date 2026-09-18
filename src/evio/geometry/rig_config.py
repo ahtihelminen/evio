@@ -24,6 +24,9 @@ Schema:
         max_range_m: 800.0   # optional — operator-tunable useful detection
                              # range for the fov_publish cone (NOT calibration;
                              # see evio.geometry.fov)
+        position: 0          # optional — explicit panorama strip slot
+                             # (SN-550). Absent everywhere, yaw decides the
+                             # order; see evio.app.boot.panorama_layout.
 """
 
 from __future__ import annotations
@@ -49,6 +52,9 @@ class CameraCalibration:
     # Operator-authored useful detection range for the fov_publish cone
     # (project_test_site_calibration_fov); None -> the fov builder's default.
     max_range_m: float | None = None
+    # Operator-authored panorama strip slot (SN-550); None -> this camera's
+    # place in the strip is decided by its extrinsic yaw, as it always was.
+    position: int | None = None
 
 
 def parse_yaml(path: Path, kind: type[ValueError]) -> object:
@@ -85,9 +91,24 @@ def parse_cameras(
             intrinsics=_intrinsics(entry["intrinsics"], serial, path),
             extrinsics=_extrinsics(entry["extrinsics"], serial, path),
             max_range_m=entry.get("max_range_m"),
+            position=_position(entry, serial, path),
         )
         for serial, entry in cameras.items()
     }
+
+
+def _position(entry: dict[str, Any], serial: str, path: Path) -> int | None:
+    """The optional explicit panorama slot, rejected unless it is an int.
+
+    Checked here for the same reason the angles below are: a string slot
+    loads fine and then dies inside the panorama's order sort, far from the
+    file that caused it.
+    """
+    position = entry.get("position")
+    if position is None or isinstance(position, int):
+        return position
+    msg = f"{path}: camera {serial!r} has a non-integer position {position!r}"
+    raise RigConfigError(msg)
 
 
 def _intrinsics(

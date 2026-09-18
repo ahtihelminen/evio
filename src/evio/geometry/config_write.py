@@ -30,7 +30,7 @@ from evio.geometry.calibration_io import (
     PLACEHOLDER_SERIAL_PREFIX,
     camera_to_dict,
 )
-from evio.geometry.rig_config import parse_cameras
+from evio.geometry.rig_config import CameraCalibration, parse_cameras
 from evio.geometry.site_config import parse_mount
 
 RIG_FILENAME = "rig.yaml"
@@ -61,9 +61,21 @@ def write_rig(config_dir: Path | str, submission: dict[str, Any]) -> Path:
         msg = f"{path}: invalid rig config ({exc})"
         raise ConfigWriteError(msg) from exc
     _write_yaml(path, {
-        "cameras": {s: camera_to_dict(c) for s, c in parsed.items()},
+        "cameras": {s: _rig_entry(c) for s, c in parsed.items()},
     })
     return path
+
+
+def _rig_entry(cam: CameraCalibration) -> dict[str, Any]:
+    """`camera_to_dict` plus the rig-only explicit panorama slot (SN-550).
+
+    The slot lives in the rig config, not in the combined calibration file
+    `camera_to_dict` serialises, so it is added here rather than there.
+    """
+    entry = camera_to_dict(cam)
+    if cam.position is not None:
+        entry["position"] = cam.position
+    return entry
 
 
 def write_site(config_dir: Path | str, submission: dict[str, Any]) -> Path:
