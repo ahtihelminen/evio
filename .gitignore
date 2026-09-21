@@ -24,6 +24,10 @@ models/
 config/rig.yaml
 config/site.yaml
 
+# scripts/run_ops_ui.sh's scratch calibration: a copy of the templates,
+# seeded per checkout so UI development needs no real rig.
+.uidev-config/
+
 # Benchmark run outputs; the committed baseline lives in tests/fixtures/bench.
 artifacts/
 
