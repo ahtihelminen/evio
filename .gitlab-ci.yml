@@ -23,11 +23,16 @@ check:
     GIT_CLEAN_FLAGS: -ffdx -e .venv
     UV_CACHE_DIR: /home/gitlab-runner/.cache/uv
   before_script:
+    # The job token is per job, so an existing clone's remote URL holds a dead
+    # token from the job that created it; refresh it before every fetch.
     - |
+      SAPIENT_URL="https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/ops/sapient.git"
       if [ -d ../sapient/.git ]; then
-        git -C ../sapient fetch -q origin && git -C ../sapient reset -q --hard origin/main
+        git -C ../sapient remote set-url origin "$SAPIENT_URL"
+        git -C ../sapient fetch -q origin
+        git -C ../sapient reset -q --hard origin/main
       else
-        git clone -q "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/ops/sapient.git" ../sapient
+        git clone -q "$SAPIENT_URL" ../sapient
       fi
   script:
     - uv sync --frozen --extra dev
