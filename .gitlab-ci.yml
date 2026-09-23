@@ -1,0 +1,34 @@
+# The quality gate, on the ops shell runner (slavemaster9000). Runs on every
+# merge request and on pushes to the two long-lived branches, never manual-only.
+#
+# Shell executor: the job inherits the host's toolchain (uv, cmake, libusb) and
+# keeps its virtualenv and uv cache between jobs, which is what makes a full
+# `make check` cheap enough to run on every push.
+#
+# `sapient` is a sibling path dependency (`[tool.uv.sources]` in pyproject), so
+# it is cloned next to the checkout with the job token before the gate runs.
+# IMX636 and U3V are deliberately not built here: `make check` never needs them
+# and their absence is the same path a dev laptop takes.
+
+stages: [check]
+
+check:
+  stage: check
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "dev"
+    - if: $CI_COMMIT_BRANCH == "main"
+  variables:
+    # Keep the virtualenv across jobs; the runner's default clean is -ffdx.
+    GIT_CLEAN_FLAGS: -ffdx -e .venv
+    UV_CACHE_DIR: /home/gitlab-runner/.cache/uv
+  before_script:
+    - |
+      if [ -d ../sapient/.git ]; then
+        git -C ../sapient fetch -q origin && git -C ../sapient reset -q --hard origin/main
+      else
+        git clone -q "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/ops/sapient.git" ../sapient
+      fi
+  script:
+    - uv sync --frozen --extra dev
+    - make check
