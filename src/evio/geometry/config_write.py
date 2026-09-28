@@ -61,12 +61,12 @@ def write_rig(config_dir: Path | str, submission: dict[str, Any]) -> Path:
         msg = f"{path}: invalid rig config ({exc})"
         raise ConfigWriteError(msg) from exc
     _write_yaml(path, {
-        "cameras": {s: _rig_entry(c) for s, c in parsed.items()},
+        "cameras": {s: rig_entry(c) for s, c in parsed.items()},
     })
     return path
 
 
-def _rig_entry(cam: CameraCalibration) -> dict[str, Any]:
+def rig_entry(cam: CameraCalibration) -> dict[str, Any]:
     """`camera_to_dict` plus the rig-only explicit panorama slot (SN-550).
 
     The slot lives in the rig config, not in the combined calibration file
