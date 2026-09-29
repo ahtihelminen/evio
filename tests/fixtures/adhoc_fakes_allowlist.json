@@ -7,11 +7,6 @@
     "test_app_health_state.py": [
       "_FakeAgg"
     ],
-    "test_app_hooks.py": [
-      "_StubEmitter",
-      "_StubPipeline",
-      "_StubTracker"
-    ],
     "test_app_information_queue.py": [
       "_FakeCp",
       "_FakeRateAgg"
@@ -42,12 +37,6 @@
       "_FakeCamWithErcHiccup",
       "_FakeUsbCam",
       "_StreamingSource"
-    ],
-    "test_detection_kinematic_llr.py": [
-      "_FakeDet"
-    ],
-    "test_detection_track_classifier.py": [
-      "_FakeStatefulBundle"
     ],
     "test_display_multiplex.py": [
       "_Feeder"
@@ -82,7 +71,6 @@
     ],
     "test_pipeline_power.py": [
       "_EnterableStub",
-      "_FakeDetector",
       "_StreamingSource"
     ],
     "test_render_settings_loop_tick.py": [
