@@ -112,10 +112,6 @@
       "_FakeImx636Source",
       "_FakeProbe"
     ],
-    "test_stream_encoder.py": [
-      "_FakeFfmpeg",
-      "_StdinSink"
-    ],
     "test_streaming_autotune.py": [
       "_FakeQueue"
     ],
