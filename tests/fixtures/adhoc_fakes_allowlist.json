@@ -23,11 +23,9 @@
       "_StreamingSource"
     ],
     "test_camera_worker_disconnect.py": [
-      "_EnterableStub",
       "_FakeCamRejectingStart",
       "_FakeCamWithErcHiccup",
-      "_FakeUsbCam",
-      "_StreamingSource"
+      "_FakeUsbCam"
     ],
     "test_detection_kinematic_llr.py": [
       "_FakeDet"
