@@ -1,11 +1,6 @@
 {
   "_why": "Doubles that predate tests/fakes/. This list may only shrink: a new entry fails test_no_adhoc_fakes.py, and an entry whose class no longer exists fails it too, so the file cannot drift from the tree.",
   "allowed": {
-    "test_app_hooks.py": [
-      "_StubEmitter",
-      "_StubPipeline",
-      "_StubTracker"
-    ],
     "test_bias_register_readback.py": [
       "_BiasConfig",
       "_BiasingSource",
@@ -26,12 +21,6 @@
       "_FakeCamRejectingStart",
       "_FakeCamWithErcHiccup",
       "_FakeUsbCam"
-    ],
-    "test_detection_kinematic_llr.py": [
-      "_FakeDet"
-    ],
-    "test_detection_track_classifier.py": [
-      "_FakeStatefulBundle"
     ],
     "test_display_multiplex.py": [
       "_Feeder"
@@ -66,7 +55,6 @@
     ],
     "test_pipeline_power.py": [
       "_EnterableStub",
-      "_FakeDetector",
       "_StreamingSource"
     ],
     "test_render_settings_wiring.py": [
