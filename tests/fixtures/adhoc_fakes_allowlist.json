@@ -1,16 +1,6 @@
 {
   "_why": "Doubles that predate tests/fakes/. This list may only shrink: a new entry fails test_no_adhoc_fakes.py, and an entry whose class no longer exists fails it too, so the file cannot drift from the tree.",
   "allowed": {
-    "test_app_detect_in_worker.py": [
-      "_FakeControlQueue"
-    ],
-    "test_app_health_state.py": [
-      "_FakeAgg"
-    ],
-    "test_app_information_queue.py": [
-      "_FakeCp",
-      "_FakeRateAgg"
-    ],
     "test_bias_register_readback.py": [
       "_BiasConfig",
       "_BiasingSource",
@@ -27,16 +17,10 @@
       "_EnterableStub",
       "_StreamingSource"
     ],
-    "test_camera_restart_options.py": [
-      "_FakeProcess",
-      "_SpawnSpy"
-    ],
     "test_camera_worker_disconnect.py": [
-      "_EnterableStub",
       "_FakeCamRejectingStart",
       "_FakeCamWithErcHiccup",
-      "_FakeUsbCam",
-      "_StreamingSource"
+      "_FakeUsbCam"
     ],
     "test_display_multiplex.py": [
       "_Feeder"
@@ -73,10 +57,6 @@
       "_EnterableStub",
       "_StreamingSource"
     ],
-    "test_render_settings_loop_tick.py": [
-      "_FakeProcess",
-      "_FakeSession"
-    ],
     "test_render_settings_wiring.py": [
       "_EnterableStub",
       "_FixedEventSource"
@@ -89,10 +69,6 @@
       "_FakeEventWorker",
       "_FakeMonoSource"
     ],
-    "test_soak_monitor.py": [
-      "FakeStreamReader",
-      "FakeWorker"
-    ],
     "test_startup_supervision.py": [
       "_CapturingRuntimeState",
       "_FakeBatch",
@@ -103,9 +79,6 @@
     "test_stream_encoder.py": [
       "_FakeFfmpeg",
       "_StdinSink"
-    ],
-    "test_streaming_autotune.py": [
-      "_FakeQueue"
     ],
     "test_webui_render.py": [
       "_Feeder"
