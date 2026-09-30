@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
+from fakes.kinematic_llr import FakeDet
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -102,18 +102,9 @@ def test_fit_rejects_empty() -> None:
         fit_kinematic_llr([], [], feature_names=_NAMES)
 
 
-@dataclass
-class _FakeDet:
-    m_coh: float = 0.4
-    best_psr: float = 5.0
-    event_count: int = 20
-    z_score: float = 2.5
-    periodicity_score: float | None = None
-
-
 def test_assemble_features_merges_detection_and_track() -> None:
     track_feats = {"speed_mean": 120.0, "straightness": 0.9}
-    feats = assemble_features(_FakeDet(), track_feats)
+    feats = assemble_features(FakeDet(), track_feats)
     assert feats["speed_mean"] == 120.0
     assert feats["straightness"] == 0.9
     assert feats["m_coh"] == 0.4
@@ -123,7 +114,7 @@ def test_assemble_features_merges_detection_and_track() -> None:
 
 
 def test_assemble_features_tolerates_missing_track() -> None:
-    feats = assemble_features(_FakeDet(), None)
+    feats = assemble_features(FakeDet(), None)
     # Detection-side keys always present; track-side simply absent.
     assert "m_coh" in feats
     assert "speed_mean" not in feats
@@ -131,7 +122,7 @@ def test_assemble_features_tolerates_missing_track() -> None:
 
 
 def test_assemble_features_carries_rotor_score() -> None:
-    feats = assemble_features(_FakeDet(periodicity_score=0.8), None)
+    feats = assemble_features(FakeDet(periodicity_score=0.8), None)
     assert feats["periodicity_score"] == 0.8
 
 
