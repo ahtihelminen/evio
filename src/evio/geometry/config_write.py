@@ -61,12 +61,12 @@ def write_rig(config_dir: Path | str, submission: dict[str, Any]) -> Path:
         msg = f"{path}: invalid rig config ({exc})"
         raise ConfigWriteError(msg) from exc
     _write_yaml(path, {
-        "cameras": {s: _rig_entry(c) for s, c in parsed.items()},
+        "cameras": {s: rig_entry(c) for s, c in parsed.items()},
     })
     return path
 
 
-def _rig_entry(cam: CameraCalibration) -> dict[str, Any]:
+def rig_entry(cam: CameraCalibration) -> dict[str, Any]:
     """`camera_to_dict` plus the rig-only explicit panorama slot (SN-550).
 
     The slot lives in the rig config, not in the combined calibration file
@@ -79,7 +79,11 @@ def _rig_entry(cam: CameraCalibration) -> dict[str, Any]:
 
 
 def write_site(config_dir: Path | str, submission: dict[str, Any]) -> Path:
-    """Validate a site-file submission and write `site.yaml` atomically."""
+    """Validate a site-file submission and write `site.yaml` atomically.
+
+    Only the `mount:` block is replaced; any other block already in the
+    file (the runner's `settings:`) is written back unchanged.
+    """
     path = Path(config_dir) / SITE_FILENAME
     _reject_sentinels(submission, path)
     try:
@@ -87,8 +91,21 @@ def write_site(config_dir: Path | str, submission: dict[str, Any]) -> Path:
     except (TypeError, ValueError) as exc:
         msg = f"{path}: invalid site file ({exc})"
         raise ConfigWriteError(msg) from exc
-    _write_yaml(path, {"mount": asdict(mount)})
+    _write_yaml(path, {**_other_blocks(path), "mount": asdict(mount)})
     return path
+
+
+def _other_blocks(path: Path) -> dict[str, Any]:
+    """The site file's blocks besides `mount:`, kept across a save.
+
+    The runner's `settings:` block (SN-388) lives in the same file; the
+    calibration page only ever edits the mount, so it must not drop them.
+    """
+    try:
+        data = yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def _reject_sentinels(submission: dict[str, Any], path: Path) -> None:

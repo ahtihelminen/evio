@@ -18,11 +18,12 @@ import importlib
 import json
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from multiprocessing import Queue
 from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
 
+import cv2
 import numpy as np
 import pytest
 
@@ -136,6 +137,23 @@ def _t1_stays_pure(
             raise AssertionError(message)
 
         monkeypatch.setattr(module, attribute, refuse)
+
+
+@pytest.fixture(autouse=True)
+def _no_opencv_pool_outlives_its_test() -> Iterator[None]:
+    """A live OpenCV thread pool must not leak into the next test's fork.
+
+    Any `parallel_for` (e.g. the `cv2.resize` in `MediaManager`'s clip
+    thread) starts OpenCV's process-global pthreads pool. A worker forked
+    after that inherits the pool's bookkeeping but not its threads, and
+    `camera_worker`'s first call, `cv2.setNumThreads(1)`, then waits on
+    them forever (SN-566). Shrinking to one thread joins the real pool
+    here; it is rebuilt lazily at the next `parallel_for`.
+    """
+    yield
+    threads = cv2.getNumThreads()
+    cv2.setNumThreads(1)
+    cv2.setNumThreads(threads)
 
 
 @pytest.fixture

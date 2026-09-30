@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from fakes.track_classifier import FakeStatefulBundle
 
 from evio.core.events import EventsBatch
 from evio.detection import track_classifier as tc
@@ -93,32 +94,11 @@ def test_cadence_never_scores_before_ring_fills(
     assert calls["n"] == 0
 
 
-class _FakeStatefulBundle:
-    """Records the h_in fed each predict; returns h_out = h_in + 1."""
-
-    stateful = True
-    _state_dim = 8
-
-    def __init__(self) -> None:
-        self.seen_h: list[np.ndarray] = []
-
-    def predict(
-        self, patches: np.ndarray, events: object, mask: object,
-        h_in: np.ndarray,
-    ) -> dict[str, np.ndarray]:
-        self.seen_h.append(np.asarray(h_in).copy())
-        n = patches.shape[0]
-        return {
-            "drone_logits": np.full((n, SEQ_LEN), 2.0, dtype=np.float32),
-            "h_track": (h_in + 1.0).astype(np.float32),
-        }
-
-
 def test_stateful_classifier_threads_h_track_per_track() -> None:
     clf = TrackTransformerClassifier(
         Path("/nonexistent.pt"), classify_cadence=1,
     )
-    fb = _FakeStatefulBundle()
+    fb = FakeStatefulBundle()
     clf._bundle = fb
     clf._is_v3 = False
     clf._is_v4 = False
@@ -138,7 +118,7 @@ def test_stateful_classifier_prunes_state() -> None:
     clf = TrackTransformerClassifier(
         Path("/nonexistent.pt"), classify_cadence=1, stale_ticks=2,
     )
-    clf._bundle = _FakeStatefulBundle()
+    clf._bundle = FakeStatefulBundle()
     clf._is_v3 = False
     clf._is_v4 = False
     clf._stateful = True
