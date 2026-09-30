@@ -22,9 +22,6 @@
       "_FakeCamWithErcHiccup",
       "_FakeUsbCam"
     ],
-    "test_display_multiplex.py": [
-      "_Feeder"
-    ],
     "test_imx636_camera_env.py": [
       "_FakeCam"
     ],
@@ -61,9 +58,6 @@
       "_EnterableStub",
       "_FixedEventSource"
     ],
-    "test_rtsp_broadcaster.py": [
-      "_StubSession"
-    ],
     "test_seven_stream_soak.py": [
       "_FakeCameras",
       "_FakeEventWorker",
@@ -75,13 +69,6 @@
       "_FakeEdgeNode",
       "_FakeImx636Source",
       "_FakeProbe"
-    ],
-    "test_stream_encoder.py": [
-      "_FakeFfmpeg",
-      "_StdinSink"
-    ],
-    "test_webui_render.py": [
-      "_Feeder"
     ]
   }
 }
