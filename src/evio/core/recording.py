@@ -61,8 +61,8 @@ def open_dat_dt8(
 ) -> Recording:
     """Whole-file loader: memmap [(t32,u4),(w32,u4)], unwrap + time order.
 
-    Materialises every timestamp; for windowed replay see ``memmap_dat_dt8``
-    plus ``evio.io.multi_dat_replay`` which slices on demand.
+    Materialises every timestamp; for windowed replay memmap the file with
+    ``memmap_dat_dt8`` and slice on demand.
     """
     events = memmap_dat_dt8(path, data_offset=data_offset)
 

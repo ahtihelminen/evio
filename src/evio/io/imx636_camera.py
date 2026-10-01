@@ -80,7 +80,7 @@ class Imx636CameraSource:
     # where downstream consumers can't keep up.
     erc_event_rate: int = 0
     # DEM masks are calibration data, stored per serial in config/dem_masks/
-    # <serial>.json (factory-vetted by `scan_stuck_pixels.py --apply`, then
+    # <serial>.json (factory-vetted by ops' `scan_stuck_pixels.py --apply`, then
     # maintained by the live autotuner). The on-sensor DEM is volatile (lost on
     # close), so this manifest is re-programmed at every open — that reload IS
     # the mask persistence mechanism. None -> the default config/dem_masks/ dir.
@@ -125,9 +125,8 @@ class Imx636CameraSource:
         # camera_open_lock, holding the lock through cam.start() means
         # the next worker's sensor-init register writes contend with
         # the prior camera's streaming traffic on the xHCI controller
-        # — ISSD writes start failing on the 3rd+ camera. Mirror the
-        # view_event_cameras.py pattern: open + config inside the
-        # lock, cam.start() outside.
+        # — ISSD writes start failing on the 3rd+ camera. So open +
+        # config inside the lock, cam.start() outside.
         real_serial = (
             "" if self.serial.startswith("event-") else self.serial
         )

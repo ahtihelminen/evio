@@ -30,12 +30,12 @@ def get_window_evt3(
     win_start: int,
     win_stop: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Identical to play_dat, except unpacking EVT3-packed words."""
+    """Slice one time window out of EVT3-packed event words."""
     # Index into time-sorted events
     event_indexes = time_order[win_start:win_stop]
     words = event_words[event_indexes].astype(np.uint32, copy=False)
 
-    # EVT3 packing used in RawFileSource:
+    # EVT3 word packing:
     #   bits 0..10  : x (11 bits)
     #   bit 11      : polarity
     #   bits 12..22 : y (11 bits)
