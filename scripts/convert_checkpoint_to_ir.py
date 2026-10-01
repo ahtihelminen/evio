@@ -3,7 +3,8 @@
 Dev-time, one-off step (needs torch — not part of the field runtime): run
 this once per checkpoint to produce the ``<stem>_ov.xml``/``.bin`` pair the
 live path (``track_classifier.load_track_transformer``) auto-picks up next
-to the ``.pt`` file, so the mast never loads the ``.pt`` or imports torch.
+to the ``.pt`` file, so an OPS unit never loads the ``.pt`` or imports
+torch.
 
 Auto-detects v2 vs v3/v4 from the ``<stem>_meta.json`` sidecar, same
 convention as the live loader (``e_max`` present -> v3/v4).

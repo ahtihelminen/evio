@@ -1,17 +1,22 @@
 # Detection Module (`src/evio/detection`)
 
 This document describes the detection package as a whole: grid abstractions,
-feature extraction, filtering transforms, background modeling primitives, and
-the multi-stage detection/tracking pipeline.
+feature extraction, background modeling, the detection pipeline, tracking and
+the track classifier/verdict stack.
 
 Files and packages covered:
 
-- `src/evio/detection/grid.py`
-- `src/evio/detection/feature_functions.py`
-- `src/evio/detection/transforms.py`
-- `src/evio/detection/features/*`
+- `src/evio/detection/grid.py`, `feature_functions.py`, `features/*`
 - `src/evio/detection/background/*`
 - `src/evio/detection/pipeline/*`
+- `src/evio/detection/types.py`, `emitter.py`, `dedupe.py`
+- `src/evio/detection/persistence.py`, `spawn_density.py`
+- `src/evio/detection/tracker.py`, `reid.py`
+- `src/evio/detection/live_camera.py`
+- `src/evio/detection/track_classifier.py`, `temporal_transformer*.py`,
+  `openvino_transformer.py`, `event_tokens.py`
+- `src/evio/detection/verdict_gate.py`, `kinematic_llr.py`, `rotor_llr.py`,
+  `rotor_periodicity.py`, `irstd.py`
 - `src/evio/detection/__init__.py`
 
 ## What this package owns
@@ -19,10 +24,11 @@ Files and packages covered:
 The detection package owns algorithms on top of `EventsBatch`:
 
 1. Spatial/temporal discretization (`GridConfig`).
-2. Per-cell feature extraction and registries.
-3. Event-level denoising transforms (hot-pixel suppression).
-4. Background/anomaly scoring models and utilities.
-5. Multi-phase candidate generation, TBD scoring, and track attribution.
+2. Per-cell feature extraction and a feature-name registry.
+3. Background classification and per-class anomaly scoring.
+4. Candidate detection via track-before-detect (TBD) scoring.
+5. Clutter suppression, tracking and re-identification.
+6. Per-track drone classification and verdict gating.
 
 It does not own:
 
@@ -32,9 +38,9 @@ It does not own:
 
 ## Package structure
 
-### `grid.py`
+### Grid and features
 
-Core grid primitives used across almost every detection component.
+`grid.py`:
 
 - `GridConfig`: immutable geometry/time binning config.
   - validates positive dimensions and time parameters.
@@ -44,140 +50,142 @@ Core grid primitives used across almost every detection component.
 - `GridState`: evaluates a dict of feature functions and stores results as
   attributes on each `update(events)` call.
 
-`GridConfig` is the central contract between feature extraction, background
-stages, pipeline stages, overlays, and UI/streaming control.
+`features/basic_features.py`: `cell_event_count`, `cell_active_pixels`,
+`cell_fano_factor`, `cell_8_coactivity`, `cell_polarity_skewness`.
 
-### `features/*`
+`features/entropy.py`: `cell_shannon_entropy`,
+`cell_event_probabilities_axis`, `cell_shannon_entropy_axis`,
+`cell_bernoulli_entropy`.
 
-Per-cell feature implementations.
+Feature outputs are typically flattened `(grid.cells,)` arrays.
+`features/__init__.py` is empty; call sites import feature modules directly.
 
-`features/basic_features.py`:
-
-- `cell_event_count`
-- `cell_active_pixels`
-- `cell_fano_factor`
-- `cell_8_coactivity`
-- `cell_polarity_skewness`
-
-`features/entropy.py`:
-
-- `cell_event_probabilities_axis`
-- `cell_shannon_entropy_axis`
-- `cell_shannon_entropy` (combined entropy norm)
-- `cell_bernoulli_entropy`
-
-Feature outputs are typically shape `(grid.cells,)` flattened arrays.
-
-### `feature_functions.py`
-
-Feature-name registry used by UI/streaming controls and multicamera workers.
+`feature_functions.py` is the feature-name registry:
 
 - `FEATURE_FUNCTIONS: dict[str, Callable]`
-- `DEFAULT_FEATURE_NAME`
-- `get_feature_fn(name)` with fallback to default.
+- `DEFAULT_FEATURE_NAME` (`"event_count"`)
+- `get_feature_fn(name)` with fallback to the default.
 
-This enables selecting features by string through control messages.
-
-### `transforms.py`
-
-Batch-level filtering utilities.
-
-- `filter_hot_pixels_fixed(events, max_events=...)`
-- `filter_hot_pixels_percentile(events, percentile=...)`
-
-Implementation strategy:
-
-- builds unique pixel counts within a batch,
-- removes all events from pixels above threshold.
-
-Used in playback/detection scripts before scoring stages.
+This lets a feature be selected by string. Consumers in the ops repo: the
+per-camera worker processes, which build grid stats per camera by name.
 
 ### `background/*`
 
-Background model primitives used by phase-1 scoring and overlays.
+Background model primitives:
 
-- microstate construction (`microstate.py`)
+- microstate construction (`microstate.py`, re-exported by
+  `background/__init__.py`)
 - score/stat helpers (`metrics.py`)
-- 2-class background clustering (`classes.py`)
+- 2-class (sky / not-sky) background clustering (`classes.py`,
+  `BackgroundClassesClassifier`)
 
-Key consumers:
-
-- `pipeline/dual_background.py` (the live sky/not-sky scorer)
-- `pipeline/simplified_pipeline.py` (the default pipeline's class map)
+Key consumers: `pipeline/dual_background.py` and
+`pipeline/simplified_pipeline.py`.
 
 ### `pipeline/*`
 
-Phase-oriented detection pipeline with explicit stage configs/results.
+- `registry.py`: the `DetectionPipeline` protocol (anything with
+  `.update(batch).detections`) and a name-keyed registry (`register`,
+  `build`, `list_pipelines`, `PIPELINES`) so the active pipeline can be
+  swapped by name. Registration happens at import of
+  `evio.detection.pipeline`.
+- `simplified_pipeline.py`: `SimplifiedDetectionPipeline`, the only
+  registered pipeline (`"simplified"`, factory in `pipeline/__init__.py`).
+- `dual_background.py`: `DualBackgroundScorer`, per-class background
+  abnormality scoring with separate sky/not-sky models (z-maps, calibration).
+- `simplified_tbd.py`: `SimplifiedTbdStage`, track-before-detect with
+  integrated candidate detection from the z-map (motion-hypothesis velocity
+  sweep, PSR baseline, coherence score `m_coh`).
 
-`pipeline/dual_background.py` (Phase 1):
+`pipeline/__init__.py` re-exports the stage types, the registry API and
+`Detection`/`Classification`.
 
-- region-wise background scoring, one model per background class
-- z-maps, update mask, calibration handling
+### Detection types and post-processing
 
-`pipeline/candidate_stage.py` (Phase 2):
+- `types.py`: `Detection` (the single-window primitive: bbox, velocity,
+  `m_coh`, `best_psr`, `z_score`, `camera_id`, `track_id`, optional
+  `classification`, patch/embedding and score fields) and `Classification`
+  (`label`, `confidence`).
+- `emitter.py`: `DetectionEmitter` pub/sub hook the pipeline emits each
+  detection into; subscriber exceptions are logged and swallowed.
+  `relay_with_camera_id` tags detections with their camera.
+- `dedupe.py`: `deduplicate_by_iou` (greedy NMS by `m_coh`) and
+  `top_k_by_mcoh`.
+- `persistence.py`: `PersistenceMap`, per-cell hit-rate map that drops
+  detections in persistent slow-moving clutter cells before the tracker.
+- `spawn_density.py`: `SpawnDensityMap`, suppresses regions spawning too many
+  new tracks in a rolling time window.
 
-- thresholding and persistence history on z-map
-- connected-components grouping on region grid
-- ranking/selection of candidate ROIs
+### Tracking
 
-`pipeline/tbd_stage.py` (Phase 3):
+- `tracker.py`: `TrackManager`, a constant-velocity Kalman tracker. Run once
+  per window after dedupe; returns detections annotated with stable
+  `track_id`s (ULIDs from `core.ids.new_ulid`) and a fit-scaled `m_coh`.
+  Configured via `TrackManagerConfig`.
+- `reid.py`: signature/embedding re-identification so a track that times out
+  (occlusion, sun) can be recognised and its id reused; renders event patches
+  with `rendering.frame.get_frame`.
 
-- ROI-limited track-before-detect scoring
-- motion hypothesis warping over buffered integration windows
-- PSR baseline and coherence score (`m_coh`)
+### Per-camera detection
 
-`pipeline/track_stage.py` (Phase 4):
+`live_camera.py`: `CameraDetector`, torch-free detect -> track ->
+patch/tokenize stage that can run inside a camera worker process. `update`
+returns a `CameraDetectionResult` (boxes, recorder object-ids, and stacked
+patches/events for tracks whose 16-frame ring just filled). `safe_update`
+runs one tick and returns `None` on failure, so detection errors never crash
+the worker.
 
-- association of object-like candidates to tracks
-- M-of-N confirmation and miss-based pruning
-- candidate attribution:
-  - `background_fluctuation`
-  - `tentative_object`
-  - `confirmed_object`
+### Classification
 
-`pipeline/visualization.py`:
+- `temporal_transformer.py`, `temporal_transformer_v2.py`,
+  `temporal_transformer_v3.py`: per-track temporal transformer models (v2 adds
+  auxiliary features and a bbox-mask head; v3 adds a raw-event branch).
+- `event_tokens.py`: pure-numpy raw-event tokeniser for v3.
+- `openvino_transformer.py`: OpenVINO FP16 backends and exporters for v2/v3.
+- `track_classifier.py`: shared load + inference (`load_track_transformer`,
+  `predict_drone_probs`, `TrackTransformerClassifier`). The transformer is
+  optional at runtime: without torch or a checkpoint, loading returns a
+  `None` bundle plus a `load_warning` and detection continues unclassified.
+  An OpenVINO IR next to the `.pt` is preferred when present.
 
-- 2x2 diagnostic canvas combining event frame, z-map, candidate/TBD, and
-  attribution overlays.
+### Verdict gating
 
-`pipeline/__init__.py` re-exports stage types and visualization helpers.
+- `verdict_gate.py`: `PersistenceGate` (M-of-K, the default),
+  `SequentialGate` (SPRT) and `FusionGate` (additive LLR arms), built by
+  `build_verdict_gate(...)`.
+- `kinematic_llr.py`: `KinematicLLR`, logistic `P(drone | kinematics)` arm.
+- `rotor_llr.py`: `RotorLLR`, one-sided arm on rotor periodicity.
+- `rotor_periodicity.py`: `RotorPeriodicityEstimator`, per-track
+  blade-pass-frequency estimator producing `periodicity_score`.
+- `irstd.py`: MPCM local-contrast re-scorer on the event patch
+  (`irstd_features`).
 
-## Pipeline data flow (current implementation)
+## Pipeline data flow
 
-`scripts/run_detection_pipeline_mvp.py` orchestrates:
+`SimplifiedDetectionPipeline.update(batch)` runs:
 
-1. optional hot-pixel filtering (`transforms.py`)
-2. `BackgroundStage.update(batch)` -> `BackgroundStageResult`
-3. `CandidateStage.update(result.z_map)` -> `CandidateStageResult`
-4. `TbdStage.update(batch, candidate_result)` -> `TbdStageResult`
-5. `TrackStage.update(tbd_result)` -> `TrackStageResult`
-6. `render_background_phase_canvas(...)` for visualization
+1. `BackgroundClassesClassifier.update(batch)` -> sky/not-sky class map
+   (calibrating until the class map exists).
+2. `DualBackgroundScorer.update(batch, class_map)` -> `DualBackgroundResult`
+   with the z-map.
+3. `SimplifiedTbdStage.update(batch, z_map, class_map, ...)` with per-class
+   thresholds -> detections.
+4. Each detection is emitted through `DetectionEmitter`.
 
-This represents the package’s primary end-to-end reference flow today.
+It returns a `SimplifiedPipelineResult` (`window_index`, `calibrating`,
+`class_map`, `z_map`, `detections`, calibration progress, `bg_result`).
 
-## Other important integration points
-
-### Statistics overlays in playback and streaming
-
-- `scripts/event_stats.py` uses `GridConfig` + `GridState` + feature functions.
-- `src/evio/multiprocessing/multicamera.py` builds grid stats per camera by
-  feature name (via `get_feature_fn(...)`).
-- `scripts/run_ops.py` manages feature-grid runtime state and selection in
-  control-plane messages.
-
-### Background-only diagnostics
-
-- `scripts/bg_stats.py` runs `BackgroundStage` only and writes optional per-cell
-  diagnostics CSV rows.
+Downstream of the pipeline, consumers dedupe, apply the persistence and
+spawn-density gates, track with `TrackManager`, classify with
+`TrackTransformerClassifier` and commit verdicts through a verdict gate.
+Consumers in the ops repo: the per-camera worker processes and the appliance
+loop.
 
 ## Public API shape and stability notes
 
-- `src/evio/detection/__init__.py` is currently empty.
-- Stable entry points for pipeline users are effectively
-  `src/evio/detection/pipeline/__init__.py` exports plus `GridConfig` and
-  selected transforms/features.
-- `features/__init__.py` is currently empty; call sites import feature modules
-  directly.
+- `src/evio/detection/__init__.py` is empty.
+- Stable entry points are `evio.detection.pipeline` exports plus `GridConfig`,
+  `types`, `tracker`, `track_classifier` and `verdict_gate`.
 
 ## Practical notes
 
@@ -187,14 +195,4 @@ This represents the package’s primary end-to-end reference flow today.
   runtime tuning values fail fast.
 - Most computations assume timestamp-ordered batches.
 - The pipeline is CPU-first and designed for incremental updates over rolling
-  windows.
-
-## Suggested next docs to write
-
-After this package-level overview, high-value focused docs are:
-
-1. `docs/modules/detection-pipeline.md` for deeper stage internals.
-2. `docs/modules/detection-grid.md` for grid contracts and shape math.
-3. `docs/modules/detection-features.md` for exact feature definitions and
-   normalization choices.
-
+  windows; swapping pipelines resets calibration.

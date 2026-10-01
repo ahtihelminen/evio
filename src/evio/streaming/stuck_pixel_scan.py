@@ -335,8 +335,8 @@ def write_applied_masks(
     """Persist the operator-vetted masks as the durable config (schema v3).
 
     The on-sensor DEM is volatile (lost when the scan closes the camera), so
-    ``--apply`` alone never reaches ``run_ops``; ``Imx636CameraSource`` reloads
-    THIS manifest at open. Same schema the live autotuner round-trips
+    ``--apply`` alone never reaches the OPS appliance; ``Imx636CameraSource``
+    reloads THIS manifest at open. Same schema the live autotuner round-trips
     (``config/dem_masks/<serial>.json``): factory masks take slots 0..N-1 and
     are tagged ``source: "factory"`` so the autotuner's auto masks slot after
     them (the boot-time rescan writes ``source: "boot_scan"``). ``soft`` is

@@ -11,17 +11,20 @@ Files covered:
 - `src/evio/core/streaming_pacer.py`
 - `src/evio/core/recording.py`
 - `src/evio/core/generate_events.py`
+- `src/evio/core/ids.py`
 - `src/evio/core/__init__.py`
 
 ## What this module owns
 
-`core` provides shared primitives used by IO, rendering, detection, and UI:
+`core` provides shared primitives used by IO, rendering, detection, focus and
+recording:
 
 1. Event container types (`EventsBatch`, `BatchRange`).
 2. Rolling time-window assembly over decoded event chunks.
 3. Playback pacing against wall clock (with optional dropping).
-4. Low-level recording loaders for DAT/RAW.
-5. Frame-to-event synthesis helpers for mono-camera workflows and tests.
+4. A low-level DAT (DT8) recording loader.
+5. Frame-to-event synthesis for mono-camera workflows and tests.
+6. ULID generation for track identifiers.
 
 ## Data model and time semantics
 
@@ -49,8 +52,8 @@ Dataclass with parallel arrays:
 - `y_coords: NDArray[int16]`
 - `polarities: NDArray[int8]`
 
-This is the standard batch payload across codecs, IO, detection, rendering,
-and UI.
+This is the standard batch payload across codecs, IO, detection, rendering
+and recording.
 
 #### `BatchRange`
 
@@ -63,8 +66,10 @@ Used by DAT index-based playback (`DatFileSource` + `Pacer` path).
 
 ### `window.py`
 
-Contains `RollingWindowBatchProcessor`, a stateful post-processor that converts
-incoming decoded event batches into fixed-duration rolling windows.
+#### `RollingWindowBatchProcessor`
+
+A stateful post-processor that converts incoming decoded event batches into
+fixed-duration rolling windows.
 
 Window behavior:
 
@@ -79,22 +84,31 @@ Internal strategy:
 - collects slices from one or more chunks into one output window,
 - supports final flush (`process(..., final=True)`).
 
-Current call sites:
+Call sites in this repo:
 
 - `src/evio/io/dat_file_mp.py`
-- `src/evio/io/raw_file_mp.py`
-- `src/evio/io/event_camera.py`
+- `src/evio/io/imx636_camera.py`
+
+#### `drain_window_backlog(window_queue, current, max_backlog)`
+
+Collapses a backed-up window queue to its freshest window when a consumer
+cannot keep up. Returns the newest window, the stale windows the caller must
+still record (so footage stays lossless) and their summed event count. It is
+a no-op until the queue exceeds `max_backlog`; `max_backlog <= 0` disables it.
+
+Used by `src/evio/focus/sources.py`; in the ops repo the per-camera worker
+processes use it on the live camera queue.
 
 ### `pacer.py`
 
-Legacy/simple pacer for `BatchRange` iterables (index-window DAT playback).
+Simple pacer for `BatchRange` iterables (index-window DAT playback).
 
 Class: `Pacer`
 
 - input: iterable of `BatchRange`
 - target timing: based on each range `end_ts_us`
-- optional behavior: if `force_speed=True` and stream is too far behind,
-  drops overdue ranges.
+- optional behavior: if `force_speed=True` and the stream is further behind
+  than `drop_tolerance_s`, drops overdue ranges.
 
 Tracks:
 
@@ -102,18 +116,15 @@ Tracks:
 - instantaneous and running average drop rates,
 - anchor times (`_t_start` wall, `_e_start` event).
 
-Primary call path:
-
-- `scripts/play_dat.py`
-- HUD rendering via `draw_hud(...)` in `src/evio/rendering/frame.py`.
+HUD rendering for it is `draw_hud(...)` in `src/evio/rendering/frame.py`.
 
 ### `streaming_pacer.py`
 
-Main pacer for `EventsBatch` iterables used by most modern playback scripts.
+Pacer for `EventsBatch` iterables.
 
 Classes:
 
-- `PacerConfig`: immutable config (`speed`, `force_speed`, tolerance).
+- `PacerConfig`: immutable config (`speed`, `force_speed`, `drop_tolerance`).
 - `PacerState`: mutable runtime state and stats.
 - `StreamingPacer`: pacing engine.
 
@@ -130,18 +141,12 @@ HUD helpers:
 - `recording_elapsed(end_time_us)`
 - `actual_playback_speed(end_time_us)`
 
-Primary call paths:
-
-- `scripts/play_dat_mp.py`
-- `scripts/play_raw_mp.py`
-- `scripts/play_raw_folder.py`
-- `scripts/event_stats.py`
-- `scripts/bg_stats.py`
-- HUD rendering via `draw_hud_stream(...)`.
+HUD rendering for it is `draw_hud_stream(...)` in
+`src/evio/rendering/frame.py`.
 
 ### `recording.py`
 
-Low-level file loaders returning a `Recording` object:
+Low-level DAT (DT8) file access.
 
 #### `Recording`
 
@@ -150,25 +155,20 @@ Low-level file loaders returning a `Recording` object:
 - `event_words` (packed `uint32` words)
 - `order` (int32 stable argsort permutation)
 
-#### `open_dat_dt8(...)`
+#### `memmap_dat_dt8(path, *, data_offset=None)`
 
-- scans/uses DAT payload offset,
-- memory-maps DT8 payload (`[(t32, w32)]`),
-- returns sorted timestamps and corresponding order permutation.
+- skips the `%` header lines and the 2-byte type/size marker (unless
+  `data_offset` is given),
+- returns a lazy `[(t32, w32)]` memmap; event data pages in only as indexed.
 
-Current direct use:
+#### `open_dat_dt8(path, *, width, height, data_offset=None)`
 
-- `src/evio/io/dat_file.py`
+- memmaps the payload via `memmap_dat_dt8`,
+- unwraps the 32-bit `t32` counter (wraps every 2**32 µs, ~71.6 min) into a
+  monotonic timeline,
+- returns sorted timestamps and the corresponding order permutation.
 
-#### `open_raw_evt3(...)`
-
-- standalone EVT3 RAW decoder to `Recording` (CD events),
-- reconstructs timestamps from `TIME_HIGH`/`TIME_LOW`,
-- handles high-time wraparound,
-- packs decoded x/y/polarity into `event_words`.
-
-This path is currently not the main RAW playback path (RAW playback mainly uses
-codec-based multiprocessing decoders).
+Direct use: `src/evio/io/dat_file.py`.
 
 ### `generate_events.py`
 
@@ -181,15 +181,19 @@ Pipeline:
 3. `fill_event_arrays(...)`: materialize x/y/t/p arrays.
 4. `get_events_from_frames(...)`: returns `EventsBatch`.
 
-Used by:
+Used by the mono-camera backends (`src/evio/io/mono_backends/ids_peak.py`,
+`src/evio/io/mono_backends/u3v.py`) in `iter_events`.
 
-- `src/evio/io/mono_camera.py` (`iter_events`).
+### `ids.py`
 
-This is useful for emulating event output from grayscale frame cameras.
+`new_ulid()` returns a ULID (48-bit ms timestamp + 80 random bits, Crockford
+base32), byte-for-byte the SAPIENT library's generator so the detection chain
+needs no SAPIENT dependency. `src/evio/detection/tracker.py` uses it for
+`track_id`s, which become SAPIENT `object_id`s downstream.
 
 ### `__init__.py`
 
-Currently empty (no package-level re-exports).
+Empty (no package-level re-exports).
 
 ## How `core` interacts with other modules
 
@@ -216,8 +220,5 @@ Currently empty (no package-level re-exports).
 - Windowing assumes timestamp-monotonic chunks in normal operation.
 - Pacer timing is sensitive to clock granularity and batching; instant speed is
   meaningful over multiple emitted windows, not single tiny batches.
-- There are two pacing APIs (`Pacer` and `StreamingPacer`) because the project
-  still supports both index-range and decoded-batch playback paths.
-
-
-
+- There are two pacing APIs (`Pacer` and `StreamingPacer`) because both
+  index-range and decoded-batch playback paths are supported.

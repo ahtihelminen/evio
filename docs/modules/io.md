@@ -1,29 +1,28 @@
 # IO Module (`src/evio/io`)
 
-This document describes ingestion and export components under
-`src/evio/io`: file readers, multiprocessing decode infrastructure, live
-camera sources, and conversion utilities.
+This document describes ingestion components under `src/evio/io`: DAT file
+readers, multiprocessing decode infrastructure, and live camera sources.
 
 Files covered:
 
 - `src/evio/io/dat_file.py`
 - `src/evio/io/dat_file_mp.py`
-- `src/evio/io/raw_file_mp.py`
-- `src/evio/io/raw_folder_mp.py`
 - `src/evio/io/mp_file.py`
-- `src/evio/io/event_camera.py`
+- `src/evio/io/imx636_camera.py`
+- `src/evio/io/camera_serial_report.py`
 - `src/evio/io/mono_camera.py`
-- `src/evio/io/converter.py`
+- `src/evio/io/mono_backends/ids_peak.py`
+- `src/evio/io/mono_backends/u3v.py`
 - `src/evio/io/__init__.py`
 
 ## What this module owns
 
 The IO package owns how bytes or hardware streams become `EventsBatch`:
 
-1. DAT/RAW file decoding sources (single-process and multiprocessing variants).
+1. DAT file decoding sources (single-process and multiprocessing variants).
 2. Generic reader/decoder worker orchestration for chunked files.
-3. Live camera adapters for event cameras and mono frame cameras.
-4. Export/conversion APIs (`.dat`, `.npz`, range/ROI subsets).
+3. The live IMX636 event-camera source.
+4. The mono frame-camera facade and its backends.
 
 It does not own:
 
@@ -33,7 +32,7 @@ It does not own:
 
 ## Architecture overview
 
-There are three main IO paths:
+There are three main IO paths.
 
 ### 1) DAT indexed playback path
 
@@ -44,9 +43,10 @@ There are three main IO paths:
 - precomputes `BatchRange` windows by timestamp search,
 - leaves event-word unpacking to downstream rendering code.
 
-Used by: `scripts/play_dat.py`.
+Used by `src/evio/focus/sources.py` (DAT replay panes); in the ops repo, by the
+appliance loop's replay mode.
 
-### 2) Multiprocessing decode path (DAT/RAW)
+### 2) Multiprocessing decode path (DAT)
 
 `MultiprocessingFileSource` in `mp_file.py` is the generic engine:
 
@@ -60,42 +60,34 @@ Used by: `scripts/play_dat.py`.
   - optionally post-processes via a `BatchProcessor`,
   - pushes batches to output queue.
 
-`MultiprocessingDatFileSource` and `MultiprocessingRawFileSource` are thin
-wrappers that configure:
+`MultiprocessingDatFileSource` is a thin wrapper that configures:
 
-- payload offset scanner (`find_dat_data_offset` / `find_data_offset`),
-- codec (`Dt8Codec` / `Evt3Codec`),
+- payload offset scanner (`find_dat_data_offset`),
+- codec (`Dt8Codec`),
 - rolling windowing (`RollingWindowBatchProcessor`).
 
-Used by:
-
-- `scripts/play_dat_mp.py`
-- `scripts/play_raw_mp.py`
-- `scripts/event_stats.py`
-- `scripts/bg_stats.py`
-- `scripts/run_detection_pipeline_mvp.py`
-- UI playback source (`src/evio/ui/sources/dat_playback.py`).
+Used by `tests/test_footage_recorder_replay_roundtrip.py`; in the ops repo, by
+the appliance loop's replay mode.
 
 ### 3) Live camera path
 
-`EventCameraSource` in `event_camera.py`:
+`Imx636CameraSource` in `imx636_camera.py`:
 
-- opens Metavision HAL device,
-- receives decoded CD events via callback,
-- converts callbacks to `EventsBatch`,
+- opens an IMX636 camera through the in-house `imx636` driver binding
+  (libusb, no Metavision/openeb dependency),
+- receives decoded CD events via a push-style callback,
+- converts callback buffers to `EventsBatch`,
 - windowizes with `RollingWindowBatchProcessor`.
 
-`MonoCameraSource` in `mono_camera.py`:
+`MonoCameraSource` (via the `mono_camera.py` facade):
 
-- opens IDS Peak frame camera,
+- opens a mono frame camera through the selected backend,
 - yields frames (`read(...)`) or synthesized events via frame differencing
   (`iter_events(...)` -> `core.generate_events.get_events_from_frames`).
 
-Used by:
-
-- `scripts/run_ops.py` (mono footage capture)
-- `scripts/stream_raw_cameras.py`
-- multicamera worker (`src/evio/multiprocessing/multicamera.py`).
+Consumers in this repo: `src/evio/focus/sources.py` (IMX636) and
+`src/evio/recording/mono_capture.py` (mono). Consumers in the ops repo: the
+per-camera worker processes and the appliance loop.
 
 ## File-by-file reference
 
@@ -114,7 +106,8 @@ Behavior:
   - `event_words` (packed `uint32`),
   - `order` (sorted permutation),
   - `width`, `height`,
-  - `ranges()` iterator over `BatchRange`.
+  - `ranges()` iterator over `BatchRange`,
+  - `__len__` (number of precomputed ranges).
 
 No decoding to x/y/p arrays happens here.
 
@@ -133,49 +126,6 @@ Behavior:
 - applies `RollingWindowBatchProcessor(window_length, step_us)`,
 - delegates iteration/polling/context-manager to inner source.
 
-### `raw_file_mp.py`
-
-Class: `MultiprocessingRawFileSource`
-
-Purpose:
-
-- EVT3 RAW decode + rolling windows via same multiprocessing engine.
-
-Behavior:
-
-- computes `chunk_words` from `chunk_bytes`,
-- uses `Evt3Codec` and RAW payload offset scanner,
-- applies rolling window processor,
-- delegates to inner `MultiprocessingFileSource`.
-
-Note:
-
-- defines `__len__` returning `0` (placeholder; no precomputed length).
-
-### `raw_folder_mp.py`
-
-Class: `MultiprocessingRawFolderSource`
-
-Purpose:
-
-- sequence multiple RAW files as one continuous timestamp stream.
-
-Behavior:
-
-- opens one `MultiprocessingRawFileSource` at a time,
-- on each file switch, computes timestamp shift:
-  - first batch of new file is shifted so it starts at `last_emitted + 1`,
-- exposes non-blocking polling:
-  - `get_batch_nowait() -> (batch | None, ended)`.
-
-Current use:
-
-- UI playback source for RAW folders (`dat_playback.py`).
-
-Note:
-
-- this class is poll-oriented; it does not provide `__iter__`.
-
 ### `mp_file.py`
 
 Generic multiprocessing reader/decoder implementation.
@@ -193,7 +143,7 @@ Sentinel handling:
 Public API:
 
 - iteration (`for batch in source`)
-- non-blocking polling (`get_batch_nowait`)
+- non-blocking polling (`get_batch_nowait() -> (batch | None, ended)`)
 - `close()`
 - context manager support.
 
@@ -204,115 +154,88 @@ Shutdown strategy:
 - terminates/joins child processes if alive,
 - closes queues.
 
-### `event_camera.py`
+### `imx636_camera.py`
 
-Live event-camera source using Metavision HAL.
+Live event-camera source using the in-house `imx636` driver.
 
 Utilities:
 
-- `get_camera_serials()` parses local device IDs and returns sorted serials.
+- `get_camera_serials()` returns the sorted real (Treuzell) serial of each
+  connected camera and prints the `camera_serial_report` warning when a
+  USB-matched device returned no readable serial.
 
-Class: `EventCameraSource`
+Class: `Imx636CameraSource`
+
+Configuration:
+
+- `serial`, `window_length_us` (default 10 ms), `step_us`,
+- optional `anti_flicker` band-stop filter and `erc_event_rate` (Event Rate
+  Controller cap), both off by default,
+- `dem_mask_dir` (default `config/dem_masks/`): per-serial DEM mask manifest
+  re-programmed at every open, since the on-sensor DEM is volatile; the
+  manifest's software tier is exposed as `soft_mask_coords`.
 
 Behavior:
 
-- optional `initial_biases` applied before stream start,
-- callback captures CD event buffers into a deque,
-- `__next__` pumps HAL buffers, converts structured arrays to `EventsBatch`,
-  and yields rolling windows.
+- `__enter__` claims the device and runs sensor init; streaming starts lazily
+  on the first `__next__()` so a multi-camera open lock is not held through
+  `cam.start()`,
+- `__next__` drains the driver pipe completely each call, converts every
+  pending callback buffer, and returns the next rolling window (or an empty
+  batch after one idle window so a static scene still ticks),
+- `boot_scan_stuck_pixels(duration_s)` releases the DEM masks, counts the raw
+  stream, re-masks current flooders and rewrites the manifest (helpers in
+  `src/evio/streaming/stuck_pixel_scan.py`),
+- `read_env()` samples lux, die temperature, pixel dead time and in-sensor ERC
+  counters, skipping failed reads,
+- `__exit__` stops streaming best-effort and drops the driver handle so the
+  libusb claim is released.
 
-Important details:
+### `camera_serial_report.py`
 
-- window processor is rebuilt if `window_length_us` / `step_us` change.
-- output geometry defaults to `1280x720` but is read from camera geometry.
+`describe_serial_read(serials)` returns a warning string when fewer devices
+reported a serial than were USB-matched (an empty entry means present but not
+fully initialized), or `None`. Kept separate from `imx636_camera.py` so the
+decision is testable without the driver binding.
 
 ### `mono_camera.py`
 
-Frame-camera source using IDS Peak APIs.
+Thin facade selecting the mono-camera backend from `EVIO_MONO_BACKEND`
+(default `ids_peak`). `MonoCameraSource` and `get_mono_camera_serials` are
+resolved lazily from `evio.io.mono_backends.<backend>`, so the facade imports
+with no camera SDK installed.
 
-Class: `MonoCameraSource`
+### `mono_backends/ids_peak.py`
 
-Behavior:
+IDS Peak backend.
 
-- device selection by index or serial,
-- configurable acquisition FPS/exposure/gain (+ auto modes),
-- `read(...)` returns Mono8 frame (and optional timestamp),
-- `iter_events(...)` synthesizes events from consecutive frames using
-  thresholded differencing.
+- `get_mono_camera_serials()`: sorted serials from the IDS device manager.
+- `MonoCameraSource`: device selection by index or serial, configurable
+  acquisition FPS/exposure/gain (+ auto modes), `read(...)` returns a Mono8
+  frame (and optional timestamp), `iter_events(...)` synthesizes events from
+  consecutive frames.
 
-Used for:
+### `mono_backends/u3v.py`
 
-- local mono camera viewer,
-- event-generation benchmarking/prototyping.
+Backend for the in-house `u3v` USB3 Vision driver (built by
+`make build-externals`, not a pip dependency).
 
-### `converter.py`
-
-Class: `EventDataConverter`
-
-Purpose:
-
-- stream-decode DAT/RAW and export full or partial data.
-
-Core methods:
-
-- streaming:
-  - `__iter__()` yields decoded batches.
-  - `iter_range(start, stop, roi_bounds=None)` yields bounded events.
-  - `count_range_events(...)`.
-- materialization:
-  - `to_arrays()`
-  - `to_npz(output_path)`
-  - `to_dat(output_path, header=None)`
-- range export:
-  - `to_dat_range(...)`
-  - `to_npz_range(...)`.
-
-Input format selection:
-
-- `.dat` -> DT8 codec + DAT offset parser
-- `.raw` -> EVT3 codec + RAW offset parser
-
-Header handling:
-
-- DAT output headers are normalized to include DT8 marker bytes.
-
-Range/ROI behavior:
-
-- timestamp interval is `[start, stop)`,
-- ROI bounds are normalized to ordered corners,
-- per-batch masks are applied before writing.
-
-Memory behavior:
-
-- full-stream `to_arrays()` buffers in RAM,
-- `to_npz_range()` uses temporary disk-backed memmaps to avoid full in-memory
-  concatenation for large range exports.
+- `get_mono_camera_serials()`: filters `u3v.enumerate()` by
+  `MONO_CAMERA_PID` (`0x8000`), since the same vendor id also matches event
+  cameras.
+- `MonoCameraSource`: same surface as the IDS backend (`read`, `iter_events`);
+  `read` raises `TimeoutError` when no frame arrives in time.
 
 ### `__init__.py`
 
-Currently empty (no package-level re-exports).
-
-## Integration with UI playback/export
-
-`src/evio/ui/sources/dat_playback.py` is the primary integration hub:
-
-- loads DAT/RAW/RAW-folder sources,
-- computes recording bounds (format-specific),
-- supports seek/reload behavior using non-blocking source polling,
-- exports selected segments via `EventDataConverter`,
-- has dedicated RAW-folder export path that stitches multiple files with
-  timestamp continuity and optional ROI filtering.
+Empty (no package-level re-exports).
 
 ## Practical notes and limitations
 
-- Many sources default to `1280x720`; callers should override for non-default
-  sensors or recorded geometry assumptions.
+- DAT sources default to `1280x720`; callers should override for other
+  recorded geometries.
 - Multiprocessing sources are best suited to continuous playback or polling
   loops; they do process/queue setup on first use.
-- `iter_range` in converter assumes source timestamps are time-ordered for
-  efficient early skip/stop behavior.
-- Live camera paths depend on external SDK/runtime availability:
-  - Metavision HAL (`event_camera.py`)
-  - IDS Peak (`mono_camera.py`).
-
-
+- Live camera paths depend on external drivers/SDKs at runtime:
+  - the `imx636` binding (`imx636_camera.py`),
+  - IDS Peak or the `u3v` driver (`mono_backends/*`).
