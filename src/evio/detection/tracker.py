@@ -25,8 +25,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import NDArray
-from sapient.messages import new_ulid
 
+from evio.core.ids import new_ulid
 from evio.detection.persistence import PersistenceGateConfig, PersistenceMap
 from evio.detection.reid import (
     EmbeddingBuffer,
