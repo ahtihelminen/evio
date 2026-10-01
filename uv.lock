@@ -25,49 +25,56 @@ wheels = [
 
 [[package]]
 name = "evio"
-version = "2.0.0"
+version = "3.0.0"
 source = { editable = "." }
 dependencies = [
-    { name = "ids-peak", marker = "sys_platform == 'linux'" },
-    { name = "ids-peak-ipl", marker = "sys_platform == 'linux'" },
     { name = "numba" },
     { name = "numpy" },
     { name = "opencv-python" },
-    { name = "openvino" },
     { name = "pyyaml" },
-    { name = "sapient" },
 ]
 
 [package.optional-dependencies]
 dev = [
+    { name = "ids-peak", marker = "sys_platform == 'linux'" },
+    { name = "ids-peak-ipl", marker = "sys_platform == 'linux'" },
+    { name = "openvino" },
     { name = "pytest" },
-    { name = "pytest-asyncio" },
     { name = "ruff" },
     { name = "torch", version = "2.12.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux'" },
     { name = "torch", version = "2.12.0+xpu", source = { registry = "https://download.pytorch.org/whl/xpu" }, marker = "sys_platform == 'linux'" },
     { name = "triton-xpu", marker = "sys_platform == 'linux'" },
-    { name = "types-setuptools" },
+]
+ids-peak = [
+    { name = "ids-peak", marker = "sys_platform == 'linux'" },
+    { name = "ids-peak-ipl", marker = "sys_platform == 'linux'" },
+]
+openvino = [
+    { name = "openvino" },
+]
+torch = [
+    { name = "torch", version = "2.12.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux'" },
+    { name = "torch", version = "2.12.0+xpu", source = { registry = "https://download.pytorch.org/whl/xpu" }, marker = "sys_platform == 'linux'" },
+    { name = "triton-xpu", marker = "sys_platform == 'linux'" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "ids-peak", marker = "sys_platform != 'darwin'" },
-    { name = "ids-peak-ipl", marker = "sys_platform != 'darwin'" },
+    { name = "evio", extras = ["openvino", "torch", "ids-peak"], marker = "extra == 'dev'" },
+    { name = "ids-peak", marker = "sys_platform != 'darwin' and extra == 'ids-peak'" },
+    { name = "ids-peak-ipl", marker = "sys_platform != 'darwin' and extra == 'ids-peak'" },
     { name = "numba", specifier = ">=0.62.1" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "opencv-python", specifier = ">=4.11.0.86" },
-    { name = "openvino", specifier = ">=2026.2.0" },
+    { name = "openvino", marker = "extra == 'openvino'", specifier = ">=2026.2.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.3.0" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
-    { name = "sapient", editable = "../sapient" },
-    { name = "torch", marker = "sys_platform == 'linux' and extra == 'dev'", specifier = ">=2.6", index = "https://download.pytorch.org/whl/xpu" },
-    { name = "torch", marker = "sys_platform != 'linux' and extra == 'dev'", specifier = ">=2.6" },
-    { name = "triton-xpu", marker = "sys_platform == 'linux' and extra == 'dev'", index = "https://download.pytorch.org/whl/xpu" },
-    { name = "types-setuptools", marker = "extra == 'dev'" },
+    { name = "torch", marker = "sys_platform == 'linux' and extra == 'torch'", specifier = ">=2.6", index = "https://download.pytorch.org/whl/xpu" },
+    { name = "torch", marker = "sys_platform != 'linux' and extra == 'torch'", specifier = ">=2.6" },
+    { name = "triton-xpu", marker = "sys_platform == 'linux' and extra == 'torch'", index = "https://download.pytorch.org/whl/xpu" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["openvino", "torch", "ids-peak", "dev"]
 
 [[package]]
 name = "filelock"
@@ -507,17 +514,6 @@ wheels = [
 ]
 
 [[package]]
-name = "protobuf"
-version = "7.34.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/6b/6b/a0e95cad1ad7cc3f2c6821fcab91671bd5b78bd42afb357bb4765f29bc41/protobuf-7.34.1.tar.gz", hash = "sha256:9ce42245e704cc5027be797c1db1eb93184d44d1cdd71811fb2d9b25ad541280", size = 454708, upload-time = "2026-03-20T17:34:47.036Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ec/11/3325d41e6ee15bf1125654301211247b042563bcc898784351252549a8ad/protobuf-7.34.1-cp310-abi3-macosx_10_9_universal2.whl", hash = "sha256:d8b2cc79c4d8f62b293ad9b11ec3aebce9af481fa73e64556969f7345ebf9fc7", size = 429247, upload-time = "2026-03-20T17:34:37.024Z" },
-    { url = "https://files.pythonhosted.org/packages/53/1b/3b431694a4dc6d37b9f653f0c64b0a0d9ec074ee810710c0c3da21d67ba7/protobuf-7.34.1-cp310-abi3-manylinux2014_x86_64.whl", hash = "sha256:8ff40ce8cd688f7265326b38d5a1bed9bfdf5e6723d49961432f83e21d5713e4", size = 324267, upload-time = "2026-03-20T17:34:41.1Z" },
-    { url = "https://files.pythonhosted.org/packages/88/95/608f665226bca68b736b79e457fded9a2a38c4f4379a4a7614303d9db3bc/protobuf-7.34.1-py3-none-any.whl", hash = "sha256:bb3812cd53aefea2b028ef42bd780f5b96407247f20c6ef7c679807e9d188f11", size = 170715, upload-time = "2026-03-20T17:34:45.384Z" },
-]
-
-[[package]]
 name = "pyelftools"
 version = "0.33"
 source = { registry = "https://pypi.org/simple" }
@@ -548,19 +544,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/7d/0d/549bd94f1a0a402dc8cf64563a117c0f3765662e2e668477624baeec44d5/pytest-9.0.3.tar.gz", hash = "sha256:b86ada508af81d19edeb213c681b1d48246c1a91d304c6c81a427674c17eb91c", size = 1572165, upload-time = "2026-04-07T17:16:18.027Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d4/24/a372aaf5c9b7208e7112038812994107bc65a84cd00e0354a88c2c77a617/pytest-9.0.3-py3-none-any.whl", hash = "sha256:2c5efc453d45394fdd706ade797c0a81091eccd1d6e4bccfcd476e2b8e0ab5d9", size = 375249, upload-time = "2026-04-07T17:16:16.13Z" },
-]
-
-[[package]]
-name = "pytest-asyncio"
-version = "1.3.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pytest" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/90/2c/8af215c0f776415f3590cac4f9086ccefd6fd463befeae41cd4d3f193e5a/pytest_asyncio-1.3.0.tar.gz", hash = "sha256:d7f52f36d231b80ee124cd216ffb19369aa168fc10095013c6b014a34d3ee9e5", size = 50087, upload-time = "2025-11-10T16:07:47.256Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e5/35/f8b19922b6a25bc0880171a2f1a003eaeb93657475193ab516fd87cac9da/pytest_asyncio-1.3.0-py3-none-any.whl", hash = "sha256:611e26147c7f77640e6d0a92a38ed17c3e9848063698d5c93d5aa7aa11cebff5", size = 15075, upload-time = "2025-11-10T16:07:45.537Z" },
 ]
 
 [[package]]
@@ -597,29 +580,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/40/2b/469a66e821d4f3de0440676ed3e04b8e2a1dc7575cf6fa3ba6d55e3c8557/ruff-0.14.7-py3-none-macosx_11_0_arm64.whl", hash = "sha256:93e83bd3a9e1a3bda64cb771c0d47cda0e0d148165013ae2d3554d718632d554", size = 12765458, upload-time = "2025-11-28T20:55:26.128Z" },
     { url = "https://files.pythonhosted.org/packages/92/05/434ddd86becd64629c25fb6b4ce7637dd52a45cc4a4415a3008fe61c27b9/ruff-0.14.7-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:281f0e61a23fcdcffca210591f0f53aafaa15f9025b5b3f9706879aaa8683bc4", size = 14071389, upload-time = "2025-11-28T20:55:35.617Z" },
     { url = "https://files.pythonhosted.org/packages/b7/4b/6e96cb6ba297f2ba502a231cd732ed7c3de98b1a896671b932a5eefa3804/ruff-0.14.7-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:19a0f116ee5e2b468dfe80c41c84e2bbd6b74f7b719bee86c2ecde0a34563bcc", size = 14195397, upload-time = "2025-11-28T20:54:56.896Z" },
-]
-
-[[package]]
-name = "sapient"
-version = "0.1.0"
-source = { editable = "../sapient" }
-dependencies = [
-    { name = "protobuf" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "protobuf", specifier = ">=6.33.6" }]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "cryptography", specifier = ">=48.0.0" },
-    { name = "grpcio-tools", specifier = ">=1.80.0" },
-    { name = "hypothesis", specifier = ">=6.152.6" },
-    { name = "mypy-protobuf", specifier = ">=5.1.0" },
-    { name = "pyright", specifier = ">=1.1.0" },
-    { name = "pytest", specifier = ">=8.0" },
-    { name = "pytest-asyncio", specifier = ">=0.24" },
-    { name = "ruff", specifier = ">=0.15.12" },
 ]
 
 [[package]]
@@ -745,15 +705,6 @@ wheels = [
     { url = "https://download-r2.pytorch.org/whl/triton_xpu-3.7.1-cp313-cp313t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:c90fc043261382dc35320cf9bdd02a894b10e85cb9b549d3efc00369d0d39e96", upload-time = "2026-06-17T16:55:17Z" },
     { url = "https://download-r2.pytorch.org/whl/triton_xpu-3.7.1-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:ebd7765c29ec289dce4125ae9ae0010945324d16c32ce0866c17c69b273b57ff", upload-time = "2026-06-17T16:56:55Z" },
     { url = "https://download-r2.pytorch.org/whl/triton_xpu-3.7.1-cp314-cp314t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:ff1056e4423d85db9fca956c083bdf283fa95ce88a2772876fe5328633c52bf8", upload-time = "2026-06-17T16:58:02Z" },
-]
-
-[[package]]
-name = "types-setuptools"
-version = "80.9.0.20250822"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/19/bd/1e5f949b7cb740c9f0feaac430e301b8f1c5f11a81e26324299ea671a237/types_setuptools-80.9.0.20250822.tar.gz", hash = "sha256:070ea7716968ec67a84c7f7768d9952ff24d28b65b6594797a464f1b3066f965", size = 41296, upload-time = "2025-08-22T03:02:08.771Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b6/2d/475bf15c1cdc172e7a0d665b6e373ebfb1e9bf734d3f2f543d668b07a142/types_setuptools-80.9.0.20250822-py3-none-any.whl", hash = "sha256:53bf881cb9d7e46ed12c76ef76c0aaf28cfe6211d3fab12e0b83620b1a8642c3", size = 63179, upload-time = "2025-08-22T03:02:07.643Z" },
 ]
 
 [[package]]

@@ -1,53 +1,47 @@
 [project]
 name = "evio"
-version = "2.0.0"
-description = "Field-deployable event-camera detection appliance."
+version = "3.0.0"
+description = "Event-camera data handling: codecs, camera access, geometry, rendering and detection."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "Ahti Helminen" }]
-keywords = ["event-camera", "DVS", "neuromorphic", "detection", "SAPIENT"]
+keywords = ["event-camera", "DVS", "neuromorphic", "detection"]
 classifiers = [
 "Programming Language :: Python :: 3",
 "License :: OSI Approved :: MIT License",
 "Topic :: Scientific/Engineering :: Image Processing",
 ]
 
-# Measured against the whole tree (src + scripts + tests): cv2, imx636,
-# ids_peak(+_ipl), numba, numpy, openvino, sapient, yaml. torch is a dev
-# extra (checkpoint export/training tooling and the tests that exercise it
-# directly) — the field runtime loads an OpenVINO IR checkpoint and needs
-# only numpy+openvino. The research half of the old repo (Qt viewer,
-# notebooks, training, flight scoring, test-site edge) lives in evioR and
-# carries its own deps.
+# What evio itself imports. The native camera drivers (imx636, u3v) are not
+# on PyPI: they are built from their sibling repos and linked into the venv
+# by `make drivers`, and evio imports them lazily, so a laptop without a
+# camera still installs and runs everything else.
 dependencies = [
     "numpy>=1.24",
     "opencv-python>=4.11.0.86",
     "numba>=0.62.1",
     "pyyaml>=6.0.3",
-    "openvino>=2026.2.0",
-    "sapient",
-    # IDS-peak mono camera SDK. Linux-only wheels; the marker filters out
-    # macOS dev machines. A default dep so a plain `uv sync` on a fresh NUC
-    # installs everything the systemd service needs.
-    "ids-peak; platform_system != 'Darwin'",
-    "ids-peak-ipl; platform_system != 'Darwin'",
 ]
 
 [project.optional-dependencies]
+# OpenVINO IR inference for the temporal-transformer classifier.
+openvino = ["openvino>=2026.2.0"]
+# The torch checkpoint path and the IR export tooling. torch's +xpu wheels
+# need triton-xpu, published only on the PyTorch xpu index (mapped in
+# [tool.uv.sources]); uv applies sources to direct deps but not to this
+# transitive one, so declare it directly, gated to linux.
+torch = ["torch>=2.6", "triton-xpu; sys_platform == 'linux'"]
+# The IDS Peak mono-camera backend (`EVIO_MONO_BACKEND=ids_peak`). Linux-only
+# wheels; the marker filters out macOS dev machines.
+ids-peak = [
+    "ids-peak; platform_system != 'Darwin'",
+    "ids-peak-ipl; platform_system != 'Darwin'",
+]
 dev = [
+    "evio[openvino,torch,ids-peak]",
     "pytest>=9.0.3",
-    "pytest-asyncio>=1.3.0",
     "ruff>=0.6",
-    "types-setuptools",
-    # Checkpoint export/training tooling plus the test suite for the
-    # temporal-transformer modules, which import torch directly. Not a
-    # field dependency: the live path runs entirely on OpenVINO IR.
-    "torch>=2.6",
-    # torch's +xpu wheels need triton-xpu, published only on the PyTorch xpu
-    # index (mapped in [tool.uv.sources]). uv applies sources to direct deps
-    # but not to this transitive one, so declare it directly, gated to linux.
-    "triton-xpu; sys_platform == 'linux'",
 ]
 
 [build-system]
@@ -55,11 +49,11 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/evio", "src/evio_ops"]
+packages = ["src/evio"]
 
 [tool.uv]
 default-groups = []
-# Resolve for 3.12 only (both the dev Mac and the field NUC run it). The XPU
+# Resolve for 3.12 only (the dev Mac and the OPS units both run it). The XPU
 # torch wheels don't cover the open-ended `requires-python` range, so an
 # unconstrained universal resolve backtracks to a broken old +xpu build.
 environments = [
@@ -67,38 +61,33 @@ environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.12'",
 ]
 
-# Torch ships multi-GB CUDA wheels by default on Linux; the field NUC has an
-# Intel Arc iGPU, so pull the XPU build there for GPU inference. macOS keeps
-# the default PyPI wheel, which already includes MPS support.
+# Torch ships multi-GB CUDA wheels by default on Linux; the OPS units have an
+# Intel Arc iGPU, so pull the XPU build there. macOS keeps the default PyPI
+# wheel, which already includes MPS support.
 [[tool.uv.index]]
 name = "pytorch-xpu"
 url = "https://download.pytorch.org/whl/xpu"
 explicit = true
 
 [tool.uv.sources]
-sapient = { path = "../sapient", editable = true }
 torch = [{ index = "pytorch-xpu", marker = "sys_platform == 'linux'" }]
-# triton-xpu (declared above as a direct linux dep) is published only here,
-# not on PyPI. Declaring it directly + this source pins the linux torch to
-# the >=2.10 line that depends on triton-xpu.
+# triton-xpu (declared above as a linux dep of the torch extra) is published
+# only here, not on PyPI.
 triton-xpu = [{ index = "pytorch-xpu" }]
 
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
 testpaths = ["tests"]
 # --strict-markers: an unregistered marker is an error, not a silent no-op, so
 #   a typo'd tier marker cannot select nothing and read green.
 # --strict-config: an unknown key here is an error rather than ignored.
-# xfail_strict: an xfail that starts passing is a failure. Without it a
-#   negative control that stops controlling anything reports green, which
-#   would make every deliberate-red test in plans/test_suite.md unenforceable.
+# xfail_strict: an xfail that starts passing is a failure, so a negative
+#   control that stops controlling anything cannot report green.
 addopts = ["--strict-markers", "--strict-config"]
 xfail_strict = true
 markers = [
-    "hardware: requires real OPS-unit camera hardware; excluded from the default run",
+    "hardware: requires a real event camera; excluded from the default run",
     "t1: unit tier -- no process, socket, sleep, clock, server or browser",
-    "t2: component tier -- real boot, real HTTP, forked workers, real browser",
-    "browser: drives a real headless Chrome; absent binary must fail, not skip",
+    "t2: component tier -- real processes, sockets and files",
 ]
 
 [tool.ruff]
@@ -138,23 +127,16 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# run_ops applies BLAS/numexpr thread caps before numpy import so the
-# per-camera forked workers don't each spawn an all-core pool and pin the
-# P-cores; that requires statements before the imports, which E402 forbids.
-"scripts/run_ops.py" = ["E402"]
 # The emitter deliberately catches any subscriber exception to keep the
 # detection pipeline running when a downstream consumer misbehaves.
 "src/evio/detection/emitter.py" = ["BLE001"]
-# The encoder worker catches arbitrary exceptions so a buggy clip encode
-# logs and continues instead of killing the worker thread.
-"src/evio_ops/media/manager.py" = ["BLE001"]
 # Worker-side detection is best-effort: safe_update swallows any failure so
 # a detector bug disables detection for one camera instead of killing the
 # streaming/recording worker process.
 "src/evio/detection/live_camera.py" = ["BLE001"]
-# Mono-footage capture runs on a background thread against the IDS Peak SDK;
+# Mono-footage capture runs on a background thread against the camera SDK;
 # any open/grab failure is logged and ends capture rather than crashing the
-# runner, so the camera-grab boundary is wrapped in a blind except.
+# caller, so the camera-grab boundary is wrapped in a blind except.
 "src/evio/recording/mono_capture.py" = ["BLE001"]
 # The JIT warm-up in __enter__ is best-effort: a numba compile failure must
 # not kill mono footage capture, which only reads raw frames, so it is

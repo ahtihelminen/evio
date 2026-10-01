@@ -18,11 +18,10 @@ measure module loading and call it a leak.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import threading
 from dataclasses import dataclass
-
-from evio_ops.harness.teardown import surviving_worker_pids
 
 # CPython's own bookkeeping, not a test's leak: the resource tracker starts
 # with the first multiprocessing resource and exits with its parent, and
@@ -30,6 +29,31 @@ from evio_ops.harness.teardown import surviving_worker_pids
 # hook. Counting either would make the gate cry wolf on every green run.
 _RUNTIME_PROCESS = "multiprocessing.resource_tracker"
 _RUNTIME_THREADS = ("ThreadPoolExecutor-",)
+
+
+def _python_pids_in_group() -> list[int]:
+    """Other live python processes in this process's group.
+
+    That is where any worker a test forked stays, orphaned or not. Zombies
+    have already exited, so they are not counted.
+    """
+    group = str(os.getpgid(0))
+    found = subprocess.run(
+        ["pgrep", "-g", group, "python"],
+        capture_output=True, text=True, check=False,
+    )
+    pids = [int(pid) for pid in found.stdout.split() if int(pid) != os.getpid()]
+    if not pids:
+        return []
+    listed = subprocess.run(
+        ["ps", "-o", "pid=,stat=", "-p", ",".join(map(str, pids))],
+        capture_output=True, text=True, check=False,
+    )
+    return sorted(
+        int(pid) for pid, stat in
+        (line.split() for line in listed.stdout.splitlines() if line.strip())
+        if not stat.startswith("Z")
+    )
 
 
 def _command(pid: int) -> str:
@@ -50,7 +74,7 @@ class Snapshot:
     def take(cls) -> Snapshot:
         return cls(
             pids=frozenset(
-                pid for pid in surviving_worker_pids()
+                pid for pid in _python_pids_in_group()
                 if _RUNTIME_PROCESS not in _command(pid)
             ),
             threads=frozenset(

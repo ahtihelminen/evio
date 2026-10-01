@@ -1,16 +1,17 @@
-## Repo boundary (evioF)
+## Repo boundary (evio)
 
-This is the field repo. It must stay runnable on a mast with nothing else
-installed.
+This is the base library. `ops` (the OPS-unit appliance, package `evio_ops`)
+and `evior` (research tooling) depend on it, never the reverse.
 
-- Nothing here may import or reference `evior` — evioR depends on evioF,
-  never the reverse. `tests/test_repo_boundary.py` enforces it.
-- Before adding a dependency, check it is needed by the *appliance*.
-  Training, evaluation, plotting, notebooks, Qt and the test-site edge
-  integration belong in evioR.
-- Promoting a detection method from evioR: move the module into
+- Nothing here may import or name `evio_ops` or `evior`.
+  `tests/test_repo_boundary.py` enforces it.
+- A module belongs here if it works on a laptop with nothing but evio and,
+  optionally, a camera plugged in. Anything that only makes sense on an OPS
+  unit — worker orchestration, the web UI, SAPIENT, boot staging — belongs
+  in ops.
+- Promoting a detection method from evior: move the module into
   `src/evio/detection/`, register it in `detection/pipeline/registry.py`,
-  and delete it from evioR.
+  delete it from evior, tag a release, and bump the tag in ops.
 
 ## Readability
 
@@ -58,8 +59,8 @@ Before committing:
 
 Before opening a merge request:
 - Run `make lint && make test` (or repo equivalents). Must pass.
-- Gate with `uv run --frozen`. A plain `uv run` re-resolves `uv.lock` for the host
-  platform and strips this repo's pinned Linux/xpu package set.
+- Gate with `uv run --frozen --extra dev`. A plain `uv run` re-resolves `uv.lock`
+  for the host platform and strips this repo's pinned Linux/xpu package set.
 - Target `dev`, never `main`.
 - MR title: imperative, with SN-IDs in parentheses — multiple issues: `(SN-XXX, SN-YYY)`.
 - Delete the local feature branch once the MR has merged: `git branch -d <branch>`.
@@ -70,6 +71,10 @@ Before pushing:
   `--no-verify`, or `--no-gpg-sign` unless asked.
 - Never push to `main`. Never push to `dev` directly — `dev` takes work through
   merge requests only.
+
+Releasing (ops pins evio by tag):
+- Tag `vX.Y.Z` on a commit of `dev` once it is green, and push the tag.
+- Never move or delete a pushed tag; a fix is the next patch version.
 
 ## Linear
 

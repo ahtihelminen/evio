@@ -8,28 +8,14 @@ __pycache__/
 /diagnostics
 
 
-AGENTS.md
 .claude/
 STATE.md
 
 .env
 focus_sessions/
 
-# Model checkpoints and IRs are artifacts, not source (repo_split_evioF_evioR.md 3.4).
+# Model checkpoints and IRs are artifacts, not source.
 models/
-
-# A unit's live calibration is local state, never tracked: the repo ships
-# config/{rig,site}.yaml.example templates and boot reports the live files
-# as a fault when absent (SN-518). R2.2's calibration page writes these.
-config/rig.yaml
-config/site.yaml
-
-# scripts/run_ops_ui.sh's scratch calibration: a copy of the templates,
-# seeded per checkout so UI development needs no real rig.
-.uidev-config/
-
-# Benchmark run outputs; the committed baseline lives in tests/fixtures/bench.
-artifacts/
 
 # Coverage database and macOS directory metadata: run artefacts, not sources.
 .coverage

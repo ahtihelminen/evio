@@ -1,27 +1,6 @@
 {
   "_why": "Doubles that predate tests/fakes/. This list may only shrink: a new entry fails test_no_adhoc_fakes.py, and an entry whose class no longer exists fails it too, so the file cannot drift from the tree.",
   "allowed": {
-    "test_bias_register_readback.py": [
-      "_BiasConfig",
-      "_BiasingSource",
-      "_EnterableStub",
-      "_FakeCam"
-    ],
-    "test_boot_model_registry_fault.py": [
-      "_FakeBatch",
-      "_FakeImx636Source",
-      "_FakeProbe"
-    ],
-    "test_camera_power_spawns_worker_real_boot.py": [
-      "_CapturingRuntimeState",
-      "_EnterableStub",
-      "_StreamingSource"
-    ],
-    "test_camera_worker_disconnect.py": [
-      "_FakeCamRejectingStart",
-      "_FakeCamWithErcHiccup",
-      "_FakeUsbCam"
-    ],
     "test_imx636_camera_env.py": [
       "_FakeCam"
     ],
@@ -38,37 +17,8 @@
       "_FakeRemote",
       "_FakeRemoteDevice"
     ],
-    "test_mono_backends_contract.py": [
-      "_FakeDataStream",
-      "_FakeNode",
-      "_FakeRemote",
-      "_FakeU3vCamera"
-    ],
     "test_mono_capture.py": [
       "_FakeSource"
-    ],
-    "test_mono_stream.py": [
-      "_FakeMonoSource"
-    ],
-    "test_pipeline_power.py": [
-      "_EnterableStub",
-      "_StreamingSource"
-    ],
-    "test_render_settings_wiring.py": [
-      "_EnterableStub",
-      "_FixedEventSource"
-    ],
-    "test_seven_stream_soak.py": [
-      "_FakeCameras",
-      "_FakeEventWorker",
-      "_FakeMonoSource"
-    ],
-    "test_startup_supervision.py": [
-      "_CapturingRuntimeState",
-      "_FakeBatch",
-      "_FakeEdgeNode",
-      "_FakeImx636Source",
-      "_FakeProbe"
     ]
   }
 }

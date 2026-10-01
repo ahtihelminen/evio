@@ -19,7 +19,7 @@ Before finishing:
   `make check`, which runs both halves.
 - `ruff` and `pytest` both live in the opt-in `dev` extra, so `--extra dev` is
   required — without it `uv run` cannot find either binary on a clean checkout.
-  `tests/test_gate_spelling.py` fails if this file, AGENTS.md, PROJECT.md and
+  `tests/test_gate_spelling.py` fails if this file, AGENTS.md, README.md and
   the Makefile ever disagree again.
 - Do not consider the task complete if Ruff reports any errors.
 - Never disable Ruff rules with `# noqa` unless explicitly requested.

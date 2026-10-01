@@ -62,13 +62,22 @@ def test_the_allowlist_may_only_shrink() -> None:
     )
 
 
-def test_the_rule_catches_the_two_doubles_it_exists_for() -> None:
+def test_the_rule_catches_the_two_doubles_it_exists_for(tmp_path: Path) -> None:
     """A relation-only rule misses both; this is why the predicate is a union.
 
-    `_FakeCam` reaches the code under test as `self.cam = _FakeCam()` and
-    `_FakeU3vCamera` as `module.Camera = _FakeU3vCamera` -- neither is a
-    monkeypatch, a `sys.modules` write or a factory argument.
+    In the ops repo `_FakeCam` reached the code under test as
+    `self.cam = _FakeCam()` and `_FakeU3vCamera` as
+    `module.Camera = _FakeU3vCamera` -- neither a monkeypatch, a
+    `sys.modules` write nor a factory argument. Neither shape lives in this
+    tree, so the two are rebuilt here, under names no prefix rule matches.
     """
-    found = scan(_TESTS)
-    assert "_FakeCam" in found["test_bias_register_readback.py"]
-    assert "_FakeU3vCamera" in found["test_mono_backends_contract.py"]
+    (tmp_path / "test_shapes.py").write_text(
+        "class _Cam:\n    pass\n\n"
+        "class _U3v:\n    pass\n\n"
+        "class Holder:\n"
+        "    def __init__(self) -> None:\n"
+        "        self.cam = _Cam()\n\n"
+        "def test_x(module: object) -> None:\n"
+        "    module.Camera = _U3v\n"
+    )
+    assert scan(tmp_path)["test_shapes.py"] == {"_Cam", "_U3v"}
