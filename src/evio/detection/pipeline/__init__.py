@@ -1,15 +1,13 @@
 from typing import Any
 
 from evio.detection.grid import GridConfig
-from evio.detection.types import Classification, Detection
-
-from .dual_background import (
+from evio.detection.pipeline.dual_background import (
     ClassSpecificConfig,
     DualBackgroundConfig,
     DualBackgroundResult,
     DualBackgroundScorer,
 )
-from .registry import (
+from evio.detection.pipeline.registry import (
     PIPELINES,
     DetectionPipeline,
     PipelineFactory,
@@ -17,16 +15,17 @@ from .registry import (
     list_pipelines,
     register,
 )
-from .simplified_pipeline import (
+from evio.detection.pipeline.simplified_pipeline import (
     SimplifiedDetectionPipeline,
     SimplifiedPipelineConfig,
     SimplifiedPipelineResult,
 )
-from .simplified_tbd import (
+from evio.detection.pipeline.simplified_tbd import (
     SimplifiedTbdConfig,
     SimplifiedTbdResult,
     SimplifiedTbdStage,
 )
+from evio.detection.types import Classification, Detection
 
 
 @register("simplified")

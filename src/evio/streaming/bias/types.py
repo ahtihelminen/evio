@@ -217,7 +217,11 @@ class PresetBox:
         return int(getattr(self, knob))
 
     def lo(self, knob: str) -> int:
-        from .constants import BIAS_RANGES, BOX_LO, FULL_RANGE_KNOBS
+        from evio.streaming.bias.constants import (
+            BIAS_RANGES,
+            BOX_LO,
+            FULL_RANGE_KNOBS,
+        )
 
         # The servoed threshold pair may use the full hardware range (Elia
         # 2026-07-03: the ±(-12/+25) box was the fleet-wide binding rail
@@ -230,7 +234,11 @@ class PresetBox:
         return max(lo, self.floor.get(knob, lo))
 
     def hi(self, knob: str) -> int:
-        from .constants import BIAS_RANGES, BOX_HI, FULL_RANGE_KNOBS
+        from evio.streaming.bias.constants import (
+            BIAS_RANGES,
+            BOX_HI,
+            FULL_RANGE_KNOBS,
+        )
 
         if knob in FULL_RANGE_KNOBS:
             return BIAS_RANGES[knob][1]

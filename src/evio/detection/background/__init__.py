@@ -1,4 +1,4 @@
-from .microstate import (
+from evio.detection.background.microstate import (
     microstate_from_event_tensor,
     microstate_from_events,
     microstate_from_events_regions,

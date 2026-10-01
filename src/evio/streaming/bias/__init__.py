@@ -15,8 +15,8 @@ VERIFY — never search. Module map (plan §16):
 * ``calibrate``  — Mode A balanced-pair servo, kappa estimation, presets
 """
 
-from .controller import BiasControllerV2
-from .types import (
+from evio.streaming.bias.controller import BiasControllerV2
+from evio.streaming.bias.types import (
     BiasCommand,
     CameraBiasState,
     CameraObservations,
