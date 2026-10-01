@@ -141,7 +141,7 @@ bench:
 # for the invocation rather than added to the lockfile.
 coverage:
 	$(GATE) --with pytest-cov pytest -q -m "not hardware" \
-	    --cov=src/evio --cov-report=json:$(COVJSON) >/dev/null
+	    --cov=src/evio --cov=src/evio_ops --cov-report=json:$(COVJSON) >/dev/null
 	$(GATE) python scripts/coverage_ratchet.py $(COVJSON) $(if $(WRITE),--write,)
 
 check: lint test

@@ -22,7 +22,7 @@ import subprocess
 import threading
 from dataclasses import dataclass
 
-from evio.ops.teardown import surviving_worker_pids
+from evio_ops.harness.teardown import surviving_worker_pids
 
 # CPython's own bookkeeping, not a test's leak: the resource tracker starts
 # with the first multiprocessing resource and exits with its parent, and

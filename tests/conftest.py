@@ -27,7 +27,7 @@ import cv2
 import numpy as np
 import pytest
 
-from evio.multiprocessing.multicamera import CameraProcess
+from evio_ops.multiprocessing.multicamera import CameraProcess
 
 sys.path.insert(0, str(Path(__file__).parent))
 

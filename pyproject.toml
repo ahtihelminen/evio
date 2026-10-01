@@ -54,6 +54,9 @@ dev = [
 requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.wheel]
+packages = ["src/evio", "src/evio_ops"]
+
 [tool.uv]
 default-groups = []
 # Resolve for 3.12 only (both the dev Mac and the field NUC run it). The XPU
@@ -144,7 +147,7 @@ ignore = [
 "src/evio/detection/emitter.py" = ["BLE001"]
 # The encoder worker catches arbitrary exceptions so a buggy clip encode
 # logs and continues instead of killing the worker thread.
-"src/evio/media/manager.py" = ["BLE001"]
+"src/evio_ops/media/manager.py" = ["BLE001"]
 # Worker-side detection is best-effort: safe_update swallows any failure so
 # a detector bug disables detection for one camera instead of killing the
 # streaming/recording worker process.
