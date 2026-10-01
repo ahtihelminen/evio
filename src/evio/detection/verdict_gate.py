@@ -3,9 +3,9 @@
 A single window's transformer probability is noisy, so the gate only
 declares a track a DRONE when at least ``m`` of its last ``k`` per-window
 probabilities cross the live threshold. ``k == m == 1`` reduces to plain
-single-window thresholding. Extracted from
-:class:`evio.streaming.live_detection.LiveDetectionEngine` (``_gate_fires`` /
-``verdict_history``) so the SAPIENT emit path can share the exact operating
+single-window thresholding. Extracted from the research repo's live-panorama
+overlay engine (``_gate_fires`` / ``verdict_history``) so the OPS
+appliance's SAPIENT emit path can share the exact operating
 point recommended by ``scripts/sweep_v4_operating_point.py``.
 """
 

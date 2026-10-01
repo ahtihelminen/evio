@@ -3,8 +3,8 @@
 Two consumers score the same v2/v3 checkpoints from different detection
 front-ends, so the load + inference logic lives here once:
 
-* :class:`~evio.streaming.live_detection.LiveDetectionEngine` (panorama
-  overlay) feeds ``CameraDetectionResult`` patches/events through
+* the research repo's live-panorama overlay engine feeds
+  ``CameraDetectionResult`` patches/events through
   :func:`predict_drone_probs`.
 * :class:`TrackTransformerClassifier` (the SAPIENT runner) keeps its own
   per-track patch/event rings — the runner runs a hot-swappable pipeline

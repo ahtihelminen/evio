@@ -26,7 +26,7 @@ Schema:
                              # see evio.geometry.fov)
         position: 0          # optional — explicit panorama strip slot
                              # (SN-550). Absent everywhere, yaw decides the
-                             # order; see evio.app.boot.panorama_layout.
+                             # order (the OPS appliance's panorama layout).
 """
 
 from __future__ import annotations

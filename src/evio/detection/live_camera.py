@@ -2,7 +2,7 @@
 
 Splits the detect -> track -> patch/tokenize stage of the live pipeline
 away from the transformer classifier. The classifier is shared and stays
-in the main process (see :mod:`evio.streaming.live_detection`); everything
+in the consumer's main process; everything
 here is pure numpy, so it can run N-way parallel in the per-camera worker
 processes, which already hold each camera's ``EventsBatch`` locally.
 
@@ -244,8 +244,7 @@ def safe_update(
     """Run one detection tick, swallowing any failure.
 
     Worker-side detection is best-effort: a failure must disable detection
-    for this camera, never crash the streaming/recording worker. Mirrors
-    the main-process kill-switch in :mod:`evio.streaming.live_detection`.
+    for this camera, never crash the streaming/recording worker.
     """
     try:
         return detector.update(batch)

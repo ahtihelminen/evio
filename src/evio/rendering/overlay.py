@@ -4,8 +4,8 @@ One palette and one box-drawing routine for the verdict-coloured bounding
 boxes the operator sees, whether composited onto the panorama RTSP frame or
 the per-camera MJPEG. The verdict label is read straight off
 ``Detection.classification`` — the persistence gate has already committed it
-upstream in the detection authority
-(``evio.app.loop.attach_verdicts``).
+upstream in the detection authority (the OPS appliance's
+loop attaches it).
 """
 
 from __future__ import annotations
