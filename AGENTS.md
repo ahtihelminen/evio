@@ -38,7 +38,9 @@ Before finishing:
 ## Git
 
 Feature branches off `dev`, the integration branch, merged into `dev` via a GitLab merge
-request with SN-IDs in the MR title. A human promotes `dev` to `main` on their own
+request with SN-IDs in the MR title. `dev` history is linear: merge requests land by
+fast-forward, so every branch is rebased onto the current `dev` and tested there before it
+merges. A human promotes `dev` to `main` on their own
 schedule; `main` stays the default branch and receives no direct pushes.
 
 Before creating a branch:
@@ -58,7 +60,9 @@ Before committing:
 - `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>` trailer is fine when Claude authored the changes.
 
 Before opening a merge request:
-- Run `make lint && make test` (or repo equivalents). Must pass.
+- Rebase onto the latest `dev` (`git fetch origin && git rebase origin/dev`); no merge
+  commits on the branch.
+- Run `make lint && make test` (or repo equivalents) on the rebased branch. Must pass.
 - Gate with `uv run --frozen --extra dev`. A plain `uv run` re-resolves `uv.lock`
   for the host platform and strips this repo's pinned Linux/xpu package set.
 - Target `dev`, never `main`.
@@ -67,8 +71,9 @@ Before opening a merge request:
 
 Before pushing:
 - Wait for an explicit "push" or "go ahead" from the user. Show `git log --oneline -10` and stop.
-- Push the feature branch only: `git push -u origin <branch>`. No `--force`,
-  `--no-verify`, or `--no-gpg-sign` unless asked.
+- Push the feature branch only: `git push -u origin <branch>`. After a rebase, update an
+  already-pushed feature branch with `git push --force-with-lease`; no other `--force`,
+  and no `--no-verify` or `--no-gpg-sign` unless asked.
 - Never push to `main`. Never push to `dev` directly — `dev` takes work through
   merge requests only.
 
