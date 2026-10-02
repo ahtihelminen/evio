@@ -43,8 +43,7 @@ There are three main IO paths.
 - precomputes `BatchRange` windows by timestamp search,
 - leaves event-word unpacking to downstream rendering code.
 
-Used by `src/evio/focus/sources.py` (DAT replay panes); in the ops repo, by the
-appliance loop's replay mode.
+Used by `src/evio/focus/sources.py` (DAT replay panes).
 
 ### 2) Multiprocessing decode path (DAT)
 

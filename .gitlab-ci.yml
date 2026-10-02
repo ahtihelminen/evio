@@ -1,5 +1,6 @@
 # The quality gate, on the ops shell runner (slavemaster9000). Runs on every
-# merge request and on pushes to main, never manual-only.
+# merge request and on pushes to the two long-lived branches, never
+# manual-only.
 #
 # Shell executor: the job inherits the host's toolchain (uv) and keeps its
 # virtualenv and uv cache between jobs, which is what makes a full
@@ -13,6 +14,7 @@ check:
   stage: check
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "dev"
     - if: $CI_COMMIT_BRANCH == "main"
   variables:
     # Keep the virtualenv across jobs; the runner's default clean is -ffdx.

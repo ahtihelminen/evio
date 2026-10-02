@@ -69,6 +69,14 @@ u3v` survive `uv sync`. The mono camera's backend is picked by
 The gate is `uv run --frozen --extra dev ruff check .` plus
 `uv run --frozen --extra dev pytest -q`, or `make check` for both.
 
+## History and coverage
+
+This repo's history was filtered out of ops (the former evioF) at the
+split: it keeps every commit that touched a file still here, under its
+current path. Commits made to a file under an older name, and the per-file
+coverage ratchet the monolith kept, stayed behind in ops (`f3c0845` on its
+`dev` is the last pre-split commit). This repo has no coverage ratchet yet.
+
 ## Releases
 
 ops installs evio from a git tag (`vX.Y.Z`), never from a branch. To ship a
