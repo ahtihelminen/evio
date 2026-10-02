@@ -45,10 +45,10 @@ Explicitly out of scope. Each line is something a reader might reasonably assume
 
 **Completion requirements:**
 
-- [ ] **R2.1** — A gate nothing bypasses. Lint and tests run automatically on every proposed change. Work that fails them does not reach the integration branch.
+- [ ] **R2.1** — A gate nothing bypasses. Lint and tests run automatically on every proposed change. Work that fails them does not reach the integration branch. A change is tested on top of the current integration branch before it lands.
 - [ ] **R2.2** — Clean boundaries. evio stays independent of ops and evior, and this is guarded mechanically, not by convention.
 - [ ] **R2.3** — Readable documentation. The README gets someone from clone to a working setup. Each package has a short note on what it owns and what it does not.
-- [ ] **R2.4** — An orderly branch flow. Changes land on `dev` through reviewed merge requests, and a human promotes `dev` to `main`.
+- [ ] **R2.4** — An orderly branch flow. Changes land on `dev` through reviewed merge requests, and a human promotes `dev` to `main`. History on `dev` is linear.
 
 ### M3 — Consumers depend on evio with confidence
 
