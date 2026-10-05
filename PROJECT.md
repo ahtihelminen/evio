@@ -3,7 +3,7 @@
 <!-- project-init:meta
 created: 2026-10-02
 linear_team: SN
-linear_project: (none yet)
+linear_project: evio
 repo: git@git.sensofusion.com:ops/evio.git
 integration_branch: dev
 -->
