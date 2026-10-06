@@ -103,3 +103,16 @@ def test_mp_file_source_close_stops_the_worker(tmp_path: Path) -> None:
     source.close()
 
     assert multiprocessing.active_children() == []
+
+
+def test_mp_file_source_unaligned_chunks_lose_no_events(
+    tmp_path: Path,
+) -> None:
+    original = events_at(list(range(0, 50_000, 10)))
+    dat = write_dat(tmp_path / "events.dat", original)
+    source = _source(dat, chunk_words=1001)
+
+    delivered = _concat(_drain(source))
+
+    np.testing.assert_array_equal(delivered.timestamps, original.timestamps)
+    np.testing.assert_array_equal(delivered.x_coords, original.x_coords)
