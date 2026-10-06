@@ -1,17 +1,13 @@
 ## Repo boundary (evio)
 
-This is the base library. `ops` (the OPS-unit appliance, package `evio_ops`)
-and `evior` (research tooling) depend on it, never the reverse.
+`PROJECT.md` is the contract for what evio is and is not (its Scope and Non-goals); change
+it only through a deliberate edit, never in passing.
 
-- Nothing here may import or name `evio_ops` or `evior`.
-  `tests/test_repo_boundary.py` enforces it.
-- A module belongs here if it works on a laptop with nothing but evio and,
-  optionally, a camera plugged in. Anything that only makes sense on an OPS
-  unit — worker orchestration, the web UI, SAPIENT, boot staging — belongs
-  in ops.
-- Promoting a detection method from evior: move the module into
-  `src/evio/detection/`, register it in `detection/pipeline/registry.py`,
-  delete it from evior, tag a release, and bump the tag in ops.
+- Nothing here may import or name `evio_ops` or `evior`: ops and evior depend on evio,
+  never the reverse. `tests/test_repo_boundary.py` enforces it.
+- Promoting a detection method from evior: move the module into `src/evio/detection/`,
+  register it in `detection/pipeline/registry.py`, delete it from evior, tag a release, and
+  bump the tag in ops.
 
 ## Code
 
