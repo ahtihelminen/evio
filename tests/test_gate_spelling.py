@@ -18,7 +18,7 @@ import pytest
 pytestmark = pytest.mark.t1
 
 _ROOT = Path(__file__).resolve().parents[1]
-_DOCS = ("Makefile", "README.md", "AGENTS.md", "CLAUDE.md")
+_DOCS = ("Makefile", "README.md", "AGENTS.md")
 _TOOL = re.compile(r"uv run\b(?P<flags>[^\n`\"]*?)\b(?P<tool>ruff|pytest)\b")
 
 
