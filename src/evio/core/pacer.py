@@ -73,12 +73,14 @@ class Pacer:
     # --- existing internals ---
     def _target_wall_s(self, end_ts_us: int) -> float:
         # event elapsed (s) scaled by speed factor
-        return max(0.0, (end_ts_us - (self._e_start or 0)) / 1e6) / self.speed
+        e_start = 0 if self._e_start is None else self._e_start
+        return max(0.0, (end_ts_us - e_start) / 1e6) / self.speed
 
     def _sleep_until(self, target_rel_s: float) -> None:
         # Sleep in chunks so UI can be pumped and OS timers stay accurate
         while True:
-            now_s = time.perf_counter() - (self._t_start or time.perf_counter())
+            now = time.perf_counter()
+            now_s = now - (now if self._t_start is None else self._t_start)
             dt = target_rel_s - now_s
             if dt <= 0:
                 break

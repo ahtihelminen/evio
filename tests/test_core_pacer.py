@@ -83,3 +83,14 @@ def test_pacer_reset_stats_zeroes_counters(clock: FakeClock) -> None:
     assert pacer.emitted_batches == 0
     assert pacer.instantaneous_drop_rate == 0.0
     assert pacer.average_drop_rate == 0.0
+
+
+def test_pacer_sleep_until_terminates_when_the_clock_starts_at_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = FakeClock(now=0.0, max_sleeps=100)
+    monkeypatch.setattr(pacer_module, "time", clock)
+    ranges = _ranges(1_100_000, 1_200_000)
+
+    assert list(Pacer(speed=1.0, force_speed=False).pace(ranges)) == ranges
+    assert clock.now == pytest.approx(0.2)
