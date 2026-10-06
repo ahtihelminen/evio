@@ -1,6 +1,6 @@
 {
   "_why": "Lower bounds, not equalities: adding tests is free, losing them is red. A tier that silently stops running tests is the defect this exists for -- 62 browser tests vanished on a host without Chrome, and U3V's ctest registers 37 of 51 while printing '100% tests passed'.",
   "_how": "make fast / make check pass --tier-manifest=<tier>; raise a number here only in the merge request that adds the tests. Re-baselined to this repo's own suite at the evio/ops split (2026-10-01).",
-  "t1": 378,
+  "t1": 381,
   "t2": 22
 }

@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from support.dat import events_at, write_dat
 
 from evio.codec.dt8 import Dt8Codec, find_dat_data_offset
 from evio.core.events import EventsBatch
@@ -136,3 +137,29 @@ def test_find_dat_data_offset_rejects_truncated_header(
 
     with pytest.raises(RuntimeError, match="Invalid DAT header"):
         find_dat_data_offset(path)
+
+
+@pytest.mark.parametrize("chunk_words", [1001, 1002, 1003])
+def test_decode_chunk_keeps_every_event_for_unaligned_chunk_sizes(
+    tmp_path: Path, chunk_words: int,
+) -> None:
+    original = events_at(list(range(0, 50_000, 10)))
+    dat = write_dat(tmp_path / "events.dat", original)
+    words = np.frombuffer(
+        dat.read_bytes()[find_dat_data_offset(dat):], dtype="<u2",
+    )
+
+    codec = Dt8Codec(width=_WIDTH, height=_HEIGHT)
+    batches = [
+        batch
+        for start in range(0, words.size, chunk_words)
+        for batch in codec.decode_chunk(words[start:start + chunk_words])
+    ]
+
+    assert sum(b.timestamps.size for b in batches) == 5000
+    np.testing.assert_array_equal(
+        np.concatenate([b.timestamps for b in batches]), original.timestamps,
+    )
+    np.testing.assert_array_equal(
+        np.concatenate([b.x_coords for b in batches]), original.x_coords,
+    )

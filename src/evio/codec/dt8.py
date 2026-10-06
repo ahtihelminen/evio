@@ -157,21 +157,19 @@ class Dt8Codec(EventCodec):
                 [t32 (u4), w32 (u4)]
 
     State:
-        Partial 16-bit fragments are buffered until full 32-bit numbers exist.
+        Trailing words of an incomplete event are buffered until the next chunk.
     """
 
     width: int
     height: int
 
-    # Buffers as uint16 arrays holding incomplete 32-bit pairs
+    # Up to three uint16 words of an event split across chunks
     _buf: NDArray[np.uint16] = field(
         default_factory=lambda: np.empty(0, np.uint16)
     )
-    _partial: bool = False  # True → we are holding one unpaired word
 
     def reset(self) -> None:
         self._buf = np.empty(0, np.uint16)
-        self._partial = False
 
     def decode_chunk(
         self,
@@ -179,32 +177,16 @@ class Dt8Codec(EventCodec):
         *,
         final: bool = False,
     ) -> Iterable[EventsBatch]:
-        if words.size == 0:
+        words = np.concatenate([self._buf, words])
+
+        # Each event is four uint16 words; carry the remainder forward
+        complete = words.size - words.size % 4
+        self._buf = words[complete:].copy()
+        if complete == 0:
             return ()
 
-        # Prepend any leftover partial word
-        if self._partial:
-            words = np.concatenate([self._buf, words])
-            self._partial = False
-
-        # If odd number of uint16 → keep last uint16 for next chunk
-        if words.size & 1:
-            self._buf = words[-1:].copy()
-            words = words[:-1]
-            self._partial = True
-        else:
-            self._buf = np.empty(0, np.uint16)
-
-        if words.size == 0:
-            return ()
-
-        # Reinterpret as uint32 little endian
-        pairs = words.view(np.uint32)
-
-        # Now each DT8 event is two uint32s: (t32, w32)
-        if pairs.size & 1:
-            # Should never happen, but guard
-            return ()
+        # Reinterpret as uint32 little endian: (t32, w32) per event
+        pairs = words[:complete].view(np.uint32)
 
         timestamps_encoded = pairs[0::2]
         words_encoded = pairs[1::2]
