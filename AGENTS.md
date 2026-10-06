@@ -3,8 +3,6 @@
 `PROJECT.md` is the contract for what evio is and is not (its Scope and Non-goals); change
 it only through a deliberate edit, never in passing.
 
-- Nothing here may import or name `evio_ops` or `evior`: ops and evior depend on evio,
-  never the reverse. `tests/test_repo_boundary.py` enforces it.
 - Promoting a detection method from evior: move the module into `src/evio/detection/`,
   register it in `detection/pipeline/registry.py`, delete it from evior, tag a release, and
   bump the tag in ops.
