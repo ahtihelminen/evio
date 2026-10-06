@@ -82,7 +82,7 @@ class BackgroundClassesClassifier:
         if self._calibration_done():
             self._fit_clusters()
         return BgClassesResult(
-            calibrating=True,
+            calibrating=self._class_map is None,
             class_map=self._class_map,
             calibration_elapsed_us=self._calibration_elapsed_us,
             calibration_target_us=self._calibration_time_us,

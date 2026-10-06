@@ -50,3 +50,14 @@ def test_bg_classifier_calibrates_then_yields_class_map() -> None:
     after = classifier.update(_batch(1_200, 1_300))
     assert not after.calibrating
     np.testing.assert_array_equal(after.class_map, calibrated.class_map)
+
+
+def test_bg_classifier_calibrating_is_false_on_the_completing_call() -> None:
+    classifier = BackgroundClassesClassifier(
+        grid=_GRID, calibration_time_us=1_000
+    )
+    classifier.update(_batch(0, 400))
+
+    completing = classifier.update(_batch(500, 1_100))
+    assert completing.class_map is not None
+    assert not completing.calibrating
