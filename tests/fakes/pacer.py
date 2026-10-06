@@ -4,7 +4,17 @@
 `time.perf_counter() - _t_start`, so the test pins `perf_counter` too);
 `FakeStreamingPacer` answers the `StreamingPacer` HUD API with constants.
 Used by `tests/test_rendering_hud.py`, which renders the expected strings
-itself and compares pixels.
+itself and compares pixels; `tests/test_fakes_fidelity_pacer.py` pins them
+to the real classes.
+
+Deliberate differences from the real classes:
+- every public property of the real class is a plain settable field here,
+  not a read-only property computed from pacing state;
+- neither fake paces: no `pace` (nor `Pacer.reset_stats`);
+- `FakeStreamingPacer.wall_elapsed` returns the fixed `wall_s` instead of
+  reading the clock, and neither HUD clock raises before the first batch;
+- `FakePacerConfig` carries only `speed` and `force_speed`, the fields the
+  HUD reads, not `PacerConfig.drop_tolerance`.
 """
 
 from __future__ import annotations
@@ -18,6 +28,8 @@ class FakePacer:
     force_speed: bool = False
     _t_start: float = 100.0
     _e_start: int = 1_000_000
+    dropped_batches: int = 0
+    emitted_batches: int = 0
     instantaneous_drop_rate: float = 0.0
     average_drop_rate: float = 0.0
 
@@ -33,6 +45,8 @@ class FakeStreamingPacer:
     config: FakePacerConfig = FakePacerConfig()
     wall_s: float = 1.5
     rec_start_us: int = 1_000_000
+    dropped_batches: int = 0
+    emitted_batches: int = 0
     instantaneous_speed: float = 1.75
     instantaneous_drop_rate: float = 0.0
     average_drop_rate: float = 0.0
