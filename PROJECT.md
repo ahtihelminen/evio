@@ -22,6 +22,7 @@ Explicitly out of scope. Each line is something a reader might reasonably assume
 - Model training and research. These stay in evior. Only promoted methods land here.
 - Driver sources. The IMX636 and U3V C++ drivers stay in their own repos. evio only links them.
 - Camera-specific or deployment-specific wiring of the chain, and trained model weights.
+- IDS Peak. It is deprecated: the U3V backend replaces it completely, so no new work targets it and no hardware tests are written for it.
 
 ## Milestones
 

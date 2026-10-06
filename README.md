@@ -23,7 +23,7 @@ it.
 - `core/` — `EventsBatch`, rolling windows, pacing, `.dat` recording
   helpers, ids.
 - `io/` — `.dat` readers, the IMX636 camera source, the mono-camera facade
-  with its U3V and IDS Peak backends.
+  with its U3V and (deprecated) IDS Peak backends.
 - `streaming/` — the IMX636 stuck-pixel scan and the bias register
   constants and types.
 - `detection/` — pipelines, Kalman tracker, re-id, LLR arms, the
@@ -57,14 +57,14 @@ make drivers     # cmake-build both if missing, link them into .venv
 The drivers are libusb-based C++ extensions, not PyPI packages; `make
 drivers` writes `.pth` files into the venv so `import imx636` and `import
 u3v` survive `uv sync`. The mono camera's backend is picked by
-`EVIO_MONO_BACKEND` (`ids_peak` by default, or `u3v`).
+`EVIO_MONO_BACKEND` (`ids_peak` by default, or `u3v`). IDS Peak is deprecated: U3V replaces it completely.
 
 ## Optional extras
 
 - `evio[openvino]` — OpenVINO IR inference for the transformer classifier.
 - `evio[torch]` — torch checkpoints and the IR export tooling
   (`scripts/convert_checkpoint_to_ir.py`).
-- `evio[ids-peak]` — the IDS Peak mono-camera SDK (Linux only).
+- `evio[ids-peak]` — the IDS Peak mono-camera SDK (Linux only; deprecated, U3V replaces it).
 
 The gate is `uv run --frozen --extra dev ruff check .` plus
 `uv run --frozen --extra dev pytest -q`, or `make check` for both.
