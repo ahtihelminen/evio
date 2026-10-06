@@ -43,17 +43,16 @@ All Python must pass Ruff without warnings; never disable a rule with `# noqa` u
 
 ## Git
 
-Feature branches off `dev`, the integration branch, land through GitLab merge requests, and
-a human promotes `dev` to `main` on their own schedule. The GitLab project enforces the
-rest of the flow (merge method, passing pipeline, protected branches, squash): read the
-project settings, not this file, for those. The `gitlab-usage` skill shows how.
+`dev` is the integration branch: feature branches land on it through GitLab merge requests,
+and a human promotes `dev` to `main` on their own schedule. How to rebase, push and merge
+is in the `gitlab-usage` skill, and the GitLab project settings enforce the rest (merge
+method, passing pipeline, protected branches, squash); read those, not this file.
 
 Branches:
 - Name a branch after its Linear issue: use the branch name Linear generates for it
   (`feature/sn-NN-<title>`). With no issue, use `<type>/<short-slug>` (`feat/`, `fix/`,
   `refactor/`, `chore/`, `docs/`, `test/`).
-- Branch from `dev`, not from `main` and not from another feature branch. A branch may
-  cover several issues; list all the SN-IDs in the merge request title.
+- A branch may cover several issues; list all the SN-IDs in the merge request title.
 
 Commits:
 - Conventional prefix (`feat:`, `fix:`, `refactor:`, `chore:`, `test:`, `docs:`), then a
@@ -63,20 +62,12 @@ Commits:
 - Aim for 2-5 cohesive commits per branch.
 - A `Co-Authored-By` trailer naming the model is fine when Claude authored the changes.
 
-Merge requests:
-- Target `dev`, never `main`. Title: imperative, with the SN-IDs in parentheses, for
-  example `(SN-XXX, SN-YYY)`.
-- Bring the branch up to date with `dev` the way the project requires and run the gate on
-  it before opening the merge request.
-- Delete the local feature branch once the merge request has merged: `git branch -d <branch>`.
-
-Pushing:
-- Push the feature branch only: `git push -u origin <branch>`. After a rebase, update an
-  already-pushed branch with `git push --force-with-lease`; no other `--force`, and no
-  `--no-verify` or `--no-gpg-sign` unless asked. Never push to `main` or `dev` directly.
+Merge requests and pushing:
+- MR title: imperative, with the SN-IDs in parentheses, for example `(SN-XXX, SN-YYY)`.
 - In an interactive session, show `git log --oneline -10` and wait for the user's go-ahead
   before pushing. A run dispatched by the orchestrator pushes its own feature branch and
   opens the merge request; it never waits.
+- Delete the local feature branch once the merge request has merged: `git branch -d <branch>`.
 
 Releasing (ops pins evio by tag):
 - Tag `vX.Y.Z` on a commit of `dev` once it is green, and push the tag.
