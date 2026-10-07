@@ -40,6 +40,7 @@ ids-peak = [
 ]
 dev = [
     "evio[openvino,torch,ids-peak]",
+    "coverage>=7.10",
     "pytest>=9.0.3",
     "ruff>=0.6",
 ]
