@@ -22,3 +22,14 @@ def manifest_mismatches(
     unlisted = [f"{name}: no entry in the manifest" for name in found - named]
     stale = [f"{name}: no such package" for name in named - found]
     return sorted(unlisted) + sorted(stale)
+
+
+def below_floor(
+    measured: Mapping[str, float], floors: Mapping[str, float],
+) -> list[str]:
+    """Each measured package whose line coverage is under its floor."""
+    return [
+        f"{name}: {percent:.1f}% < {floors[name]}%"
+        for name, percent in sorted(measured.items())
+        if percent < floors[name]
+    ]
