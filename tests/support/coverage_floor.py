@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import io
+import json
 from collections.abc import Mapping
 from pathlib import Path
+
+import coverage
 
 
 def packages(root: Path) -> set[str]:
@@ -33,3 +37,25 @@ def below_floor(
         for name, percent in sorted(measured.items())
         if percent < floors[name]
     ]
+
+
+def measured(
+    cov: coverage.Coverage, root: Path, names: set[str],
+) -> dict[str, float]:
+    """Line coverage in percent of each named package under `root`."""
+    return {
+        name: cov.report(include=[str(root / name / "*")], file=io.StringIO())
+        for name in names
+    }
+
+
+def shortfalls(
+    cov: coverage.Coverage, root: Path, manifest_path: Path,
+) -> list[str]:
+    """Everything that breaks the manifest in a finished measurement."""
+    floors = json.loads(manifest_path.read_text())
+    found = packages(root)
+    named = found & floors.keys()
+    return manifest_mismatches(found, floors) + below_floor(
+        measured(cov, root, named), floors,
+    )

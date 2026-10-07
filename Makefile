@@ -108,7 +108,8 @@ fast: lint
 	$(GATE) pytest -q -m t1 --tier-manifest=t1
 
 test:
-	$(GATE) pytest -q -m "not hardware" --tier-manifest=t1,t2
+	$(GATE) pytest -q -m "not hardware" --tier-manifest=t1,t2 \
+		--coverage-manifest
 
 # Runs only the hardware-marked subset, against a real camera. pytest exits
 # 5 when nothing carries the marker; that is "nothing to run", not a failure.

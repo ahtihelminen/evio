@@ -1,5 +1,5 @@
-"""Suite-wide hooks: the tier floors, the t1 purity guard, and the session
-leak gate. Also puts this directory on `sys.path` so the sibling
+"""Suite-wide hooks: the tier and coverage floors, the t1 purity guard, and
+the session leak gate. Also puts this directory on `sys.path` so the sibling
 test-support packages (`fakes`, `support`) import cleanly regardless of
 pytest's rootdir/import-mode resolution.
 """
@@ -8,21 +8,27 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import sys
 from collections.abc import Iterator
 from pathlib import Path
 
+import coverage
 import cv2
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from support.coverage_floor import shortfalls
 from support.hygiene import Snapshot, leaks
 
 _AT_START: list[Snapshot] = []
+_COVERAGE: list[coverage.Coverage] = []
 
 
 _MANIFEST = Path(__file__).parent / "fixtures" / "tier_manifest.json"
+_FLOORS = Path(__file__).parent / "fixtures" / "coverage_manifest.json"
+_SRC = Path(__file__).parents[1] / "src" / "evio"
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -30,6 +36,24 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--tier-manifest", default=None,
         help="assert this tier executed at least its committed test count",
     )
+    parser.addoption(
+        "--coverage-manifest", action="store_true",
+        help="fail when a package's line coverage is below its committed floor",
+    )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Start measuring before any test module imports evio.
+
+    Coverage cannot trace Numba-compiled code, so the kernels run as plain
+    Python while it measures (the manifest's `_why` records this).
+    """
+    if not config.getoption("--coverage-manifest"):
+        return
+    os.environ["NUMBA_DISABLE_JIT"] = "1"
+    cov = coverage.Coverage(data_file=None, source=[str(_SRC)])
+    cov.start()
+    _COVERAGE.append(cov)
 
 
 @pytest.hookimpl(trylast=True)
@@ -120,8 +144,16 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     remove the only clue to which test is responsible. Silent on an
     already-failing session, so a real failure is never masked by this.
     """
+    for cov in _COVERAGE:
+        cov.stop()
     if exitstatus != 0 or not _AT_START:
         return
+    for cov in _COVERAGE:
+        if short := shortfalls(cov, _SRC, _FLOORS):
+            session.exitstatus = 1
+            print(f"\npackages below their floor in {_FLOORS.name}:")
+            for item in short:
+                print(f"  - {item}")
     found = leaks(_AT_START[0], Snapshot.take())
     if found:
         session.exitstatus = 1
