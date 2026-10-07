@@ -1,0 +1,14 @@
+{
+  "_why": "Lower bounds on line coverage per top-level package under src/evio, in percent: a package whose tests erode, or a new package that arrives with none, goes red. A proxy for tests checking behaviour, not proof of it -- whether assertions mean anything stays a review item. Numba: coverage cannot trace jitted code, so make test measures with NUMBA_DISABLE_JIT=1 and the kernels in codec/dt8.py, core/generate_events.py, detection/background/classes.py and rendering/numba.py run as plain Python there; make fast still runs the t1 tier with the JIT on.",
+  "_how": "make test passes --coverage-manifest, which measures the t1 and t2 tiers in the pytest process (not in the processes they spawn) and fails naming any package below its floor. A floor is the measured value rounded down; raise it only in the merge request that adds the tests. Baselined on dev 25ed0c6 (2026-10-07).",
+  "codec": 94,
+  "core": 89,
+  "detection": 80,
+  "focus": 81,
+  "geometry": 90,
+  "io": 58,
+  "recording": 92,
+  "rendering": 86,
+  "streaming": 78,
+  "time": 100
+}
