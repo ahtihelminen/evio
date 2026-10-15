@@ -81,9 +81,11 @@ testpaths = ["tests"]
 # --strict-markers: an unregistered marker is an error, not a silent no-op, so
 #   a typo'd tier marker cannot select nothing and read green.
 # --strict-config: an unknown key here is an error rather than ignored.
+# -m "not hardware": a plain `pytest -q` never touches the camera tier; a
+#   later `-m` on the command line (`make test-hardware`) replaces it.
 # xfail_strict: an xfail that starts passing is a failure, so a negative
 #   control that stops controlling anything cannot report green.
-addopts = ["--strict-markers", "--strict-config"]
+addopts = ["--strict-markers", "--strict-config", "-m", "not hardware"]
 xfail_strict = true
 markers = [
     "hardware: requires a real event camera; excluded from the default run",

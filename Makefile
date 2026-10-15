@@ -34,7 +34,7 @@ help:
 	@echo "  lint            $(GATE) ruff check ."
 	@echo "  fast            lint + the t1 unit tier (the every-edit loop)"
 	@echo "  test            $(GATE) pytest -q -m \"not hardware\""
-	@echo "  test-hardware   $(GATE) pytest -q -m hardware (real camera required)"
+	@echo "  test-hardware   $(GATE) pytest -q -m hardware (skips without a camera)"
 	@echo "  check           lint && test"
 	@echo "  clean-venv      blow away .venv (next sync will rebuild)"
 	@echo ""
