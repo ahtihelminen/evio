@@ -3,5 +3,5 @@
   "_how": "make fast / make check pass --tier-manifest=<tier>; raise a number here only in the merge request that adds the tests. Re-baselined to this repo's own suite at the evio/ops split (2026-10-01).",
   "t1": 752,
   "t2": 23,
-  "hardware": 2
+  "hardware": 3
 }
