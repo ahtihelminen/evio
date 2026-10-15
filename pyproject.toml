@@ -1,6 +1,6 @@
 [project]
 name = "evio"
-version = "3.1.0"
+version = "3.1.1"
 description = "Event-camera data handling: codecs, camera access, geometry, rendering and detection."
 readme = "README.md"
 requires-python = ">=3.12"
