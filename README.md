@@ -31,6 +31,8 @@ it.
   gate.
 - `geometry/` — intrinsics/extrinsics, az/el projection, FOV, geodesy and
   the rig/site config schema.
+- `dtc/` — the detect-track-classify pipeline contract, chain and
+  conformance kit.
 - `rendering/` — event-to-frame rendering and overlays.
 - `recording/` — hour-bucketed footage capture and crash recovery.
 - `focus/` — the event-based lens-focus metric.
