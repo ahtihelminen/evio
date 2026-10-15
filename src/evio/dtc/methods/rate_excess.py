@@ -85,6 +85,16 @@ class RateExcess:
         self._spread: Map = np.zeros(self.shape, np.float32)
         self._steps = 0
 
+    @property
+    def mean(self) -> Map:
+        """The learned events per step of each cell, (rows, cols). Read-only."""
+        return _read_only(self._mean)
+
+    @property
+    def spread(self) -> Map:
+        """The learned variance of every cell, (rows, cols). Read-only."""
+        return _read_only(self._spread)
+
     def step(self, step: Step, priors: Sequence[Region]) -> Candidates:
         counts = self._count_map(step.windows[self.stream].events)
         self._steps += 1
@@ -149,6 +159,12 @@ class RateExcess:
             )
             for row, col in found
         ]
+
+
+def _read_only(values: Map) -> Map:
+    view = values.view()
+    view.setflags(write=False)
+    return view
 
 
 def window_sums(values: NDArray[np.float32], size: int) -> NDArray[np.float64]:

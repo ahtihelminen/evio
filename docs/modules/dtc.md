@@ -87,7 +87,9 @@ and over every shipped method.
 
 The shipped fallback (`fallback_spec()`) is the rate-excess detector and the
 blob tracker, ported from evioR, then the kinematic classifier and the
-verdict gate.
+verdict gate. The rate-excess detector exposes its learned per-cell background
+as read-only `mean` and `spread` arrays of shape (rows, cols); callers must not
+mutate them.
 
 ## Known limits
 

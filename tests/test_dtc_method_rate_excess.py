@@ -319,3 +319,39 @@ def test_a_reset_detector_repeats_a_fresh_one() -> None:
     first = run(reused)
     reused.reset()
     assert run(reused) == first == run(build(extent))
+
+
+@pytest.mark.parametrize("name", ["mean", "spread"])
+def test_the_learned_background_is_zero_before_learning_and_after_reset(
+    name: str,
+) -> None:
+    rng = np.random.default_rng(SEED)
+    detector = build()
+    assert getattr(detector, name).shape == detector.shape
+    assert not getattr(detector, name).any()
+    detector.step(step_with(rng, 0, None), ())
+    assert getattr(detector, name).any()
+    detector.reset()
+    assert not getattr(detector, name).any()
+
+
+@pytest.mark.parametrize("name", ["mean", "spread"])
+def test_the_learned_background_is_a_read_only_float32_map(name: str) -> None:
+    detector = build()
+    background = getattr(detector, name)
+    assert background.dtype == np.float32
+    assert background.shape == (90, 160)
+    with pytest.raises(ValueError, match="read-only"):
+        background[0, 0] = 1.0
+
+
+def test_the_learned_background_follows_the_reference_each_step() -> None:
+    rng = np.random.default_rng(SEED)
+    extent = (160, 120)
+    fast, reference = build_pair(extent)
+    for index in range(WARMUP + 5):
+        step = step_with(rng, index, None, extent)
+        fast.step(step, ())
+        reference.step(step, ())
+        np.testing.assert_allclose(fast.mean, reference._mean, rtol=1e-5)
+        np.testing.assert_allclose(fast.spread, reference._spread, rtol=1e-4)
