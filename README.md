@@ -75,7 +75,9 @@ This repo's history was filtered out of ops (the former evioF) at the
 split: it keeps every commit that touched a file still here, under its
 current path. Commits made to a file under an older name, and the per-file
 coverage ratchet the monolith kept, stayed behind in ops (`f3c0845` on its
-`dev` is the last pre-split commit). This repo has no coverage ratchet yet.
+`dev` is the last pre-split commit). Here the floor is per top-level package
+under `src/evio`, in `tests/fixtures/coverage_manifest.json`: `make test` and
+`make check` fail when a package's line coverage drops below its floor.
 
 ## Releases
 
