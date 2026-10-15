@@ -145,3 +145,8 @@ ignore = [
 # not kill mono footage capture, which only reads raw frames, so it is
 # wrapped in a blind except.
 "src/evio/io/mono_backends/ids_peak.py" = ["BLE001"]
+# The DTC fault policy turns any stage exception into a surfaced StageFault
+# (field policy) or re-raises it (research policy), and the conformance kit
+# turns any exception from a method under test into a reported failure.
+"src/evio/dtc/faults.py" = ["BLE001"]
+"src/evio/dtc/conformance.py" = ["BLE001"]
