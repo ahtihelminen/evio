@@ -1,0 +1,76 @@
+"""Unplug a USB device in software, for the hardware tier's recovery tests.
+
+`unplugged(...)` writes `0` to the device's sysfs `authorized` attribute,
+which unbinds its drivers as a pulled cable would, and writes `1` on exit,
+also when the test body raised. Writing there needs permission, which a
+plain user lacks; `docs/hardware-tests.md` has the udev rule that grants it.
+Without it, or off Linux, the test skips saying so: nothing here asks a
+human to touch a cable.
+"""
+
+from __future__ import annotations
+
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
+
+import pytest
+
+SYSFS_USB = Path("/sys/bus/usb/devices")
+
+
+def _attribute(device: Path, name: str) -> str | None:
+    path = device / name
+    return path.read_text().strip() if path.is_file() else None
+
+
+def find_usb_device(
+    sysfs: Path,
+    *,
+    vendor: str | None = None,
+    product: str | None = None,
+    serial: str | None = None,
+) -> Path | None:
+    """The device directory under `sysfs` matching every id given."""
+    wanted = {"idVendor": vendor, "idProduct": product, "serial": serial}
+    for device in sorted(sysfs.iterdir()):
+        if _attribute(device, "idVendor") is not None and all(
+            value is None or _attribute(device, name) == value
+            for name, value in wanted.items()
+        ):
+            return device
+    return None
+
+
+@contextmanager
+def unplugged(
+    *,
+    vendor: str | None = None,
+    product: str | None = None,
+    serial: str | None = None,
+    sysfs: Path = SYSFS_USB,
+) -> Iterator[Path]:
+    """Detach the matching USB device for the body; yield its sysfs path."""
+    if sys.platform != "linux":
+        pytest.skip(f"software unplug needs Linux sysfs, not {sys.platform}")
+    device = find_usb_device(
+        sysfs, vendor=vendor, product=product, serial=serial,
+    )
+    if device is None:
+        pytest.skip(
+            f"no USB device with vendor={vendor!r} product={product!r} "
+            f"serial={serial!r} under {sysfs}"
+        )
+    authorized = device / "authorized"
+    try:
+        authorized.write_text("0")
+    except PermissionError:
+        pytest.skip(
+            f"no write access to {authorized}; install the udev rule in "
+            "docs/hardware-tests.md"
+        )
+    try:
+        yield device
+    finally:
+        authorized.write_text("1")
