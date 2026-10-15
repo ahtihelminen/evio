@@ -111,12 +111,10 @@ test:
 	$(GATE) pytest -q -m "not hardware" --tier-manifest=t1,t2 \
 		--coverage-manifest
 
-# Runs only the hardware-marked subset, against a real camera. pytest exits
-# 5 when nothing carries the marker; that is "nothing to run", not a failure.
+# Runs only the hardware-marked subset. Without a camera every test skips,
+# naming the missing driver or device (tests/hardware/conftest.py).
 test-hardware:
-	@$(GATE) pytest -q -m hardware; rc=$$?; \
-	if [ $$rc -eq 5 ]; then echo ">>> no hardware-marked tests collected"; exit 0; fi; \
-	exit $$rc
+	$(GATE) pytest -q -m hardware --tier-manifest=hardware
 
 check: lint test
 
