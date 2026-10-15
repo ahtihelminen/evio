@@ -5,8 +5,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import coverage
 import pytest
-from support.coverage_floor import below_floor, manifest_mismatches, packages
+from support.coverage_floor import (
+    below_floor,
+    manifest_mismatches,
+    measured,
+    packages,
+    shortfalls,
+)
 
 pytestmark = pytest.mark.t1
 
@@ -38,3 +45,18 @@ def test_coverage_floor_check_fails_below_floor_and_passes_at_it() -> None:
     ]
     assert below_floor({"codec": 80.0, "core": 50.0}, floors) == []
     assert below_floor({"codec": 95.5, "core": 100.0}, floors) == []
+
+
+def test_package_with_no_measured_data_reads_as_zero_and_below_floor(
+    tmp_path: Path,
+) -> None:
+    for name in ("covered", "untouched"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "mod.py").write_text("x = 1\n")
+    manifest = tmp_path / "floors.json"
+    manifest.write_text(json.dumps({"covered": 50, "untouched": 40}))
+    cov = coverage.Coverage(data_file=None)
+    cov.get_data().add_lines({str(tmp_path / "covered" / "mod.py"): [1]})
+
+    assert measured(cov, tmp_path, {"untouched"}) == {"untouched": 0.0}
+    assert shortfalls(cov, tmp_path, manifest) == ["untouched: 0.0% < 40%"]

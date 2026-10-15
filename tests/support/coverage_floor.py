@@ -42,11 +42,16 @@ def below_floor(
 def measured(
     cov: coverage.Coverage, root: Path, names: set[str],
 ) -> dict[str, float]:
-    """Line coverage in percent of each named package under `root`."""
-    return {
-        name: cov.report(include=[str(root / name / "*")], file=io.StringIO())
-        for name in names
-    }
+    """Line coverage in percent of each named package under `root`, 0.0 for
+    one with no measured file."""
+    return {name: _percent(cov, root / name) for name in names}
+
+
+def _percent(cov: coverage.Coverage, package: Path) -> float:
+    try:
+        return cov.report(include=[str(package / "*")], file=io.StringIO())
+    except coverage.exceptions.NoDataError:
+        return 0.0
 
 
 def shortfalls(
