@@ -52,7 +52,7 @@ Then:
 
 ```
 sudo groupadd -f plugdev && sudo usermod -aG plugdev "$USER"   # log in again
-sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=usb
+sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=usb && sudo udevadm settle
 ls -l /sys/bus/usb/devices/*/authorized    # the camera's: -rw-rw-r-- root plugdev
 ```
 
