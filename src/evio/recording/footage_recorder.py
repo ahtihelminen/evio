@@ -44,6 +44,8 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+import numpy as np
+
 from evio.codec.dt8 import Dt8Codec
 from evio.core.events import EventsBatch
 from evio.recording.manifest import ManifestEntry, append_entry
@@ -58,6 +60,15 @@ _EXTENT_BYTES = 256 * 1024 * 1024  # preallocation quantum
 _PENDING_CAP_BYTES = 512 * 1024 * 1024  # RAM buffer while disk is degraded
 _RETRY_BASE_S = 1.0
 _RETRY_MAX_S = 10.0
+# One event of the live dtypes. Encoding it compiles `encode_dt8_pairs` when a
+# recorder is built, not inside the first write, where a stall of 200 ms or
+# more outlasts what a live camera buffers and it sheds events.
+_WARMUP_BATCH = EventsBatch(
+    timestamps=np.zeros(1, np.int64),
+    x_coords=np.zeros(1, np.int16),
+    y_coords=np.zeros(1, np.int16),
+    polarities=np.zeros(1, np.int8),
+)
 
 
 def _preallocate(fd: int, offset: int, length: int) -> None:
@@ -165,6 +176,7 @@ class FootageRecorder:
         self._step_us = step_us
         self._fsync_interval_s = fsync_interval_s
         self._codec = Dt8Codec(width=width, height=height)
+        self._codec.encode_chunk(_WARMUP_BATCH)
         self._now: _TimeFn = time_provider or time.time
         self._last_fsync: float = self._now()
         # Per-process suffix so a re-run inside the same UTC hour writes a
