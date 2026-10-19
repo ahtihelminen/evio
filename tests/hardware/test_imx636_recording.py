@@ -20,6 +20,11 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.hardware
 
 _RECORD_S = 3.0
+# A live camera buffers about 120 ms, so a consumer stall longer than that
+# leaves a hole in the event stream. The rigs' cameras emit continuously (hot
+# pixels alone give hundreds of thousands of events a second), so a hole this
+# big is lost events; a truly silent camera would trip it too.
+_MAX_EVENT_GAP_US = 50_000
 
 
 def test_imx636_records_real_events_to_footage(
@@ -56,7 +61,9 @@ def test_imx636_records_real_events_to_footage(
         [b.timestamps for b in codec.decode_chunk(words, final=True)],
     )
     assert timestamps.size > 0
-    assert np.all(np.diff(timestamps) >= 0)
+    steps = np.diff(timestamps)
+    assert np.all(steps >= 0)
+    assert steps.max(initial=0) < _MAX_EVENT_GAP_US
     assert (entry.start_ts_ns, entry.end_ts_ns) == (
         timestamps[0] * 1000, timestamps[-1] * 1000,
     )
