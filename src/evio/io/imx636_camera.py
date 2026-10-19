@@ -42,6 +42,27 @@ def _empty_batch() -> EventsBatch:
     )
 
 
+def clock_reset_index(
+    timestamps: NDArray[np.int64],
+    previous_last: int | None,
+    tolerance_us: int,
+) -> int | None:
+    """Index of the first event after the camera's last clock reset, or None.
+
+    The camera restarts its clock near zero when a stream opens, and the
+    stream can open with the tail of the previous session still stamped with
+    the old clock. A step back of more than `tolerance_us`, within the buffer
+    or from the previous buffer's last event, marks the reset; the events
+    before it are stale.
+    """
+    resets = np.flatnonzero(np.diff(timestamps) < -tolerance_us)
+    if resets.size:
+        return int(resets[-1]) + 1
+    if previous_last is None:
+        return None
+    return 0 if timestamps[0] < previous_last - tolerance_us else None
+
+
 def get_camera_serials() -> list[str]:
     """Return the real serial number of each connected IMX636 camera.
 
@@ -107,6 +128,7 @@ class Imx636CameraSource:
     _processor_window_us: int = field(init=False, default=0)
     _processor_step_us: int = field(init=False, default=0)
     _streaming: bool = field(init=False, default=False)
+    _last_event_t: int | None = field(init=False, default=None)
     # ERC telemetry sampling state: None = capability unprobed, False =
     # driver build lacks erc_counters() (skew — sampling disabled for the
     # session). The (in_n, out_n) pair detects staleness/lockstep, and the
@@ -443,6 +465,10 @@ class Imx636CameraSource:
             self._processor_step_us = step_us
             self.window_queue.clear()
 
+    def _restart_windows(self) -> None:
+        self._processor = None
+        self._ensure_processor()
+
     def __next__(self) -> EventsBatch:
         if self.cam is None:
             msg = "Imx636CameraSource not started; use as a context manager."
@@ -498,6 +524,13 @@ class Imx636CameraSource:
                 buffer = self.decoded_queue.popleft()
                 if buffer.size == 0 or self._processor is None:
                     continue
+                reset = clock_reset_index(
+                    buffer["t"], self._last_event_t, self.window_length_us,
+                )
+                if reset is not None:
+                    buffer = buffer[reset:]
+                    self._restart_windows()
+                self._last_event_t = int(buffer["t"][-1])
                 batch = EventsBatch(
                     x_coords=buffer["x"].astype(np.int16, copy=False),
                     y_coords=buffer["y"].astype(np.int16, copy=False),
