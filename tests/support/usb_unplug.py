@@ -52,7 +52,7 @@ def unplugged(
     sysfs: Path = SYSFS_USB,
 ) -> Iterator[Path]:
     """Detach the matching USB device for the body; yield its sysfs path."""
-    if sys.platform != "linux":
+    if sys.platform != "linux" and sysfs == SYSFS_USB:
         pytest.skip(f"software unplug needs Linux sysfs, not {sys.platform}")
     device = find_usb_device(
         sysfs, vendor=vendor, product=product, serial=serial,

@@ -72,9 +72,9 @@ def test_no_write_access_skips_naming_the_file_and_the_setup(
 
 
 def test_a_platform_other_than_linux_skips(
-    sysfs: Path, monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(sys, "platform", "darwin")
     with pytest.raises(pytest.skip.Exception, match="Linux"), \
-            unplugged(serial="P50905", sysfs=sysfs):
+            unplugged(serial="P50905"):
         pass
