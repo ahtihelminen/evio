@@ -25,22 +25,26 @@ def _attribute(device: Path, name: str) -> str | None:
     return path.read_text().strip() if path.is_file() else None
 
 
-def find_usb_device(
+def find_usb_devices(
     sysfs: Path,
     *,
     vendor: str | None = None,
     product: str | None = None,
     serial: str | None = None,
-) -> Path | None:
-    """The device directory under `sysfs` matching every id given."""
+    port: str | None = None,
+) -> list[Path]:
+    """Every device directory under `sysfs` matching all the ids given."""
     wanted = {"idVendor": vendor, "idProduct": product, "serial": serial}
-    for device in sorted(sysfs.iterdir()):
-        if _attribute(device, "idVendor") is not None and all(
+    return [
+        device
+        for device in sorted(sysfs.iterdir())
+        if _attribute(device, "idVendor") is not None
+        and port in (None, device.name)
+        and all(
             value is None or _attribute(device, name) == value
             for name, value in wanted.items()
-        ):
-            return device
-    return None
+        )
+    ]
 
 
 @contextmanager
@@ -49,19 +53,32 @@ def unplugged(
     vendor: str | None = None,
     product: str | None = None,
     serial: str | None = None,
+    port: str | None = None,
     sysfs: Path = SYSFS_USB,
 ) -> Iterator[Path]:
-    """Detach the matching USB device for the body; yield its sysfs path."""
+    """Detach the one matching USB device for the body; yield its sysfs path.
+
+    Several identical devices (six cameras of one model) match a vendor and
+    product alike, so `port` (the sysfs name, such as `2-1.1`) picks one;
+    without it, more than one match skips rather than guess.
+    """
     if sys.platform != "linux" and sysfs == SYSFS_USB:
         pytest.skip(f"software unplug needs Linux sysfs, not {sys.platform}")
-    device = find_usb_device(
-        sysfs, vendor=vendor, product=product, serial=serial,
+    found = find_usb_devices(
+        sysfs, vendor=vendor, product=product, serial=serial, port=port,
     )
-    if device is None:
+    if not found:
         pytest.skip(
             f"no USB device with vendor={vendor!r} product={product!r} "
-            f"serial={serial!r} under {sysfs}"
+            f"serial={serial!r} port={port!r} under {sysfs}"
         )
+    if len(found) > 1:
+        ports = ", ".join(device.name for device in found)
+        pytest.skip(
+            f"{len(found)} USB devices match ({ports}); name the one to "
+            "unplug by its port path, see docs/hardware-tests.md"
+        )
+    (device,) = found
     authorized = device / "authorized"
     try:
         authorized.write_text("0")
