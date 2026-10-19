@@ -71,3 +71,14 @@ Explicitly out of scope. Each line is something a reader might reasonably assume
 - [ ] **R4.2** — Explicit assumptions. Anything that assumes a particular sensor, such as IMX636, is stated, so nobody mistakes it for general.
 - [ ] **R4.3** — Usable without the heavy parts. The core pieces work without GPUs, ML frameworks or hardware. Optional capabilities degrade cleanly when their extras are missing.
 - [ ] **R4.4** — No duplicates. A given method does not live in both evio and evior.
+
+### M5 — Labelled event recordings have one format
+
+**Goal:** Every labelled recording, from a public dataset or from an OPS unit, is stored and read the same way, so no consumer handles source-specific formats or time conventions.
+
+**Completion requirements:**
+
+- [ ] **R5.1** — One documented format. A labelled recording is one HDF5 file holding its events, its ground-truth labels (time, object id, class, box) and its metadata: source dataset, original id, licence, sensor, resolution, and the time origin the labels are measured from. The layout is written down in evio's documentation.
+- [ ] **R5.2** — Lossless and readable everywhere. Events are stored as columns of time (µs), x, y and polarity, with time delta-encoded and compressed only with HDF5's built-in shuffle and gzip, so a plain h5py install reads it with no plugin. Writing a recording and reading it back returns identical events, labels and metadata, and a test shows this.
+- [ ] **R5.3** — Seekable. A reader can start at any time in a recording without decoding it from the beginning, through a time index stored in the file.
+- [ ] **R5.4** — Writable from an OPS capture. A recording made on an OPS unit, with ground truth from the rig, can be written in this format using evio alone.
