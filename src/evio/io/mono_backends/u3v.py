@@ -59,6 +59,9 @@ class MonoCameraSource:
 
     def __enter__(self) -> MonoCameraSource:
         self.camera = u3v.Camera.open(self.serial or "")
+        # A recorder killed mid-stream leaves the camera streaming, and it
+        # rejects start() (GenCP 0x8fff) until that stream is stopped.
+        self.camera.stop()
         self.width = self.camera.Width
         self.height = self.camera.Height
 
