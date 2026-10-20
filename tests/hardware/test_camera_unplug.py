@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -41,6 +41,7 @@ pytestmark = pytest.mark.hardware
 IMX636_VENDOR, IMX636_PRODUCT = "1409", "8e00"
 PORT_ENV = "EVIO_UNPLUG_PORT"
 RECORD_S = 2.0
+OPEN_TIMEOUT_S = 30.0  # an IMX636 takes about 3 s to open
 UNPLUG_TIMEOUT_S = 5.0  # the most a source may take to notice the unplug
 REATTACH_TIMEOUT_S = 15.0
 U3V_FPS = 10.0
@@ -57,16 +58,26 @@ def _within(timeout_s: float, condition: Callable[[], bool]) -> bool:
 
 
 def _for(seconds: float) -> Callable[[], bool]:
-    deadline = time.monotonic() + seconds
-    return lambda: time.monotonic() >= deadline
+    """A `stopped()` that turns true `seconds` after it is first asked, so
+    the camera's open time does not eat into the recording."""
+    deadline: list[float] = []
+
+    def stopped() -> bool:
+        if not deadline:
+            deadline.append(time.monotonic() + seconds)
+        return time.monotonic() >= deadline[0]
+
+    return stopped
 
 
 def _unplug_mid_recording(
     record: Callable[[Callable[[], bool]], None],
+    written: Sequence[object],
     unplug: AbstractContextManager[Path],
 ) -> None:
     """Run `record` until the unplug ends it, which must be cleanly or with
-    a device error that says what happened, within `UNPLUG_TIMEOUT_S`.
+    a device error that says what happened, within `UNPLUG_TIMEOUT_S`. The
+    unplug comes `RECORD_S` after `record` first appends to `written`.
 
     The recording runs on a daemon thread so that a source which hangs fails
     the test instead of hanging the run, and the device is reattached either
@@ -87,6 +98,9 @@ def _unplug_mid_recording(
     thread = threading.Thread(target=run, name="unplug-recording", daemon=True)
     thread.start()
     try:
+        assert _within(OPEN_TIMEOUT_S, lambda: bool(written) or bool(ended)), (
+            "nothing recorded"
+        )
         time.sleep(RECORD_S)
         assert thread.is_alive(), f"recording ended before the unplug: {ended}"
         with unplug as device:
@@ -183,6 +197,7 @@ def test_imx636_recording_survives_an_unplug(tmp_path: Path) -> None:
         lambda stopped: _imx636_record(
             source, tmp_path / "before", before, stopped,
         ),
+        before,
         unplugged(vendor=IMX636_VENDOR, product=IMX636_PRODUCT, port=port),
     )
     assert source.cam is None
@@ -194,9 +209,10 @@ def test_imx636_recording_survives_an_unplug(tmp_path: Path) -> None:
         REATTACH_TIMEOUT_S, lambda: source.serial in get_camera_serials(),
     )
     after: list[np.ndarray] = []
-    _imx636_record(source, tmp_path / "after", after, _for(RECORD_S))
+    reopened = Imx636CameraSource(serial=source.serial)
+    _imx636_record(reopened, tmp_path / "after", after, _for(RECORD_S))
     _assert_imx636_footage(
-        tmp_path / "after", after, source.width, source.height,
+        tmp_path / "after", after, reopened.width, reopened.height,
     )
 
 
@@ -248,6 +264,7 @@ def test_u3v_recording_survives_an_unplug(
         lambda stopped: _u3v_record(
             u3v_camera, tmp_path / "before", before, stopped,
         ),
+        before,
         unplugged(serial=u3v_camera.serial),
     )
     _assert_u3v_footage(
