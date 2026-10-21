@@ -86,8 +86,12 @@ class MonoCameraSource:
         _exc: BaseException | None,
         _tb: TracebackType | None,
     ) -> None:
-        self.camera.stop()
-        self.camera.close()
+        # A camera that stopped answering fails stop(); it must still be
+        # closed here, not left to the driver's destructors.
+        try:
+            self.camera.stop()
+        finally:
+            self.camera.close()
 
     def read(
         self,
