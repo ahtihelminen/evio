@@ -238,3 +238,67 @@ Empty (no package-level re-exports).
 - Live camera paths depend on external drivers/SDKs at runtime:
   - the `imx636` binding (`imx636_camera.py`),
   - IDS Peak or the `u3v` driver (`mono_backends/*`).
+
+## Hardware tests
+
+The `hardware` tier (`tests/hardware/`) runs the live camera paths against
+real cameras. It covers the two supported camera types, IMX636 (event camera,
+USB `1409:8e00`) and U3V (mono camera, USB `1409:8000`). IDS Peak is not
+covered: it is deprecated and has no hardware test.
+
+What it checks, for each camera type:
+
+- recording: real events (IMX636) or frames (U3V) go through the footage
+  recorder and read back intact (`test_imx636_recording.py`,
+  `test_u3v_mono_recording.py`);
+- crash recovery: a recorder SIGKILLed mid-write leaves footage that recovers
+  (`test_crash_recovery.py`);
+- unplug recovery: a camera unplugged mid-recording is given up within a
+  timeout, keeps what it recorded, and records again after the reattach
+  (`test_camera_unplug.py`, `test_usb_unplug.py`).
+
+The crash and the unplug are done in software, so nobody has to touch the
+rig; `docs/hardware-tests.md` describes both helpers.
+
+### Prerequisites
+
+- The drivers, built and linked into the venv (see the README's Setup):
+
+  ```bash
+  make drivers
+  ```
+
+- Write access to the camera's sysfs `authorized` attribute, which the
+  unplug helper sets to `0` and back to `1`. It is root-owned, so install
+  the udev rule in `docs/hardware-tests.md` ("Granting write access to
+  `authorized`"): it makes the attribute group-writable by `plugdev` for
+  vendor `1409`, which both camera types use. Add yourself to `plugdev`,
+  log in again, and reload udev as that page shows. Without the access the
+  unplug tests skip and name what is missing.
+
+### Running
+
+```bash
+make test-hardware
+```
+
+On a unit with several identical IMX636 cameras, name the one to unplug by
+its port (find it with `lsusb -t`); without it the IMX636 unplug tests skip
+and list the matching ports:
+
+```bash
+EVIO_UNPLUG_PORT=2-1.1 make test-hardware
+```
+
+### Skipped tests
+
+A skip means the machine lacks something the test needs, not that the test
+passed. The camera fixtures in `tests/hardware/conftest.py` skip with the
+reason: `imx636 driver not importable` or `u3v driver not importable` (run
+`make drivers`), `no IMX636 camera enumerated` or `no U3V mono camera
+enumerated` (no camera attached). With no camera attached every hardware test
+skips, and `make test-hardware` still exits 0.
+
+The laptop run never executes this tier: `make test` and `make check` select
+`-m "not hardware"`, and `pyproject.toml` excludes the marker from a plain
+pytest run too. Only `make test-hardware` selects it.

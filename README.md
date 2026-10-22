@@ -63,6 +63,9 @@ drivers` writes `.pth` files into the venv so `import imx636` and `import
 u3v` survive `uv sync`. The mono camera's backend is picked by
 `EVIO_MONO_BACKEND` (`ids_peak` by default, or `u3v`). IDS Peak is deprecated: U3V replaces it completely.
 
+To run the hardware tests against attached cameras, see "Hardware tests" in
+[`docs/modules/io.md`](docs/modules/io.md#hardware-tests).
+
 ## Optional extras
 
 - `evio[openvino]` — OpenVINO IR inference for the transformer classifier.
