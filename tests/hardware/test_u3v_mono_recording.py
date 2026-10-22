@@ -37,6 +37,27 @@ def _frame_timestamps(path: Path, stride: int) -> list[int]:
     ]
 
 
+def check_footage(root: Path, width: int, height: int, elapsed: float) -> None:
+    """Check the footage a `FPS` recording of `elapsed` s left under `root`."""
+    [manifest] = root.glob("mono-0/*/manifest.jsonl")
+    [entry] = iter_manifest(manifest)
+    footage = manifest.parent / entry.filename
+    assert entry.size_bytes == footage.stat().st_size
+    assert entry.capture == {
+        "format": "mono-raw", "width": width, "height": height,
+        "channels": 1, "fps": FPS,
+    }
+    with footage.open("rb") as f:
+        assert f.read(len(MONO_MAGIC)) == MONO_MAGIC
+        assert MONO_GEOM.unpack(f.read(MONO_GEOM.size)) == (width, height, 1)
+    timestamps = _frame_timestamps(footage, mono_frame_stride(width, height, 1))
+    assert np.all(np.diff(timestamps) > 0)
+    assert entry.start_ts_ns == timestamps[0]
+    assert entry.end_ts_ns == timestamps[-1]
+    expected = FPS * elapsed
+    assert 0.5 * expected <= len(timestamps) <= 1.5 * expected + 1
+
+
 def test_u3v_camera_records_real_frames_to_footage(
     u3v_camera: MonoCameraSource, tmp_path: Path,
 ) -> None:
@@ -55,27 +76,8 @@ def test_u3v_camera_records_real_frames_to_footage(
             recorder.write(frame, time.time_ns())
         recorder.close()
 
-    [manifest] = tmp_path.glob("mono-0/*/manifest.jsonl")
-    [entry] = iter_manifest(manifest)
-    footage = manifest.parent / entry.filename
-    assert entry.size_bytes == footage.stat().st_size
-    assert entry.capture == {
-        "format": "mono-raw", "width": camera.width, "height": camera.height,
-        "channels": 1, "fps": FPS,
-    }
-    with footage.open("rb") as f:
-        assert f.read(len(MONO_MAGIC)) == MONO_MAGIC
-        assert MONO_GEOM.unpack(f.read(MONO_GEOM.size)) == (
-            camera.width, camera.height, 1,
-        )
-    stride = mono_frame_stride(camera.width, camera.height, 1)
-    timestamps = _frame_timestamps(footage, stride)
-    assert np.all(np.diff(timestamps) > 0)
     assert np.all(np.diff(camera_ts) > 0)
-    assert entry.start_ts_ns == timestamps[0]
-    assert entry.end_ts_ns == timestamps[-1]
-    expected = FPS * elapsed
-    assert 0.5 * expected <= len(timestamps) <= 1.5 * expected + 1
+    check_footage(tmp_path, camera.width, camera.height, elapsed)
 
     with u3v_camera as reopened:  # opens only if the first session released it
         assert reopened.read(timeout_ms=2000).shape[:2] == (
