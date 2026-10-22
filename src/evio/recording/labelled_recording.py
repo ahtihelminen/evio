@@ -1,7 +1,8 @@
 """One HDF5 file per labelled event recording.
 
 Events are stored as columns with the time delta-encoded, ground-truth boxes
-as a second table and the provenance as root attributes; a per-chunk time
+as a second table, the sensor bias log and the reviewer-excluded time spans
+as two more, and the provenance as root attributes; a per-chunk time
 index makes any window readable without decoding from the start. The layout,
 the time convention and the versioning rules are written down in
 `docs/modules/labelled-recording.md`.
@@ -18,19 +19,20 @@ import numpy as np
 from evio.core.events import EventsBatch
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterable, Iterator
     from pathlib import Path
 
     from numpy.typing import NDArray
 
 FORMAT_NAME = "evio-labelled-recording"
-FORMAT_VERSION = "1.0"
+FORMAT_VERSION = "1.1"
 FORMAT_MAJOR = 1
 # Events per HDF5 chunk and per index bookmark: a seek decodes at most one
 # partial chunk on each side, a writer buffers less than one chunk.
 CHUNK_EVENTS = 1 << 18
 LABEL_CHUNK_ROWS = 1 << 16
 INDEX_CHUNK_ROWS = 1 << 12
+TABLE_CHUNK_ROWS = 1 << 12
 
 _EVENT_DTYPES = {
     "dt_us": np.uint64,
@@ -43,6 +45,11 @@ _LABEL_DTYPES = {
     "object_id": np.int64,
     "class_id": np.int32,
     "box": np.float64,
+}
+_BIAS_DTYPES = {
+    "time_us": np.int64,
+    "name_id": np.int32,
+    "value": np.int64,
 }
 
 
@@ -69,6 +76,71 @@ class RecordingLabels:
     object_id: NDArray[np.int64]
     class_id: NDArray[np.int32]
     box: NDArray[np.float64]
+
+
+@dataclass(frozen=True, slots=True)
+class BiasLog:
+    """Bias changes on the event clock: from `time_us[i]` on, bias
+    `names[name_id[i]]` has value `value[i]`. No rows means bias unknown."""
+
+    time_us: NDArray[np.int64]
+    name_id: NDArray[np.int32]
+    value: NDArray[np.int64]
+    names: tuple[str, ...]
+
+    def __len__(self) -> int:
+        return self.time_us.size
+
+    def at(self, time_us: int) -> dict[str, int]:
+        """The bias vector in force at `time_us`: the last row at or before
+        it per name. Names not yet set are absent."""
+        rows = np.searchsorted(self.time_us, time_us, side="right")
+        return {
+            self.names[name_id]: int(value)
+            for name_id, value in zip(
+                self.name_id[:rows], self.value[:rows], strict=True,
+            )
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ExcludedSpans:
+    """Disjoint half-open spans `[start_us, end_us)` that a reviewer marked
+    as not trustworthy. They may be given in any order and are stored sorted
+    by start; overlapping spans raise. No spans means nothing excluded."""
+
+    start_us: NDArray[np.int64]
+    end_us: NDArray[np.int64]
+
+    def __post_init__(self) -> None:
+        if (self.start_us >= self.end_us).any():
+            msg = "excluded spans need start < end"
+            raise ValueError(msg)
+        order = np.argsort(self.start_us)
+        object.__setattr__(self, "start_us", self.start_us[order])
+        object.__setattr__(self, "end_us", self.end_us[order])
+        if (self.start_us[1:] < self.end_us[:-1]).any():
+            msg = "excluded spans must not overlap"
+            raise ValueError(msg)
+
+    def mask(self, times_us: NDArray[np.int64]) -> NDArray[np.bool_]:
+        """True where a time falls inside an excluded span."""
+        # Index 0 is "before every span" and never excludes.
+        ends = np.concatenate([[np.iinfo(np.int64).min], self.end_us])
+        span = np.searchsorted(self.start_us, times_us, side="right")
+        return times_us < ends[span]
+
+    def kept(self, start_us: int, end_us: int) -> list[tuple[int, int]]:
+        """The parts of `[start_us, end_us)` outside every excluded span."""
+        kept = []
+        cursor = start_us
+        for span_start, span_end in zip(
+            self.start_us.tolist(), self.end_us.tolist(), strict=True,
+        ):
+            kept.append((cursor, min(span_start, end_us)))
+            cursor = max(cursor, span_end)
+        kept.append((cursor, end_us))
+        return [(a, b) for a, b in kept if a < b]
 
 
 def _create(
@@ -120,6 +192,12 @@ class LabelledRecordingWriter:
             for name, dtype in {"t_us": np.int64, **_EVENT_DTYPES}.items()
         }
         self._last_t: int | None = None
+        self._last_bias_t: int | None = None
+        self._bias_ids: dict[str, int] = {}
+        self._bias_columns: dict[str, h5py.Dataset] = {}
+        self._excluded = ExcludedSpans(
+            np.empty(0, np.int64), np.empty(0, np.int64),
+        )
 
     @property
     def buffered_events(self) -> int:
@@ -161,6 +239,8 @@ class LabelledRecordingWriter:
 
     def __exit__(self, *exc_info: object) -> None:
         self._flush(self.buffered_events)
+        self._write_bias_names()
+        self._write_excluded()
         self._file.close()
 
     def write_events(self, batch: EventsBatch) -> None:
@@ -193,6 +273,57 @@ class LabelledRecordingWriter:
     def write_labels(self, labels: RecordingLabels) -> None:
         for name, dataset in self._label_columns.items():
             _append(dataset, getattr(labels, name).astype(_LABEL_DTYPES[name]))
+
+    def write_bias(self, rows: Iterable[tuple[int, str, int]]) -> None:
+        """Appends `(time_us, name, value)` rows; times must be
+        non-decreasing across the recording, like events."""
+        rows = list(rows)
+        if not rows:
+            return
+        times, names, values = zip(*rows, strict=True)
+        times = np.array(times, np.int64)
+        deltas = np.diff(times, prepend=times[0] if self._last_bias_t is None
+                         else self._last_bias_t)
+        if (deltas < 0).any():
+            msg = "bias times must be non-decreasing across the recording"
+            raise ValueError(msg)
+        self._last_bias_t = int(times[-1])
+        ids = [self._bias_ids.setdefault(name, len(self._bias_ids))
+               for name in names]
+        if not self._bias_columns:
+            group = self._file.create_group("bias")
+            self._bias_columns = {
+                name: _create(group, name, dtype, TABLE_CHUNK_ROWS)
+                for name, dtype in _BIAS_DTYPES.items()
+            }
+        new = {"time_us": times, "name_id": ids, "value": values}
+        for name, dataset in self._bias_columns.items():
+            _append(dataset, np.array(new[name], _BIAS_DTYPES[name]))
+
+    def write_excluded(self, spans: ExcludedSpans) -> None:
+        """Adds spans, in any order; they must not overlap each other or
+        earlier ones. A rejected call adds nothing."""
+        starts = np.concatenate([self._excluded.start_us, spans.start_us])
+        ends = np.concatenate([self._excluded.end_us, spans.end_us])
+        self._excluded = ExcludedSpans(starts, ends)
+
+    def _write_bias_names(self) -> None:
+        if self._bias_ids:
+            self._file["bias"].create_dataset(
+                "names",
+                data=np.array([name.encode() for name in self._bias_ids]),
+                compression="gzip",
+                compression_opts=4,
+                shuffle=True,
+            )
+
+    def _write_excluded(self) -> None:
+        if self._excluded.start_us.size:
+            group = self._file.create_group("excluded")
+            for name, values in (("start_us", self._excluded.start_us),
+                           ("end_us", self._excluded.end_us)):
+                _append(_create(group, name, np.int64, TABLE_CHUNK_ROWS),
+                        values)
 
     def _flush(self, count: int) -> None:
         for name, dataset in self._columns.items():
@@ -255,6 +386,29 @@ class LabelledRecordingReader:
             **{name: self._file[f"labels/{name}"][:]
                for name in _LABEL_DTYPES}
         )
+
+    def bias_log(self) -> BiasLog:
+        """The recorded bias changes; empty when bias was not recorded."""
+        if "bias" not in self._file:
+            return BiasLog(
+                np.empty(0, np.int64), np.empty(0, np.int32),
+                np.empty(0, np.int64), (),
+            )
+        group = self._file["bias"]
+        return BiasLog(
+            *(group[name][:] for name in _BIAS_DTYPES),
+            tuple(name.decode() for name in group["names"][:]),
+        )
+
+    def bias_at(self, time_us: int) -> dict[str, int]:
+        return self.bias_log().at(time_us)
+
+    def excluded_spans(self) -> ExcludedSpans:
+        """The reviewer-excluded spans; empty when nothing is excluded."""
+        if "excluded" not in self._file:
+            return ExcludedSpans(np.empty(0, np.int64), np.empty(0, np.int64))
+        group = self._file["excluded"]
+        return ExcludedSpans(group["start_us"][:], group["end_us"][:])
 
     def events(self, start_us: int, end_us: int) -> EventsBatch:
         """Events with `start_us <= t < end_us`, reading only the chunks
