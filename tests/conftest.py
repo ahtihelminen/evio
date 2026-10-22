@@ -70,6 +70,13 @@ def pytest_collection_modifyitems(
     if not requested:
         return
     floors = json.loads(_MANIFEST.read_text())
+    if missing := [t for t in requested.split(",") if t not in floors]:
+        session.exitstatus = 1
+        message = (
+            f"tiers with no committed floor in {_MANIFEST.name}: "
+            + ", ".join(missing)
+        )
+        raise pytest.UsageError(message)
     short = [
         f"{tier}: {found} < {floors[tier]}"
         for tier in requested.split(",")
