@@ -44,12 +44,28 @@ def _module_marks(path: Path) -> list[str]:
     return []
 
 
-def test_every_test_module_declares_exactly_one_tier() -> None:
-    offenders = {
+def _tier_offenders(tests: Path) -> dict[str, list[str]]:
+    """Test modules under `tests` without exactly one tier marker."""
+    return {
         path.name: sorted(set(_module_marks(path)) & _TIERS)
-        for path in sorted(_TESTS.glob("test_*.py"))
+        for path in sorted(tests.glob("test_*.py"))
         if len(set(_module_marks(path)) & _TIERS) != 1
     }
+
+
+def _tiers_without_floor(tests: Path, manifest: dict[str, object]) -> set[str]:
+    """Marks declared by test modules under `tests` with no manifest floor."""
+    declared = {
+        mark
+        for path in tests.glob("test_*.py")
+        for mark in _module_marks(path)
+        if not mark.startswith("skipif")
+    }
+    return declared - set(manifest)
+
+
+def test_every_test_module_declares_exactly_one_tier() -> None:
+    offenders = _tier_offenders(_TESTS)
     assert not offenders, (
         "every test module needs exactly one tier marker: " + str(offenders)
     )
@@ -57,12 +73,5 @@ def test_every_test_module_declares_exactly_one_tier() -> None:
 
 def test_the_manifest_covers_every_declared_tier() -> None:
     path = _TESTS / "fixtures" / "tier_manifest.json"
-    manifest = json.loads(path.read_text())
-    declared = {
-        mark
-        for path in _TESTS.glob("test_*.py")
-        for mark in _module_marks(path)
-        if not mark.startswith("skipif")
-    }
-    missing = declared - set(manifest)
+    missing = _tiers_without_floor(_TESTS, json.loads(path.read_text()))
     assert not missing, f"tiers with no committed floor: {sorted(missing)}"
