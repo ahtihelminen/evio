@@ -10,6 +10,7 @@ import pytest
 
 from evio.core.events import EventsBatch
 from evio.recording import (
+    ExcludedSpans,
     LabelledRecordingReader,
     LabelledRecordingWriter,
     RecordingMeta,
@@ -21,18 +22,25 @@ DOCS = Path(__file__).parent.parent / "docs/modules/labelled-recording.md"
 
 
 def _run_example(path: Path, start_us: int, end_us: int) -> dict:
+    return _exec_block("docs-example", path=path, start_us=start_us,
+                       end_us=end_us)
+
+
+def _exec_block(marker: str, **names: object) -> dict:
     block = re.search(
-        r"<!-- docs-example -->\n```python\n(.*?)```",
+        rf"<!-- {marker} -->\n```python\n(.*?)```",
         DOCS.read_text(),
         re.DOTALL,
     )
     assert block
-    namespace = {"path": path, "start_us": start_us, "end_us": end_us}
+    namespace = dict(names)
     exec(block.group(1), namespace)
     return namespace
 
 
-def _write(path: Path, timestamps: np.ndarray) -> None:
+def _write(
+    path: Path, timestamps: np.ndarray, *, with_1_1_groups: bool = False,
+) -> None:
     rng = np.random.default_rng(8)
     n = timestamps.size
     batch = EventsBatch(
@@ -45,6 +53,11 @@ def _write(path: Path, timestamps: np.ndarray) -> None:
                          "first_event", "event")
     with LabelledRecordingWriter(path, meta, chunk_events=8) as writer:
         writer.write_events(batch)
+        if with_1_1_groups:
+            writer.write_bias([(0, "bias_diff", 1), (100, "bias_diff", 2),
+                               (100, "bias_hpf", 3)])
+            writer.write_excluded(ExcludedSpans(
+                np.array([10], np.int64), np.array([20], np.int64)))
 
 
 @pytest.mark.parametrize(
@@ -74,3 +87,33 @@ def test_docs_example_reads_an_empty_recording(tmp_path: Path) -> None:
     namespace = _run_example(path, 0, 100)
     assert namespace["t"].size == 0
     assert namespace["x"].size == 0
+
+
+def test_docs_example_ignores_the_1_1_groups_of_a_newer_file(
+    tmp_path: Path,
+) -> None:
+    times = np.sort(np.random.default_rng(8).integers(0, 300, 90))
+    plain, newer = tmp_path / "plain.h5", tmp_path / "newer.h5"
+    _write(plain, times.astype(np.int64))
+    _write(newer, times.astype(np.int64), with_1_1_groups=True)
+    want = _run_example(plain, 120, 200)
+    got = _run_example(newer, 120, 200)
+    assert got["t"].size > 0
+    np.testing.assert_array_equal(got["t"], want["t"])
+    np.testing.assert_array_equal(got["x"], want["x"])
+
+
+@pytest.mark.parametrize(
+    ("time_us", "want"),
+    [(-1, {}), (0, {"bias_diff": 1}), (99, {"bias_diff": 1}),
+     (100, {"bias_diff": 2, "bias_hpf": 3})],
+)
+def test_docs_bias_example_matches_the_reader(
+    tmp_path: Path, time_us: int, want: dict[str, int],
+) -> None:
+    path = tmp_path / "rec.h5"
+    _write(path, np.arange(0, 200, 5, dtype=np.int64), with_1_1_groups=True)
+    namespace = _exec_block("docs-example-bias", path=path, time_us=time_us)
+    assert namespace["bias"] == want
+    with LabelledRecordingReader(path) as reader:
+        assert reader.bias_at(time_us) == want

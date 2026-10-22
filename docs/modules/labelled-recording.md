@@ -1,7 +1,8 @@
 # Labelled Recording Format (`src/evio/recording/labelled_recording.py`)
 
 One HDF5 file holds one labelled event recording: its events, its
-ground-truth boxes and its provenance. Every source (public datasets, OPS
+ground-truth boxes, its sensor bias log, the spans a reviewer excluded and its
+provenance. Every source (public datasets, OPS
 captures) is converted to this, so consumers handle one layout and one time
 convention. Plain `h5py` reads it; the only filters are HDF5's built-in
 shuffle and gzip.
@@ -12,17 +13,17 @@ Files covered:
 - `tests/test_labelled_recording.py`, `tests/test_labelled_recording_footage.py`
 
 Public names (all exported from `evio.recording`): `LabelledRecordingWriter`,
-`LabelledRecordingReader`, `RecordingMeta`, `RecordingLabels`,
-`CHUNK_EVENTS`, `FORMAT_NAME`, `FORMAT_VERSION`.
+`LabelledRecordingReader`, `RecordingMeta`, `RecordingLabels`, `BiasLog`,
+`ExcludedSpans`, `CHUNK_EVENTS`, `FORMAT_NAME`, `FORMAT_VERSION`.
 
-## Layout (format `evio-labelled-recording`, version `1.0`)
+## Layout (format `evio-labelled-recording`, version `1.1`)
 
 Root attributes (HDF5 attributes on `/`):
 
 | Attribute | Type | Meaning |
 |---|---|---|
 | `format` | str | always `evio-labelled-recording` |
-| `format_version` | str | `major.minor`, here `1.0` |
+| `format_version` | str | `major.minor`, here `1.1` |
 | `chunk_events` | int64 | events per chunk and per index bookmark in this file |
 | `source_dataset` | str | e.g. `FRED`, `Ev-Flying`, `NeRDD`, `ops-capture` |
 | `original_id` | str | the recording's id in the source |
@@ -47,6 +48,18 @@ else; no extra attributes):
 | `labels/class_id` | int32 | (m,) | class id, opaque to the format |
 | `labels/box` | float64 | (m, 4) | `x0, y0, x1, y1` in `box_frame` pixels, exactly as the source gives them |
 
+Format 1.1 adds two optional groups, each present only when it has rows (all
+`int` columns are chunked `(4096,)`, the same filters):
+
+| Dataset | dtype | Shape | Meaning |
+|---|---|---|---|
+| `bias/time_us` | int64 | (r,) | from this time on, on the event clock, non-decreasing |
+| `bias/name_id` | int32 | (r,) | row index into `bias/names` |
+| `bias/value` | int64 | (r,) | the bias value from that time on |
+| `bias/names` | `S<k>` | (u,) | bias names as UTF-8, in order of first appearance; `k` fits the longest |
+| `excluded/start_us` | int64 | (s,) | start of an excluded span, inclusive; sorted |
+| `excluded/end_us` | int64 | (s,) | end of the span, exclusive; `start_us < end_us`, spans disjoint |
+
 `events/*` are chunked `(chunk_events,)`, `labels/*` `(65536,)` rows,
 `index/t_us` `(4096,)`. `n` and `m` are the dataset lengths. `CHUNK_EVENTS`
 is `2**18` = 262144 events: a seek decodes at most one extra chunk at either
@@ -58,6 +71,49 @@ Events are stored in the order given and are non-decreasing in time, so
 absolute time is `index/t_us[0] + cumsum(dt_us)`. Labels are stored in the
 order given (not necessarily sorted). An empty recording has zero-length
 datasets, and a recording without labels has zero label rows.
+
+## Bias log
+
+Sensor biases (for the IMX636 e.g. `bias_diff`, `bias_diff_on`,
+`bias_diff_off`, `bias_fo`, `bias_hpf`, `bias_refr`; the format does not fix
+the set, names are the caller's strings) are part of what a recording means
+and change during a bias sweep. The log holds one row `(time_us, name, value)`
+per change: from `time_us` on, bias `name` has `value`. Rows are stored in the
+order written, with non-decreasing time like events (the writer raises
+`ValueError` and writes nothing from a batch that goes back); several rows may
+share a time and the last one wins. The initial state is rows at or before the
+first event. `bias/names` is written when the writer closes (so a file whose
+writer crashed has bias rows but no names table); `name_id` indexes it, so a
+name that is a prefix of another is no problem.
+
+No `bias` group, or zero rows, means bias was not recorded: unknown, not
+"default". A consumer tells recorded from unknown by `len(reader.bias_log())
+> 0`. `reader.bias_at(t)` (or `BiasLog.at`) returns `{name: value}` in force
+at `t`: the last row at or before `t` per name. Before the first row it is
+`{}`; a name set only later is absent until then.
+
+```python
+writer.write_bias([(0, "bias_diff", 10), (5_000_000, "bias_diff", 12)])
+```
+
+Called repeatedly, like `write_labels`.
+
+## Excluded spans
+
+A human reviewer marks time ranges where the labels are wrong or missing. The
+format only records them as half-open `[start_us, end_us)` on the event clock;
+the consumer decides what to do. To treat them the same everywhere, use
+`reader.excluded_spans()`, an `ExcludedSpans` with:
+
+- `mask(times_us)`: True where a time (an event or a label) is excluded,
+  `labels.time_us[~spans.mask(labels.time_us)]` keeps the trusted rows.
+- `kept(start_us, end_us)`: the `[a, b)` pieces of a window outside every
+  span, for example to score only trusted time.
+
+`write_excluded(ExcludedSpans(starts, ends))` takes spans in any order and may
+be called repeatedly. `ExcludedSpans` raises `ValueError` for `start >= end`
+or overlapping spans (touching spans are fine); a rejected call adds nothing.
+Spans are stored sorted. No `excluded` group means nothing is excluded.
 
 ## Time convention
 
@@ -99,6 +155,11 @@ attributes, so an older reader still reads the file. Any change to an
 existing name, dtype or meaning bumps the major. A reader refuses another
 format name or a newer major with a `ValueError` naming both versions.
 
+- `1.1` added the `bias` and `excluded` groups and nothing else. This reader
+  reads `1.0` files as having no bias log and no excluded spans; a `1.0`
+  reader reads `1.1` files and ignores the new groups (the h5py-only example
+  below is unchanged and is tested on such a file).
+
 ## Reading with h5py only
 
 The test suite executes this block (with `path`, `start_us` and `end_us`
@@ -123,6 +184,21 @@ with h5py.File(path, "r") as f:
     t = t[keep]
 ```
 
+Bias in force at `time_us`, h5py only (the `bias` group may be absent, which
+means unknown):
+
+<!-- docs-example-bias -->
+```python
+import h5py
+
+with h5py.File(path, "r") as f:
+    names = [name.decode() for name in f["bias/names"][:]]
+    rows = f["bias/time_us"][:] <= time_us
+    bias = {}
+    for name_id, value in zip(f["bias/name_id"][rows], f["bias/value"][rows]):
+        bias[names[name_id]] = int(value)
+```
+
 ## Writing from an OPS capture
 
 ```python
@@ -144,6 +220,9 @@ through the writer.
 ## Known limits
 
 - Boxes only: per-event class labels (Ev-Flying) are not stored in 1.0.
+- Bias is stored from 1.1 on; a recording without a bias log has unknown
+  bias, not default bias. Biases are integers, nothing says which sensor
+  setting a name denotes, and no other sensor settings are stored.
 - No class-name table and no free-form attributes; ids are agreed per source.
 - No frames or RGB data, only the boxes' frame is named.
 - Timestamps must fit int64; a single delta must stay below 2**63 us.
