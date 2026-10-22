@@ -19,7 +19,13 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
-from support.usb_unplug import unplugged, within
+from support.usb_unplug import (
+    IMX636_PRODUCT,
+    IMX636_VENDOR,
+    imx636_serial_on,
+    unplugged,
+    within,
+)
 
 from evio.codec.dt8 import Dt8Codec, find_dat_data_offset
 from evio.recording import FootageRecorder
@@ -38,7 +44,6 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.hardware
 
-IMX636_VENDOR, IMX636_PRODUCT = "1409", "8e00"
 PORT_ENV = "EVIO_UNPLUG_PORT"
 RECORD_S = 2.0
 OPEN_TIMEOUT_S = 30.0  # an IMX636 takes about 3 s to open
@@ -160,29 +165,13 @@ def _assert_imx636_footage(
     np.testing.assert_array_equal(np.concatenate(decoded), expected)
 
 
-def _imx636_serial_on(port: str | None) -> str:
-    """The serial of the camera that vanishes when `port` is unplugged."""
-    from evio.io.imx636_camera import get_camera_serials
-
-    attached = set(get_camera_serials())
-    with unplugged(vendor=IMX636_VENDOR, product=IMX636_PRODUCT, port=port):
-        assert within(
-            REATTACH_TIMEOUT_S,
-            lambda: len(attached - set(get_camera_serials())) == 1,
-        )
-        (serial,) = attached - set(get_camera_serials())
-    assert within(
-        REATTACH_TIMEOUT_S, lambda: set(get_camera_serials()) == attached,
-    )
-    return serial
-
-
 @pytest.mark.usefixtures("imx636_camera")
 def test_imx636_recording_survives_an_unplug(tmp_path: Path) -> None:
     from evio.io.imx636_camera import Imx636CameraSource, get_camera_serials
 
     port = os.environ.get(PORT_ENV)
-    source = Imx636CameraSource(serial=_imx636_serial_on(port))
+    serial = imx636_serial_on(port, REATTACH_TIMEOUT_S)
+    source = Imx636CameraSource(serial=serial)
     before: list[np.ndarray] = []
     _unplug_mid_recording(
         lambda stopped: _imx636_record(

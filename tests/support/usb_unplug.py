@@ -19,6 +19,8 @@ from pathlib import Path
 import pytest
 
 SYSFS_USB = Path("/sys/bus/usb/devices")
+# The IDS-built IMX636 cameras on the ops units; `lsusb` shows other vendors.
+IMX636_VENDOR, IMX636_PRODUCT = "1409", "8e00"
 
 
 def within(timeout_s: float, condition: Callable[[], bool]) -> bool:
@@ -102,3 +104,22 @@ def unplugged(
         yield device
     finally:
         authorized.write_text("1")
+
+
+def imx636_serial_on(port: str | None, timeout_s: float) -> str:
+    """Unplug the IMX636 on `port` and return the serial that vanished; both
+    the vanishing and the reattach must happen within `timeout_s`."""
+    from evio.io.imx636_camera import get_camera_serials
+
+    attached = set(get_camera_serials())
+    gone: list[set[str]] = []
+
+    def one_gone() -> bool:
+        gone.append(attached - set(get_camera_serials()))
+        return len(gone[-1]) == 1
+
+    with unplugged(vendor=IMX636_VENDOR, product=IMX636_PRODUCT, port=port):
+        assert within(timeout_s, one_gone)
+    assert within(timeout_s, lambda: set(get_camera_serials()) == attached)
+    (serial,) = gone[-1]
+    return serial

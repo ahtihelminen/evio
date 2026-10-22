@@ -9,28 +9,13 @@ from __future__ import annotations
 import os
 
 import pytest
-from support.usb_unplug import unplugged, within
+from support.usb_unplug import imx636_serial_on
 
 pytestmark = pytest.mark.hardware
 
-# The IDS-built IMX636 cameras on the ops units; `lsusb` shows other vendors.
-IMX636_VENDOR = "1409"
-IMX636_PRODUCT = "8e00"
 PORT_ENV = "EVIO_UNPLUG_PORT"
-
 
 
 @pytest.mark.usefixtures("imx636_camera")
 def test_unplug_hides_a_camera_and_reattach_restores_it() -> None:
-    from evio.io.imx636_camera import get_camera_serials
-
-    attached = set(get_camera_serials())
-    with unplugged(
-        vendor=IMX636_VENDOR,
-        product=IMX636_PRODUCT,
-        port=os.environ.get(PORT_ENV),
-    ):
-        assert within(
-            10, lambda: len(attached - set(get_camera_serials())) == 1,
-        )
-    assert within(10, lambda: set(get_camera_serials()) == attached)
+    imx636_serial_on(os.environ.get(PORT_ENV), timeout_s=10)
