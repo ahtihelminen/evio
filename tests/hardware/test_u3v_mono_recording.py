@@ -38,22 +38,32 @@ def _frame_timestamps(path: Path, stride: int) -> list[int]:
 
 
 def check_footage(root: Path, width: int, height: int, elapsed: float) -> None:
-    """Check the footage a `FPS` recording of `elapsed` s left under `root`."""
-    [manifest] = root.glob("mono-0/*/manifest.jsonl")
-    [entry] = iter_manifest(manifest)
-    footage = manifest.parent / entry.filename
-    assert entry.size_bytes == footage.stat().st_size
-    assert entry.capture == {
-        "format": "mono-raw", "width": width, "height": height,
-        "channels": 1, "fps": FPS,
-    }
-    with footage.open("rb") as f:
-        assert f.read(len(MONO_MAGIC)) == MONO_MAGIC
-        assert MONO_GEOM.unpack(f.read(MONO_GEOM.size)) == (width, height, 1)
-    timestamps = _frame_timestamps(footage, mono_frame_stride(width, height, 1))
+    """Check the footage a `FPS` recording of `elapsed` s left under `root`.
+
+    The recorder starts a new file each UTC hour and a new day directory at
+    midnight, so each file is checked on its own and the frames across all
+    of them, in order, as one recording.
+    """
+    stride = mono_frame_stride(width, height, 1)
+    timestamps: list[int] = []
+    for manifest in sorted(root.glob("mono-0/*/manifest.jsonl")):
+        for entry in iter_manifest(manifest):
+            footage = manifest.parent / entry.filename
+            assert entry.size_bytes == footage.stat().st_size
+            assert entry.capture == {
+                "format": "mono-raw", "width": width, "height": height,
+                "channels": 1, "fps": FPS,
+            }
+            with footage.open("rb") as f:
+                assert f.read(len(MONO_MAGIC)) == MONO_MAGIC
+                assert MONO_GEOM.unpack(f.read(MONO_GEOM.size)) == (
+                    width, height, 1,
+                )
+            file_ts = _frame_timestamps(footage, stride)
+            assert entry.start_ts_ns == file_ts[0]
+            assert entry.end_ts_ns == file_ts[-1]
+            timestamps += file_ts
     assert np.all(np.diff(timestamps) > 0)
-    assert entry.start_ts_ns == timestamps[0]
-    assert entry.end_ts_ns == timestamps[-1]
     expected = FPS * elapsed
     assert 0.5 * expected <= len(timestamps) <= 1.5 * expected + 1
 
