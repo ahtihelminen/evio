@@ -4,8 +4,10 @@ import sys
 from pathlib import Path
 
 import pytest
+from fakes.clock import FakeClock
 from fakes.sysfs_usb import add_usb_device
-from support.usb_unplug import find_usb_devices, unplugged
+from support import usb_unplug
+from support.usb_unplug import find_usb_devices, unplugged, within
 
 pytestmark = pytest.mark.t1
 
@@ -122,3 +124,22 @@ def test_a_port_with_no_matching_device_skips_naming_the_port(
     with pytest.raises(pytest.skip.Exception, match="port='9-9'"), \
             unplugged(vendor="04b4", port="9-9", sysfs=sysfs):
         pass
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
+    fake = FakeClock(max_sleeps=100)
+    monkeypatch.setattr(usb_unplug, "time", fake)
+    return fake
+
+
+def test_within_is_true_once_the_condition_holds(clock: FakeClock) -> None:
+    assert within(10, lambda: clock.now >= 1)
+    assert clock.now < 10
+
+
+def test_within_is_false_when_the_timeout_passes_first(
+    clock: FakeClock,
+) -> None:
+    assert not within(10, lambda: False)
+    assert 10 < clock.now < 11

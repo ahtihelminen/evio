@@ -7,11 +7,9 @@ one to unplug by its port path in `EVIO_UNPLUG_PORT`.
 from __future__ import annotations
 
 import os
-import time
-from collections.abc import Callable
 
 import pytest
-from support.usb_unplug import unplugged
+from support.usb_unplug import unplugged, within
 
 pytestmark = pytest.mark.hardware
 
@@ -20,14 +18,6 @@ IMX636_VENDOR = "1409"
 IMX636_PRODUCT = "8e00"
 PORT_ENV = "EVIO_UNPLUG_PORT"
 
-
-def _within(timeout_s: float, condition: Callable[[], bool]) -> bool:
-    deadline = time.monotonic() + timeout_s
-    while not condition():
-        if time.monotonic() > deadline:
-            return False
-        time.sleep(0.2)
-    return True
 
 
 @pytest.mark.usefixtures("imx636_camera")
@@ -40,7 +30,7 @@ def test_unplug_hides_a_camera_and_reattach_restores_it() -> None:
         product=IMX636_PRODUCT,
         port=os.environ.get(PORT_ENV),
     ):
-        assert _within(
+        assert within(
             10, lambda: len(attached - set(get_camera_serials())) == 1,
         )
-    assert _within(10, lambda: set(get_camera_serials()) == attached)
+    assert within(10, lambda: set(get_camera_serials()) == attached)

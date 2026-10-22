@@ -11,13 +11,24 @@ human to touch a cable.
 from __future__ import annotations
 
 import sys
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 
 SYSFS_USB = Path("/sys/bus/usb/devices")
+
+
+def within(timeout_s: float, condition: Callable[[], bool]) -> bool:
+    """Poll `condition` until it holds (True) or `timeout_s` passes (False)."""
+    deadline = time.monotonic() + timeout_s
+    while not condition():
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.2)
+    return True
 
 
 def _attribute(device: Path, name: str) -> str | None:

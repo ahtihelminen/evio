@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
-from support.usb_unplug import unplugged
+from support.usb_unplug import unplugged, within
 
 from evio.codec.dt8 import Dt8Codec, find_dat_data_offset
 from evio.recording import FootageRecorder
@@ -46,15 +46,6 @@ UNPLUG_TIMEOUT_S = 5.0  # the most a source may take to notice the unplug
 REATTACH_TIMEOUT_S = 15.0
 U3V_FPS = 10.0
 U3V_READ_TIMEOUT_MS = 1000
-
-
-def _within(timeout_s: float, condition: Callable[[], bool]) -> bool:
-    deadline = time.monotonic() + timeout_s
-    while not condition():
-        if time.monotonic() > deadline:
-            return False
-        time.sleep(0.2)
-    return True
 
 
 def _for(seconds: float) -> Callable[[], bool]:
@@ -98,7 +89,7 @@ def _unplug_mid_recording(
     thread = threading.Thread(target=run, name="unplug-recording", daemon=True)
     thread.start()
     try:
-        assert _within(OPEN_TIMEOUT_S, lambda: bool(written) or bool(ended)), (
+        assert within(OPEN_TIMEOUT_S, lambda: bool(written) or bool(ended)), (
             "nothing recorded"
         )
         time.sleep(RECORD_S)
@@ -114,7 +105,7 @@ def _unplug_mid_recording(
     assert ended, "the source raised something other than a device error"
     if (error := ended[0]) is not None:
         assert str(error), f"{type(error).__name__} without a message"
-    assert _within(
+    assert within(
         REATTACH_TIMEOUT_S, lambda: any(device.glob(f"{device.name}:*")),
     ), "device interfaces did not come back after the reattach"
 
@@ -175,12 +166,12 @@ def _imx636_serial_on(port: str | None) -> str:
 
     attached = set(get_camera_serials())
     with unplugged(vendor=IMX636_VENDOR, product=IMX636_PRODUCT, port=port):
-        assert _within(
+        assert within(
             REATTACH_TIMEOUT_S,
             lambda: len(attached - set(get_camera_serials())) == 1,
         )
         (serial,) = attached - set(get_camera_serials())
-    assert _within(
+    assert within(
         REATTACH_TIMEOUT_S, lambda: set(get_camera_serials()) == attached,
     )
     return serial
@@ -205,7 +196,7 @@ def test_imx636_recording_survives_an_unplug(tmp_path: Path) -> None:
         tmp_path / "before", before, source.width, source.height,
     )
 
-    assert _within(
+    assert within(
         REATTACH_TIMEOUT_S, lambda: source.serial in get_camera_serials(),
     )
     after: list[np.ndarray] = []
