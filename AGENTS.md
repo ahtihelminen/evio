@@ -48,6 +48,12 @@ and a human promotes `dev` to `main` on their own schedule. How to rebase, push 
 is in the `gitlab-usage` skill, and the GitLab project settings enforce the rest (merge
 method, passing pipeline, protected branches, squash); read those, not this file.
 
+Promotion keeps `main` a prefix of `dev`: `main` only ever moves by fast-forwarding to a
+`dev` commit, and nothing is committed to `main` directly. Promote with the merge request
+`dev` -> `main` and no merge commit. If it reports `need_rebase`, `main` holds a commit `dev`
+lacks; merge `main` into `dev` through a merge request (never rebase `dev`, tags point at
+its commits), then promote.
+
 Branches:
 - Name a branch after its Linear issue: use the branch name Linear generates for it
   (`feature/sn-NN-<title>`). With no issue, use `<type>/<short-slug>` (`feat/`, `fix/`,
