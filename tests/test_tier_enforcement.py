@@ -47,8 +47,8 @@ def _module_marks(path: Path) -> list[str]:
 def _tier_offenders(tests: Path) -> dict[str, list[str]]:
     """Test modules under `tests` without exactly one tier marker."""
     return {
-        path.name: sorted(set(_module_marks(path)) & _TIERS)
-        for path in sorted(tests.glob("test_*.py"))
+        str(path.relative_to(tests)): sorted(set(_module_marks(path)) & _TIERS)
+        for path in sorted(tests.rglob("test_*.py"))
         if len(set(_module_marks(path)) & _TIERS) != 1
     }
 
@@ -57,7 +57,7 @@ def _tiers_without_floor(tests: Path, manifest: dict[str, object]) -> set[str]:
     """Marks declared by test modules under `tests` with no manifest floor."""
     declared = {
         mark
-        for path in tests.glob("test_*.py")
+        for path in tests.rglob("test_*.py")
         for mark in _module_marks(path)
         if not mark.startswith("skipif")
     }
@@ -75,3 +75,24 @@ def test_the_manifest_covers_every_declared_tier() -> None:
     path = _TESTS / "fixtures" / "tier_manifest.json"
     missing = _tiers_without_floor(_TESTS, json.loads(path.read_text()))
     assert not missing, f"tiers with no committed floor: {sorted(missing)}"
+
+
+def _write_hardware_module(tests: Path, pytestmark: str) -> None:
+    (tests / "hardware").mkdir(parents=True)
+    (tests / "hardware" / "test_probe.py").write_text(
+        f"import pytest\n\npytestmark = {pytestmark}\n"
+    )
+
+
+def test_a_module_in_a_subdirectory_without_a_tier_is_an_offender(
+    tmp_path: Path,
+) -> None:
+    _write_hardware_module(tmp_path, "[]")
+    assert _tier_offenders(tmp_path) == {"hardware/test_probe.py": []}
+
+
+def test_a_tier_declared_only_in_a_subdirectory_needs_a_floor(
+    tmp_path: Path,
+) -> None:
+    _write_hardware_module(tmp_path, "pytest.mark.t3")
+    assert _tiers_without_floor(tmp_path, {"t1": 1}) == {"t3"}
