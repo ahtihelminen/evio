@@ -34,11 +34,13 @@ it.
 - `dtc/` — the detect-track-classify pipeline contract, chain and
   conformance kit.
 - `rendering/` — event-to-frame rendering and overlays.
-- `recording/` — hour-bucketed footage capture and crash recovery.
+- `recording/` — hour-bucketed footage capture and crash recovery, and the
+  labelled recording format (one HDF5 file of events, boxes and metadata).
 - `focus/` — the event-based lens-focus metric.
 - `time/` — the time-source abstraction.
 
-`docs/modules/` has per-package notes.
+`docs/modules/` has per-package notes; `docs/modules/labelled-recording.md`
+specifies the labelled recording file format.
 
 ## Setup
 
