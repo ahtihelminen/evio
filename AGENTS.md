@@ -51,8 +51,9 @@ method, passing pipeline, protected branches, squash); read those, not this file
 Promotion keeps `main` a prefix of `dev`: `main` only ever moves by fast-forwarding to a
 `dev` commit, and nothing is committed to `main` directly. Promote with the merge request
 `dev` -> `main` and no merge commit. If it reports `need_rebase`, `main` holds a commit `dev`
-lacks; merge `main` into `dev` through a merge request (never rebase `dev`, tags point at
-its commits), then promote.
+lacks. Never rebase `dev` (tags point at its commits). Merging `main` into `dev` through a
+merge request only works if nothing else lands on `dev` first: GitLab then rebases the
+request and drops the merge commit. Otherwise a Maintainer realigns `main` to `dev`.
 
 Branches:
 - Name a branch after its Linear issue: use the branch name Linear generates for it
