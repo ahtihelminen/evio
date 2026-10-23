@@ -255,7 +255,9 @@ What it checks, for each camera type:
   (`test_crash_recovery.py`);
 - unplug recovery: a camera unplugged mid-recording is given up within a
   timeout, keeps what it recorded, and records again after the reattach
-  (`test_camera_unplug.py`, `test_usb_unplug.py`).
+  (`test_camera_unplug.py`);
+- unplug helper: a software unplug hides one camera from enumeration and the
+  reattach restores it (`test_usb_unplug.py`).
 
 The crash and the unplug are done in software, so nobody has to touch the
 rig; `docs/hardware-tests.md` describes both helpers.
