@@ -25,8 +25,11 @@ so a method stays small and every cross-cutting concern is written once.
   pipeline interface. A detector-only or tracker-only chain is the same shape
   with fewer outputs.
 - The tracker can feed priors (such as predicted regions) back to the detector
-  on the next step, because real chains use them. The chain stays linear
-  otherwise; no general DAG.
+  on the next step, because real chains use them. More generally any stage
+  may declare that it reads the chain's outputs of the last step (feedback),
+  and any stage may read cues from outside the chain, both on the `Step`;
+  none has to. Within a step the chain stays linear; feedback only crosses
+  step boundaries, so it is no general DAG.
 
 ### 2.2 Causal, driven by sensor time
 
@@ -159,8 +162,8 @@ costs a method author nothing.
 
 ### 2.10 Deliberately left out
 
-A general DAG of stages (the linear chain, a fused option and priors cover what
-exists today), and async everywhere (async stays inside the shared classifier
+A general DAG of stages (the linear chain, a fused option, feedback across
+steps and cues cover what exists today), and async everywhere (async stays inside the shared classifier
 service).
 
 ## 3. How the current modules fit

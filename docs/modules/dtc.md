@@ -34,10 +34,52 @@ Placement, timing, errors and scoring are done to it from outside.
   `ResourceError` for a missing dependency.
 - Evidence views (patch ring, ROI events, event series, kinematics) are
   requested in the manifest and computed once per stream per step.
+- Any stage may take priors, and none has to (see *Priors* below).
 - The chain owns candidate filtering, classifier cadence and verdict age,
   timing (injectable `Timer`), taps, faults and provenance.
 - Faults: `FaultPolicy.FIELD` isolates the faulting stage, surfaces a
   `Fault` and a degraded status; `RESEARCH` raises `StageFault`.
+
+## Priors
+
+Every stage can be given priors through the `Step` it already receives; no
+stage signature carries them, so a method that ignores them is unchanged.
+
+- **Cues** (`Step.cues`, `Cue`) come from outside the chain: another
+  camera's hand-off, a radar cue, an operator-confirmed target, a site map.
+  The source sets them; `Step.only` hands a stream its own cues and the
+  global ones (`stream` None), and a joint method sees all. A `Cue` names a
+  `kind` and its `source`, a region, a track id or both. A method ignores
+  kinds it does not know (the conformance kit checks this), so new kinds
+  need no method changes. The chain publishes each step's cues on the
+  `cues` tap and `runner.with_cues` puts recorded cues back for a replay.
+  Static priors that do not change per step stay source facts.
+- **Feedback** (`Step.feedback`, an `Output`) is the chain's own outputs of
+  the last step it ran. A method names the stage kinds it reads in its
+  manifest, `feedback=(Stage.CLASSIFY,)`, its own kind included; the chain
+  fills only those parts, each stream's share for a per-stream method and
+  every stream merged for a joint one. Everything else stays empty
+  (`NO_FEEDBACK`), and so does a declared kind no stage in the chain
+  produces: feedback is never required. A source may not set it.
+
+Within a step the stages still run in order, each seeing only earlier
+stages; feedback only crosses step boundaries, so a chain stays causal and
+deterministic and replay is still the live path. `reset()` forgets the last
+step. "The last step it ran" is not always `index - 1`: a source may skip
+indices across a gap, so a method that ages what it holds uses `step.index`
+or the verdicts' `age_steps`.
+
+```python
+@method("hold-tracker", stages=(Stage.TRACK,), feedback=(Stage.CLASSIFY,))
+class HoldTracker:
+    def step(self, step: Step, candidates: Candidates) -> Tracks:
+        drones = {v.track_id for v in step.feedback.verdicts.items
+                  if v.probability >= 0.9}
+        ...  # keep `drones` alive longer while candidates are missing
+```
+
+The tracker-to-detector `priors` argument is unchanged and is still the
+tracker's predicted regions.
 
 ## A toy method
 
@@ -57,7 +99,9 @@ class Threshold:
 
 Run `check_method("threshold", facts={...})` from `evio.dtc.conformance`:
 determinism, `reset()`, no cross-stream leak, inputs not mutated, empty
-windows, no clock, no heavy import at module level.
+windows, no clock, no heavy import at module level, well-formed and
+deterministic output with cues and feedback on the steps, and unknown cue
+kinds ignored.
 
 ## Running
 
@@ -93,6 +137,7 @@ mutate them.
 
 - `TrackManager` mints ULIDs from the wall clock; the `trackmanager` adapter
   defaults to counter ids so replay is reproducible.
-- Priors and live ids carry no stream key; a joint tracker's priors reach
-  every stream's detector.
+- A tracker's predicted regions (`Tracks.priors`) and live ids carry no
+  stream key; a joint tracker's reach every stream's detector, and its
+  `live_ids` and `priors` reach every stream in feedback too.
 - A classifier's cadence is fixed by its manifest at decoration time.
