@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 
 from evio.core.events import EventsBatch
-from evio.detection.live_camera import SEQ_LEN
+from evio.detection.track_classifier import SEQ_LEN
 from evio.detection.types import Detection
 
 pytestmark = pytest.mark.t1

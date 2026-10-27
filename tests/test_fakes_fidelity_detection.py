@@ -17,7 +17,7 @@ from fakes.kinematic_llr import FakeDet
 from fakes.track_classifier import FakeStatefulBundle
 
 from evio.detection.kinematic_llr import assemble_features
-from evio.detection.live_camera import SEQ_LEN
+from evio.detection.track_classifier import SEQ_LEN
 from evio.detection.types import Detection
 
 pytestmark = pytest.mark.t1

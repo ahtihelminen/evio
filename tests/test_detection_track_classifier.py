@@ -14,8 +14,7 @@ from fakes.track_classifier import FakeStatefulBundle
 
 from evio.core.events import EventsBatch
 from evio.detection import track_classifier as tc
-from evio.detection.live_camera import SEQ_LEN
-from evio.detection.track_classifier import TrackTransformerClassifier
+from evio.detection.track_classifier import SEQ_LEN, TrackTransformerClassifier
 from evio.detection.types import Detection
 
 pytestmark = pytest.mark.t1

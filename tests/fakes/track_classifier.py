@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from evio.detection.live_camera import SEQ_LEN
+from evio.detection.track_classifier import SEQ_LEN
 
 
 class FakeStatefulBundle:

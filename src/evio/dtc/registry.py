@@ -14,8 +14,6 @@ with `step` and `reset`, and one decorator:
         def reset(self) -> None: ...
 
 Config is data, validated against the dataclass; unknown keys are rejected.
-This registry is separate from `evio.detection.pipeline.registry`, which is
-untouched.
 """
 
 from __future__ import annotations

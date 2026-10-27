@@ -3,14 +3,12 @@
 Two consumers score the same v2/v3 checkpoints from different detection
 front-ends, so the load + inference logic lives here once:
 
-* the research repo's live-panorama overlay engine feeds
-  ``CameraDetectionResult`` patches/events through
-  :func:`predict_drone_probs`.
+* the research repo's live-panorama overlay engine feeds stacked
+  patches/events through :func:`predict_drone_probs`.
 * :class:`TrackTransformerClassifier` (the SAPIENT runner) keeps its own
-  per-track patch/event rings — the runner runs a hot-swappable pipeline
-  and a configurable tracker that ``CameraDetector`` doesn't model — and
-  returns a sticky ``{track_id: drone_prob}`` map so the verdict can ride
-  onto each ``Detection.classification`` into SAPIENT.
+  per-track patch/event rings and returns a sticky ``{track_id: drone_prob}``
+  map so the verdict can ride onto each ``Detection.classification`` into
+  SAPIENT.
 
 The transformer is optional at runtime: if torch or the checkpoint is
 missing, :func:`load_track_transformer` returns a ``None`` bundle and a
@@ -29,8 +27,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from evio.detection.event_tokens import tokenize_events_in_track
-from evio.detection.live_camera import EVENT_MAX, SEQ_LEN
+from evio.detection.event_tokens import DEFAULT_E_MAX, tokenize_events_in_track
 from evio.detection.reid import extract_event_patch
 
 if TYPE_CHECKING:
@@ -38,6 +35,12 @@ if TYPE_CHECKING:
     from evio.detection.types import Detection
 
 _log = logging.getLogger(__name__)
+
+# v2 transformer fixed input geometry (must match the D_mae8 corpus).
+SEQ_LEN = 16
+
+# v3 raw-event branch: per-track event tokens are sub-sampled to this many.
+EVENT_MAX = DEFAULT_E_MAX
 
 _Bbox = tuple[int, int, int, int]
 

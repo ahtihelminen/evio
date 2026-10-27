@@ -134,10 +134,6 @@ ignore = [
 # The emitter deliberately catches any subscriber exception to keep the
 # detection pipeline running when a downstream consumer misbehaves.
 "src/evio/detection/emitter.py" = ["BLE001"]
-# Worker-side detection is best-effort: safe_update swallows any failure so
-# a detector bug disables detection for one camera instead of killing the
-# streaming/recording worker process.
-"src/evio/detection/live_camera.py" = ["BLE001"]
 # Mono-footage capture runs on a background thread against the camera SDK;
 # any open/grab failure is logged and ends capture rather than crashing the
 # caller, so the camera-grab boundary is wrapped in a blind except.
