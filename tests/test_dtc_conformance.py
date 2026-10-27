@@ -23,6 +23,7 @@ SOUND = [
     "toy-classifier",
     "toy-decision",
     "toy-fused",
+    "toy-feedback-reader",
 ]
 BROKEN = [
     ("toy-nondeterministic", "deterministic"),
@@ -33,6 +34,8 @@ BROKEN = [
     ("toy-wrong-type", "output_well_typed"),
     ("toy-reads-clock", "reads_no_clock"),
     ("toy-needs-fact", "manifest_sane"),
+    ("toy-reacts-to-unknown-cue", "unknown_cues_ignored"),
+    ("toy-crashes-on-feedback", "priors_handled"),
 ]
 
 

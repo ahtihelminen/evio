@@ -3,7 +3,9 @@
 `check_method` builds a method through the registry and drives it directly
 with synthetic input matching its first stage (steps for a detector or a
 fused method, candidates for a tracker, tracks for a classifier, tracks and
-verdicts for a decision). It returns human-readable failures, each prefixed
+verdicts for a decision), plain or carrying priors: a cue per window and a
+plausible last step as feedback, each stream's own share. It returns
+human-readable failures, each prefixed
 with the check that found it; an empty list means conformant. Each check is
 its own function of a `Rig`, so a caller can run just one.
 
@@ -16,7 +18,7 @@ import sys
 import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass, is_dataclass
+from dataclasses import dataclass, is_dataclass, replace
 from inspect import ismodule
 from typing import Any
 from unittest import mock
@@ -29,11 +31,13 @@ from evio.dtc.manifest import Manifest, Scope, Stage, check_dependencies
 from evio.dtc.protocols import Context
 from evio.dtc.registry import METHODS, create
 from evio.dtc.types import (
+    NO_FEEDBACK,
     OK,
     Alarm,
     Alarms,
     Candidate,
     Candidates,
+    Cue,
     Output,
     Region,
     State,
@@ -138,6 +142,38 @@ def _tracks(step: Step) -> Tracks:
     return Tracks(items, frozenset(t.id for t in items))
 
 
+def _primed(steps: list[Step], kind: str = "conformance") -> list[Step]:
+    """The steps with a `kind` cue per window and, as feedback, outputs a
+    chain could have made on the step before."""
+    primed, last = [], NO_FEEDBACK
+    for step in steps:
+        cues = tuple(Cue(kind, s, r, f"{s}:0") for s, r in _regions(step))
+        primed.append(replace(step, cues=cues, feedback=last))
+        tracks = _tracks(step)
+        verdicts = tuple(Verdict(t.stream, t.id, 0.9) for t in tracks.items)
+        last = Output(
+            Candidates(tuple(Candidate(t.stream, t.region, 1.0)
+                             for t in tracks.items)),
+            tracks,
+            Verdicts(verdicts),
+            Alarms(tuple(Alarm(v.stream, v.track_id) for v in verdicts)),
+        )
+    return primed
+
+
+def _own(step: Step, stream: str) -> Step:
+    """One stream's step, with only that stream's share of the feedback."""
+    feedback = step.feedback
+    shares = {
+        name: replace(part, items=tuple(
+            i for i in part.items if i.stream == stream
+        ))
+        for name in ("candidates", "tracks", "verdicts", "alarms")
+        if (part := getattr(feedback, name)) is not None
+    }
+    return replace(step.only(stream), feedback=replace(feedback, **shares))
+
+
 def _call(instance: Instance, manifest: Manifest, step: Step) -> object:
     """Call `instance.step` with the arguments its first stage takes."""
     first = manifest.stages[0]
@@ -192,7 +228,7 @@ class Rig:
         runs: Runs = {key: [] for key in instances}
         for step in steps:
             for key, instance in instances.items():
-                view = step if key is None else step.only(key)
+                view = step if key is None else _own(step, key)
                 runs[key].append(_call(instance, self.manifest, view))
         return runs
 
@@ -325,12 +361,12 @@ def deterministic(rig: Rig) -> list[str]:
 
 
 def reset_restores_fresh_state(rig: Rig) -> list[str]:
-    """Run, reset, rerun: the rerun equals the first run."""
+    """Run, reset, rerun: the rerun equals the first run, priors included."""
     instances = rig.instances()
-    first = rig.drive(instances, rig.steps())
+    first = rig.drive(instances, _primed(rig.steps()))
     for instance in instances.values():
         instance.reset()
-    again = rig.drive(instances, rig.steps())
+    again = rig.drive(instances, _primed(rig.steps()))
     return _differences("rerun after reset", first, again)
 
 
@@ -405,6 +441,25 @@ def imports_nothing_heavy(rig: Rig) -> list[str]:
     return [f"module imports {name!r}" for name in sorted(HEAVY_MODULES & held)]
 
 
+def priors_handled(rig: Rig) -> list[str]:
+    """Steps carrying cues and feedback give well-formed, deterministic
+    output; whether the method uses them is its own business."""
+    first = rig.drive(rig.instances(), _primed(rig.steps()))
+    again = rig.drive(rig.instances(), _primed(rig.steps()))
+    return _shape_failures(rig, first) + _differences("primed", first, again)
+
+
+def unknown_cues_ignored(rig: Rig) -> list[str]:
+    """Cues of a kind the method does not know change nothing, so new kinds
+    can reach a chain without touching its methods."""
+    plain = rig.drive(rig.instances(), rig.steps())
+    cued = [
+        replace(step, feedback=NO_FEEDBACK)
+        for step in _primed(rig.steps(), "never-heard-of")
+    ]
+    return _differences("unknown cues", plain, rig.drive(rig.instances(), cued))
+
+
 def output_well_typed(rig: Rig) -> list[str]:
     """The stage's output type, a Status, Regions and known streams."""
     return _shape_failures(rig, rig.drive(rig.instances(), rig.steps()))
@@ -420,6 +475,8 @@ CHECKS: tuple[Callable[[Rig], list[str]], ...] = (
     reads_no_clock,
     imports_nothing_heavy,
     output_well_typed,
+    priors_handled,
+    unknown_cues_ignored,
 )
 
 

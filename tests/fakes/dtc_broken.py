@@ -120,6 +120,27 @@ class NeedsFact(Centroid):
     pass
 
 
+class ReactsToUnknownCue(Centroid):
+    def step(self, step: Step, priors: Sequence[Region]) -> Candidates:
+        self.seen += len(step.cues)
+        return super().step(step, priors)
+
+
+class CrashesOnFeedback(Centroid):
+    def step(self, step: Step, priors: Sequence[Region]) -> Candidates:
+        _ = step.feedback.verdicts.items[0]
+        return super().step(step, priors)
+
+
+class FeedbackReader(Centroid):
+    """Sound: counts the last step's verdicts and the radar cues it sees."""
+
+    def step(self, step: Step, priors: Sequence[Region]) -> Candidates:
+        self.seen += len(step.feedback.verdicts.items)
+        self.seen += sum(c.kind == "radar" for c in step.cues)
+        return super().step(step, priors)
+
+
 class WrongType(Centroid):
     def step(self, step: Step, priors: Sequence[Region]) -> Tracks:
         return Tracks()
@@ -183,4 +204,11 @@ TOYS: dict[str, tuple[type, tuple[Stage, ...], dict[str, Any]]] = {
     "toy-wrong-type": (WrongType, DETECT, {}),
     "toy-reads-clock": (ReadsClock, DETECT, {}),
     "toy-needs-fact": (NeedsFact, DETECT, {"requires": ("deg_per_px",)}),
+    "toy-reacts-to-unknown-cue": (ReactsToUnknownCue, DETECT, {}),
+    "toy-crashes-on-feedback": (
+        CrashesOnFeedback, DETECT, {"feedback": (Stage.CLASSIFY,)},
+    ),
+    "toy-feedback-reader": (
+        FeedbackReader, DETECT, {"feedback": (Stage.CLASSIFY,)},
+    ),
 }
