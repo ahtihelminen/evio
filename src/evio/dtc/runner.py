@@ -6,15 +6,16 @@ iterable of steps (a file, a camera, a test) feeds it alike.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from evio.core.events import EventsBatch
-from evio.dtc.types import Step, StreamKey, Window
+from evio.dtc.types import Cue, Step, StreamKey, Window
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Iterable, Iterator, Mapping
 
     from evio.dtc.result import Pipeline, StepResult
 
@@ -120,7 +121,17 @@ def zip_steps(*streams: Iterable[Step]) -> Iterator[Step]:
             steps[0].t_start_us,
             steps[0].t_end_us,
             {key: w for s in steps for key, w in s.windows.items()},
+            tuple(c for s in steps for c in s.cues),
         )
+
+
+def with_cues(
+    steps: Iterable[Step], cues: Mapping[int, tuple[Cue, ...]]
+) -> Iterator[Step]:
+    """Each step with the cues recorded for its index (the `cues` tap), so a
+    replay hands every stage exactly the cues the live run did."""
+    for step in steps:
+        yield replace(step, cues=step.cues + cues.get(step.index, ()))
 
 
 def run(pipeline: Pipeline, steps: Iterable[Step]) -> Iterator[StepResult]:

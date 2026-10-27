@@ -1,12 +1,14 @@
 """Source-side helpers that reshape steps before any method sees them.
 
 A mosaic is a source, not a method property: `stitch` turns several windows
-into one under a new stream key, and `seam_columns` says where the joins are
-so the source can advertise them as the `seams` fact.
+into one under a new stream key, moving the tiles' cues with them, and
+`seam_columns` says where the joins are so the source can advertise them as
+the `seams` fact.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -56,7 +58,18 @@ def stitch(
         else None
     )
     mosaic = Window(stream, events, step.t_start_us, step.t_end_us, extent)
-    return Step(step.index, step.t_start_us, step.t_end_us, {stream: mosaic})
+    offsets = {key: (dx, dy) for key, dx, dy in layout}
+    cues = tuple(
+        cue if cue.stream is None else replace(
+            cue, stream=stream,
+            region=cue.region and cue.region.moved(*offsets[cue.stream]),
+        )
+        for cue in step.cues
+        if cue.stream is None or cue.stream in offsets
+    )
+    return Step(
+        step.index, step.t_start_us, step.t_end_us, {stream: mosaic}, cues
+    )
 
 
 def seam_columns(

@@ -198,6 +198,10 @@ class Chain:
         if unknown:
             msg = f"windows for streams not built for: {sorted(unknown)}"
             raise ConfigError(msg)
+        cued = {c.stream for c in step.cues} - {None, *self._streams}
+        if cued:
+            msg = f"cues for streams not built for: {sorted(cued)}"
+            raise ConfigError(msg)
         self._last_index = step.index
         run = _Run(step)
         for stage in self._stages:
@@ -432,6 +436,7 @@ class Chain:
         for name, timing in timings.items():
             self.stats[name].record(timing)
         step = run.step
+        self._publish(run, "cues", step.cues)
         self._publish(run, "candidates", merged[Candidates].items)
         self._publish(run, "tracks", tracks.items)
         self._publish(run, "verdicts", merged[Verdicts].items)

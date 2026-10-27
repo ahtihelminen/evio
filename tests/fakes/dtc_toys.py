@@ -67,6 +67,7 @@ class Detector:
 
     def step(self, step: Step, priors: Sequence[Region]) -> Candidates:
         LOG["priors"].append((self.stream, tuple(priors)))
+        LOG["cues"].append((self.stream, step.cues))
         events = step.windows[self.stream].events
         if not len(events.timestamps):
             return Candidates()
@@ -102,6 +103,7 @@ class JointDetector:
 
     def step(self, step: Step, priors: Sequence[Region]) -> Candidates:
         LOG["joint-priors"].append(tuple(priors))
+        LOG["joint-cues"].append(step.cues)
         return Candidates(
             tuple(
                 Candidate(stream, Region((0, 0, 2 * HALF_PX, 2 * HALF_PX)), 1)

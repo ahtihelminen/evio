@@ -12,7 +12,7 @@ Time is sensor time in integer microseconds; nothing here reads a clock.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -39,29 +39,6 @@ class Window:
     t_start_us: int
     t_end_us: int
     extent: tuple[int, int] | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class Step:
-    """One tick of sensor time: one or more aligned windows."""
-
-    index: int
-    t_start_us: int
-    t_end_us: int
-    windows: Mapping[StreamKey, Window]
-
-    @property
-    def duration_us(self) -> int:
-        return self.t_end_us - self.t_start_us
-
-    def only(self, stream: StreamKey) -> Step:
-        """The same step restricted to one stream's window."""
-        return Step(
-            self.index,
-            self.t_start_us,
-            self.t_end_us,
-            {stream: self.windows[stream]},
-        )
 
 
 class State(StrEnum):
@@ -106,6 +83,15 @@ class Region:
             return ((x0 + x1) / 2, (y0 + y1) / 2)
         assert self.point is not None
         return self.point
+
+    def moved(self, dx: float, dy: float) -> Region:
+        """The same region shifted by (dx, dy)."""
+        box = self.box and (
+            self.box[0] + dx, self.box[1] + dy,
+            self.box[2] + dx, self.box[3] + dy,
+        )
+        point = self.point and (self.point[0] + dx, self.point[1] + dy)
+        return Region(box, point, self.velocity_px_s)
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,6 +178,50 @@ class Output:
     tracks: Tracks | None = None
     verdicts: Verdicts | None = None
     alarms: Alarms | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Cue:
+    """A prior from outside the chain: another camera's hand-off, a radar
+    cue, an operator-confirmed target, a site map's trees. `kind` says which
+    and a method ignores kinds it does not know; `source` says where it came
+    from. It names a region, a track id or both. A cue with `stream` None
+    reaches every stream."""
+
+    kind: str
+    stream: StreamKey | None = None
+    region: Region | None = None
+    track_id: str | None = None
+    score: float = 1.0
+    source: str = ""
+    features: Mapping[str, float] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class Step:
+    """One tick of sensor time: one or more aligned windows.
+
+    `cues` are priors from outside the chain, set by the source; a method
+    may read or ignore them.
+    """
+
+    index: int
+    t_start_us: int
+    t_end_us: int
+    windows: Mapping[StreamKey, Window]
+    cues: tuple[Cue, ...] = ()
+
+    @property
+    def duration_us(self) -> int:
+        return self.t_end_us - self.t_start_us
+
+    def only(self, stream: StreamKey) -> Step:
+        """The same step restricted to one stream's window and cues."""
+        return replace(
+            self,
+            windows={stream: self.windows[stream]},
+            cues=tuple(c for c in self.cues if c.stream in (stream, None)),
+        )
 
 
 @dataclass(frozen=True, slots=True)
