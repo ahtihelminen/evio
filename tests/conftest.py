@@ -22,6 +22,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 from support.coverage_floor import shortfalls
 from support.hygiene import Snapshot, leaks
 
+# `import openvino` starts Intel's GA4 telemetry, which sends from a worker
+# process: a network call, and a leak on a run shorter than the send. With
+# the module unimportable, OpenVINO falls back to its no-op stub.
+sys.modules["openvino_telemetry"] = None
+
 _AT_START: list[Snapshot] = []
 _COVERAGE: list[coverage.Coverage] = []
 
