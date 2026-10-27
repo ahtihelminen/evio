@@ -2,8 +2,6 @@
 
 Hosts detect, track, classify (DTC) pipelines so methods can be swapped, run
 live or offline, and compared. The design is `docs/plans/dtc-architecture.md`.
-The existing `detection.pipeline` registry is untouched; this package is
-additive.
 
 ## Responsibilities
 

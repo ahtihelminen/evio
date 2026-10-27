@@ -1,18 +1,15 @@
 # Detection Module (`src/evio/detection`)
 
 This document describes the detection package as a whole: grid abstractions,
-feature extraction, background modeling, the detection pipeline, tracking and
-the track classifier/verdict stack.
+feature extraction, tracking and the track classifier/verdict stack. Detection
+methods are composed into chains by `src/evio/dtc` (`docs/modules/dtc.md`).
 
 Files and packages covered:
 
 - `src/evio/detection/grid.py`, `feature_functions.py`, `features/*`
-- `src/evio/detection/background/*`
-- `src/evio/detection/pipeline/*`
-- `src/evio/detection/types.py`, `emitter.py`, `dedupe.py`
+- `src/evio/detection/types.py`, `emitter.py`
 - `src/evio/detection/persistence.py`, `spawn_density.py`
 - `src/evio/detection/tracker.py`, `reid.py`
-- `src/evio/detection/live_camera.py`
 - `src/evio/detection/track_classifier.py`, `temporal_transformer*.py`,
   `openvino_transformer.py`, `event_tokens.py`
 - `src/evio/detection/verdict_gate.py`, `kinematic_llr.py`, `rotor_llr.py`,
@@ -25,10 +22,8 @@ The detection package owns algorithms on top of `EventsBatch`:
 
 1. Spatial/temporal discretization (`GridConfig`).
 2. Per-cell feature extraction and a feature-name registry.
-3. Background classification and per-class anomaly scoring.
-4. Candidate detection via track-before-detect (TBD) scoring.
-5. Clutter suppression, tracking and re-identification.
-6. Per-track drone classification and verdict gating.
+3. Clutter suppression, tracking and re-identification.
+4. Per-track drone classification and verdict gating.
 
 It does not own:
 
@@ -69,48 +64,15 @@ Feature outputs are typically flattened `(grid.cells,)` arrays.
 This lets a feature be selected by string. Consumers in the ops repo: the
 per-camera worker processes, which build grid stats per camera by name.
 
-### `background/*`
-
-Background model primitives:
-
-- microstate construction (`microstate.py`, re-exported by
-  `background/__init__.py`)
-- score/stat helpers (`metrics.py`)
-- 2-class (sky / not-sky) background clustering (`classes.py`,
-  `BackgroundClassesClassifier`)
-
-Key consumers: `pipeline/dual_background.py` and
-`pipeline/simplified_pipeline.py`.
-
-### `pipeline/*`
-
-- `registry.py`: the `DetectionPipeline` protocol (anything with
-  `.update(batch).detections`) and a name-keyed registry (`register`,
-  `build`, `list_pipelines`, `PIPELINES`) so the active pipeline can be
-  swapped by name. Registration happens at import of
-  `evio.detection.pipeline`.
-- `simplified_pipeline.py`: `SimplifiedDetectionPipeline`, the only
-  registered pipeline (`"simplified"`, factory in `pipeline/__init__.py`).
-- `dual_background.py`: `DualBackgroundScorer`, per-class background
-  abnormality scoring with separate sky/not-sky models (z-maps, calibration).
-- `simplified_tbd.py`: `SimplifiedTbdStage`, track-before-detect with
-  integrated candidate detection from the z-map (motion-hypothesis velocity
-  sweep, PSR baseline, coherence score `m_coh`).
-
-`pipeline/__init__.py` re-exports the stage types, the registry API and
-`Detection`/`Classification`.
-
 ### Detection types and post-processing
 
 - `types.py`: `Detection` (the single-window primitive: bbox, velocity,
   `m_coh`, `best_psr`, `z_score`, `camera_id`, `track_id`, optional
   `classification`, patch/embedding and score fields) and `Classification`
   (`label`, `confidence`).
-- `emitter.py`: `DetectionEmitter` pub/sub hook the pipeline emits each
-  detection into; subscriber exceptions are logged and swallowed.
+- `emitter.py`: `DetectionEmitter` pub/sub hook each detection is emitted
+  into; subscriber exceptions are logged and swallowed.
   `relay_with_camera_id` tags detections with their camera.
-- `dedupe.py`: `deduplicate_by_iou` (greedy NMS by `m_coh`) and
-  `top_k_by_mcoh`.
 - `persistence.py`: `PersistenceMap`, per-cell hit-rate map that drops
   detections in persistent slow-moving clutter cells before the tracker.
 - `spawn_density.py`: `SpawnDensityMap`, suppresses regions spawning too many
@@ -119,21 +81,12 @@ Key consumers: `pipeline/dual_background.py` and
 ### Tracking
 
 - `tracker.py`: `TrackManager`, a constant-velocity Kalman tracker. Run once
-  per window after dedupe; returns detections annotated with stable
+  per window; returns detections annotated with stable
   `track_id`s (ULIDs from `core.ids.new_ulid`) and a fit-scaled `m_coh`.
   Configured via `TrackManagerConfig`.
 - `reid.py`: signature/embedding re-identification so a track that times out
   (occlusion, sun) can be recognised and its id reused; renders event patches
   with `rendering.frame.get_frame`.
-
-### Per-camera detection
-
-`live_camera.py`: `CameraDetector`, torch-free detect -> track ->
-patch/tokenize stage that can run inside a camera worker process. `update`
-returns a `CameraDetectionResult` (boxes, recorder object-ids, and stacked
-patches/events for tracks whose 16-frame ring just filled). `safe_update`
-runs one tick and returns `None` on failure, so detection errors never crash
-the worker.
 
 ### Classification
 
@@ -160,32 +113,11 @@ the worker.
 - `irstd.py`: MPCM local-contrast re-scorer on the event patch
   (`irstd_features`).
 
-## Pipeline data flow
-
-`SimplifiedDetectionPipeline.update(batch)` runs:
-
-1. `BackgroundClassesClassifier.update(batch)` -> sky/not-sky class map
-   (calibrating until the class map exists).
-2. `DualBackgroundScorer.update(batch, class_map)` -> `DualBackgroundResult`
-   with the z-map.
-3. `SimplifiedTbdStage.update(batch, z_map, class_map, ...)` with per-class
-   thresholds -> detections.
-4. Each detection is emitted through `DetectionEmitter`.
-
-It returns a `SimplifiedPipelineResult` (`window_index`, `calibrating`,
-`class_map`, `z_map`, `detections`, calibration progress, `bg_result`).
-
-Downstream of the pipeline, consumers dedupe, apply the persistence and
-spawn-density gates, track with `TrackManager`, classify with
-`TrackTransformerClassifier` and commit verdicts through a verdict gate.
-Consumers in the ops repo: the per-camera worker processes and the appliance
-loop.
-
 ## Public API shape and stability notes
 
 - `src/evio/detection/__init__.py` is empty.
-- Stable entry points are `evio.detection.pipeline` exports plus `GridConfig`,
-  `types`, `tracker`, `track_classifier` and `verdict_gate`.
+- Stable entry points are `GridConfig`, `types`, `tracker`,
+  `track_classifier` and `verdict_gate`.
 
 ## Practical notes
 
@@ -194,5 +126,3 @@ loop.
 - Many stage configs enforce strict validation in `__post_init__`; invalid
   runtime tuning values fail fast.
 - Most computations assume timestamp-ordered batches.
-- The pipeline is CPU-first and designed for incremental updates over rolling
-  windows; swapping pipelines resets calibration.

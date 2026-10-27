@@ -4,8 +4,8 @@
 it only through a deliberate edit, never in passing.
 
 - Promoting a detection method from evior: move the module into `src/evio/detection/`,
-  register it in `detection/pipeline/registry.py`, delete it from evior, tag a release, and
-  bump the tag in ops.
+  register it as a DTC method (`@method` from `evio.dtc.registry`), delete it from evior,
+  tag a release, and bump the tag in ops.
 
 ## Code
 
