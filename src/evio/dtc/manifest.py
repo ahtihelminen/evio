@@ -61,6 +61,9 @@ class Manifest:
     cost: Cost = Cost.LIGHT
     cadence: int = 1
     evidence: tuple[str, ...] = ()
+    # stage kinds whose output of the last step the method reads, from
+    # `Step.feedback`; any kind, the method's own included
+    feedback: tuple[Stage, ...] = ()
     geometry: tuple[str, ...] = (BOX,)
 
     def __post_init__(self) -> None:
@@ -77,6 +80,10 @@ class Manifest:
         if self.cadence < 1:
             msg = f"method {self.name!r} cadence must be >= 1"
             raise ValueError(msg)
+        if not set(self.feedback) <= set(Stage):
+            msg = f"method {self.name!r} feedback must name stage kinds"
+            raise ValueError(msg)
+        object.__setattr__(self, "feedback", tuple(map(Stage, self.feedback)))
 
 
 def uncovered_geometry(

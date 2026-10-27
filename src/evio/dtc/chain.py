@@ -5,8 +5,9 @@ kinds that do not line up, missing source facts or dependencies, unknown
 evidence. A built chain keeps one instance per stream for a STREAM method and
 one for a JOINT method. Per step it runs the stages in order, hands each the
 previous stage's output, and owns what no method should: candidate filtering,
-the tracker-to-detector priors feedback, evidence (computed once per step and
-shared), classifier cadence and verdict age, timing, taps and faults.
+the tracker-to-detector priors, the feedback of the last step's outputs to
+the stages that declare it, evidence (computed once per step and shared),
+classifier cadence and verdict age, timing, taps and faults.
 
 Outputs are held per stream. A joint stage sees all streams merged and its
 output is split back by stream key; its `live_ids` and `priors`, which carry
@@ -38,6 +39,7 @@ from evio.dtc.spec import PipelineSpec
 from evio.dtc.taps import TapBus
 from evio.dtc.timing import StageTiming, SystemTimer, Timer, TimingStats
 from evio.dtc.types import (
+    NO_FEEDBACK,
     OK,
     Alarms,
     Candidates,
@@ -79,6 +81,18 @@ def merge[T](cls: type[T], parts: Sequence[Any]) -> T:
     )
     items = tuple(chain.from_iterable(p.items for p in parts))
     return cls(items, status=worst([p.status for p in parts]), **extra)
+
+
+def view[T](
+    layer: Mapping[StreamKey, T],
+    cls: type[T],
+    stream: StreamKey | None,
+    streams: Sequence[StreamKey],
+) -> T:
+    """One stream's `cls` output from a layer, or every stream's merged."""
+    if stream is not None:
+        return layer.get(stream, cls())
+    return merge(cls, [layer.get(s, cls()) for s in streams])
 
 
 def split[T](whole: T, streams: Sequence[StreamKey]) -> dict[StreamKey, T]:
@@ -180,6 +194,7 @@ class Chain:
         for provider in self._providers.values():
             provider.reset()
         self._last_index: int | None = None
+        self._last_layers: dict[type, dict[StreamKey, Any]] = {}
         self._priors: dict[StreamKey | None, tuple[Region, ...]] = {}
         self._last_verdicts: dict[
             tuple[str, StreamKey | None], tuple[int, Verdicts]
@@ -193,6 +208,9 @@ class Chain:
     def step(self, step: Step) -> StepResult:
         if self._last_index is not None and step.index <= self._last_index:
             msg = f"step {step.index} does not follow {self._last_index}"
+            raise ConfigError(msg)
+        if step.feedback is not NO_FEEDBACK:
+            msg = "feedback is the chain's to set, not the source's"
             raise ConfigError(msg)
         unknown = set(step.windows) - set(self._streams)
         if unknown:
@@ -214,6 +232,8 @@ class Chain:
             if stage.manifest.scope is Scope.JOINT
             else [(s, run.step.only(s)) for s in run.streams]
         )
+        if stage.manifest.feedback:
+            units = [(s, self._fed(stage, sub, s)) for s, sub in units]
         if stage.kind is Stage.CLASSIFY and not stage.fused:
             self._run_classifier(run, stage, units)
             return
@@ -231,6 +251,15 @@ class Chain:
                 items = filter_candidates(out.items, self._filter)
                 out = replace(out, items=items)
             self._store(run, out, stream)
+
+    def _fed(self, stage: _Stage, sub: Step, stream: StreamKey | None) -> Step:
+        """`sub` carrying the last step's outputs the stage asked for."""
+        streams = tuple(sub.windows)
+        parts = {
+            name: view(self._last_layers.get(cls, {}), cls, stream, streams)
+            for name, cls in map(_OUTPUTS.get, stage.manifest.feedback)
+        }
+        return replace(sub, feedback=replace(NO_FEEDBACK, **parts))
 
     def _invoke(
         self,
@@ -412,10 +441,7 @@ class Chain:
 
     def _view[T](self, run: _Run, cls: type[T], stream: StreamKey | None) -> T:
         """The latest `cls` output of one stream, or of all merged."""
-        layer = run.layers[cls]
-        if stream is not None:
-            return layer.get(stream, cls())
-        return merge(cls, [layer.get(s, cls()) for s in run.streams])
+        return view(run.layers[cls], cls, stream, run.streams)
 
     def _priors_for(
         self, run: _Run, stream: StreamKey | None
@@ -429,6 +455,7 @@ class Chain:
         merged = {cls: self._view(run, cls, None) for cls in run.layers}
         tracks = merged[Tracks]
         self._priors.update(run.priors)
+        self._last_layers = run.layers
         timings = {
             name: StageTiming(wall, cpu)
             for name, (wall, cpu) in run.timings.items()

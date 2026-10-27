@@ -180,6 +180,9 @@ class Output:
     alarms: Alarms | None = None
 
 
+NO_FEEDBACK = Output(Candidates(), Tracks(), Verdicts(), Alarms())
+
+
 @dataclass(frozen=True, slots=True)
 class Cue:
     """A prior from outside the chain: another camera's hand-off, a radar
@@ -201,8 +204,11 @@ class Cue:
 class Step:
     """One tick of sensor time: one or more aligned windows.
 
-    `cues` are priors from outside the chain, set by the source; a method
-    may read or ignore them.
+    Two kinds of prior ride along, and a method may read or ignore either.
+    `cues` come from outside the chain, set by the source. `feedback` holds
+    the chain's own outputs of the last step it ran, set by the chain only
+    for the stage kinds a method's manifest names in `feedback`; every other
+    part, and the whole of it for any other method, stays empty.
     """
 
     index: int
@@ -210,6 +216,7 @@ class Step:
     t_end_us: int
     windows: Mapping[StreamKey, Window]
     cues: tuple[Cue, ...] = ()
+    feedback: Output = NO_FEEDBACK
 
     @property
     def duration_us(self) -> int:

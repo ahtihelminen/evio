@@ -132,12 +132,14 @@ class Tracker:
     """A track per candidate, id by its rank; every track is live."""
 
     def __init__(self, config: NoConfig, context: Context) -> None:
+        self.stream = context.stream
         LOG["built"].append(("tracker", context.stream))
 
     def reset(self) -> None:
         """Stateless."""
 
     def step(self, step: Step, candidates: Candidates) -> Tracks:
+        LOG["feedback"].append((self.stream, step.index, step.feedback))
         items = tuple(
             Track(c.stream, f"{c.stream}:{i}", c.region, 0.9)
             for i, c in enumerate(candidates.items)
@@ -177,6 +179,7 @@ class Classifier:
         self, step: Step, tracks: Tracks, evidence: Evidence
     ) -> Verdicts:
         LOG["classifier"].append((self.stream, step.index))
+        LOG["classifier-feedback"].append(step.feedback.verdicts)
         counts = evidence.get(EVIDENCE, {})
         return Verdicts(
             tuple(
@@ -191,6 +194,7 @@ class BatchClassifier(Classifier):
 
     def step_many(self, calls: Sequence[ClassifierCall]) -> list[Verdicts]:
         LOG["batch"].append(len(calls))
+        LOG["batch-feedback"] += [c.step.feedback.verdicts for c in calls]
         return [
             Verdicts(
                 tuple(Verdict(t.stream, t.id, 0.5) for t in c.tracks.items)
@@ -263,6 +267,26 @@ TOYS: dict[str, tuple[type, tuple[Stage, ...], dict[str, Any]]] = {
         {"evidence": (EVIDENCE,)},
     ),
     "toy-batch-classifier": (BatchClassifier, (Stage.CLASSIFY,), {}),
+    "toy-feedback-tracker": (
+        Tracker,
+        (Stage.TRACK,),
+        {"feedback": (Stage.CLASSIFY, Stage.DECIDE)},
+    ),
+    "toy-joint-feedback-tracker": (
+        Tracker,
+        (Stage.TRACK,),
+        {"scope": Scope.JOINT, "feedback": (Stage.CLASSIFY,)},
+    ),
+    "toy-feedback-classifier": (
+        Classifier,
+        (Stage.CLASSIFY,),
+        {"cadence": 2, "evidence": (EVIDENCE,), "feedback": (Stage.CLASSIFY,)},
+    ),
+    "toy-feedback-batch-classifier": (
+        BatchClassifier,
+        (Stage.CLASSIFY,),
+        {"feedback": (Stage.CLASSIFY,)},
+    ),
     "toy-decision": (
         Decision,
         (Stage.DECIDE,),
