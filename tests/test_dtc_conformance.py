@@ -24,6 +24,7 @@ SOUND = [
     "toy-decision",
     "toy-fused",
     "toy-feedback-reader",
+    "toy-trusts-own-feedback",
 ]
 BROKEN = [
     ("toy-nondeterministic", "deterministic"),

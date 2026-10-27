@@ -74,7 +74,12 @@ def merge[T](cls: type[T], parts: Sequence[Any]) -> T:
     extra = (
         {
             "live_ids": frozenset().union(*(p.live_ids for p in parts)),
-            "priors": tuple(chain.from_iterable(p.priors for p in parts)),
+            # a joint tracker's priors are shared by its split parts: once
+            "priors": tuple(
+                chain.from_iterable(
+                    {id(p.priors): p.priors for p in parts}.values()
+                )
+            ),
         }
         if cls is Tracks
         else {}
@@ -209,7 +214,7 @@ class Chain:
         if self._last_index is not None and step.index <= self._last_index:
             msg = f"step {step.index} does not follow {self._last_index}"
             raise ConfigError(msg)
-        if step.feedback is not NO_FEEDBACK:
+        if step.feedback != NO_FEEDBACK:
             msg = "feedback is the chain's to set, not the source's"
             raise ConfigError(msg)
         unknown = set(step.windows) - set(self._streams)
@@ -254,9 +259,10 @@ class Chain:
 
     def _fed(self, stage: _Stage, sub: Step, stream: StreamKey | None) -> Step:
         """`sub` carrying the last step's outputs the stage asked for."""
-        streams = tuple(sub.windows)
         parts = {
-            name: view(self._last_layers.get(cls, {}), cls, stream, streams)
+            name: view(
+                self._last_layers.get(cls, {}), cls, stream, self._streams
+            )
             for name, cls in map(_OUTPUTS.get, stage.manifest.feedback)
         }
         return replace(sub, feedback=replace(NO_FEEDBACK, **parts))

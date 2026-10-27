@@ -128,7 +128,20 @@ class ReactsToUnknownCue(Centroid):
 
 class CrashesOnFeedback(Centroid):
     def step(self, step: Step, priors: Sequence[Region]) -> Candidates:
-        _ = step.feedback.verdicts.items[0]
+        if step.feedback.verdicts.items:
+            msg = "cannot take feedback"
+            raise ValueError(msg)
+        return super().step(step, priors)
+
+
+class TrustsOwnFeedback(Centroid):
+    """Sound: its fed-back candidates are the ones it emitted last step."""
+
+    def step(self, step: Step, priors: Sequence[Region]) -> Candidates:
+        for candidate in step.feedback.candidates.items:
+            if candidate.features["seen"] != self.seen:
+                msg = "fed back candidates it never emitted"
+                raise ValueError(msg)
         return super().step(step, priors)
 
 
@@ -207,6 +220,9 @@ TOYS: dict[str, tuple[type, tuple[Stage, ...], dict[str, Any]]] = {
     "toy-reacts-to-unknown-cue": (ReactsToUnknownCue, DETECT, {}),
     "toy-crashes-on-feedback": (
         CrashesOnFeedback, DETECT, {"feedback": (Stage.CLASSIFY,)},
+    ),
+    "toy-trusts-own-feedback": (
+        TrustsOwnFeedback, DETECT, {"feedback": (Stage.DETECT,)},
     ),
     "toy-feedback-reader": (
         FeedbackReader, DETECT, {"feedback": (Stage.CLASSIFY,)},

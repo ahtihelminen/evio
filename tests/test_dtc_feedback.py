@@ -4,18 +4,18 @@ not ask, and nothing has to be used."""
 
 from __future__ import annotations
 
+import pickle
 from collections.abc import Iterator
 from dataclasses import replace
 
 import pytest
 from fakes.dtc_timer import FakeTimer
-from fakes.dtc_toys import LOG, Tracker, registered
+from fakes.dtc_toys import LOG, registered
 
 from evio.dtc.chain import build
 from evio.dtc.errors import ConfigError
 from evio.dtc.facts import EXTENT
-from evio.dtc.manifest import Stage
-from evio.dtc.registry import METHODS, method
+from evio.dtc.manifest import Manifest, Stage
 from evio.dtc.result import Pipeline
 from evio.dtc.types import NO_FEEDBACK, Output, Verdicts
 from tests.support.dtc_chain import STEP_US, STREAMS, spec_of, step_at
@@ -82,9 +82,8 @@ def test_a_joint_tracker_reads_every_stream_s_last_verdicts() -> None:
 def test_a_classifier_reads_its_own_last_verdicts_aged_between_runs() -> None:
     drive(make("toy-detector", "toy-tracker", "toy-feedback-classifier"), 3)
 
-    first_run, second_run = LOG["classifier-feedback"][:2], LOG[
-        "classifier-feedback"
-    ][2:]
+    first_run = LOG["classifier-feedback"][:2]
+    second_run = LOG["classifier-feedback"][2:]
     assert all(not v.items for v in first_run)
     assert {v.age_steps for f in second_run for v in f.items} == {1}
 
@@ -120,9 +119,30 @@ def test_a_source_may_not_set_feedback() -> None:
         make(*CHAIN).step(forged)
 
 
-def test_an_unknown_feedback_kind_fails_at_registration() -> None:
-    with pytest.raises(ValueError, match="toy-bad-feedback"):
-        method("toy-bad-feedback", stages=(Stage.TRACK,), feedback=(9,))(
-            type("Bad", (Tracker,), {}),
-        )
-    assert "toy-bad-feedback" not in METHODS
+def test_an_unknown_feedback_kind_is_rejected() -> None:
+    with pytest.raises(ValueError, match="bad"):
+        Manifest("bad", "1", (Stage.TRACK,), feedback=(9,))
+
+
+def test_a_step_that_crossed_a_process_is_accepted() -> None:
+    step = pickle.loads(pickle.dumps(step_at(0, *STREAMS)))
+
+    make(*CHAIN).step(step)
+
+
+def test_a_joint_tracker_s_regions_come_back_once() -> None:
+    results = drive(
+        make("toy-detector", "toy-joint-track-feedback-tracker"), 2,
+    )
+
+    assert len(fed(None, 1).tracks.priors) == len(results[0].tracks)
+
+
+def test_a_joint_stage_keeps_the_last_step_of_a_stream_now_missing() -> None:
+    pipeline = make("toy-detector", "toy-joint-feedback-tracker",
+                    "toy-classifier-every-step")
+    first = pipeline.step(step_at(0, *STREAMS))
+
+    pipeline.step(step_at(1, *STREAMS, streams=STREAMS[:1]))
+
+    assert fed(None, 1).verdicts.items == first.verdicts

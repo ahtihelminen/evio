@@ -3,11 +3,11 @@
 `check_method` builds a method through the registry and drives it directly
 with synthetic input matching its first stage (steps for a detector or a
 fused method, candidates for a tracker, tracks for a classifier, tracks and
-verdicts for a decision), plain or carrying priors: a cue per window and a
-plausible last step as feedback, each stream's own share. It returns
-human-readable failures, each prefixed
-with the check that found it; an empty list means conformant. Each check is
-its own function of a `Rig`, so a caller can run just one.
+verdicts for a decision), plain or carrying priors: a cue per window and, as
+feedback, the kinds the method declares, as the chain would feed them. It
+returns human-readable failures, each prefixed with the check that found it;
+an empty list means conformant. Each check is its own function of a `Rig`,
+so a caller can run just one.
 
 Numpy only: no torch, no camera, no clock.
 """
@@ -26,6 +26,7 @@ from unittest import mock
 import numpy as np
 
 from evio.core.events import EventsBatch
+from evio.dtc.chain import split
 from evio.dtc.facts import Facts, missing_facts
 from evio.dtc.manifest import Manifest, Scope, Stage, check_dependencies
 from evio.dtc.protocols import Context
@@ -142,36 +143,27 @@ def _tracks(step: Step) -> Tracks:
     return Tracks(items, frozenset(t.id for t in items))
 
 
-def _primed(steps: list[Step], kind: str = "conformance") -> list[Step]:
-    """The steps with a `kind` cue per window and, as feedback, outputs a
-    chain could have made on the step before."""
+def _primed(steps: list[Step]) -> list[Step]:
+    """The steps with a cue per window and, as feedback, outputs a chain
+    could have made on the step before; `Rig.drive` hands each method only
+    the parts it declares, as the chain does."""
     primed, last = [], NO_FEEDBACK
     for step in steps:
-        cues = tuple(Cue(kind, s, r, f"{s}:0") for s, r in _regions(step))
+        cues = tuple(
+            Cue("conformance", s, r, f"{s}:0") for s, r in _regions(step)
+        )
         primed.append(replace(step, cues=cues, feedback=last))
         tracks = _tracks(step)
         verdicts = tuple(Verdict(t.stream, t.id, 0.9) for t in tracks.items)
         last = Output(
-            Candidates(tuple(Candidate(t.stream, t.region, 1.0)
-                             for t in tracks.items)),
+            Candidates(
+                tuple(Candidate(t.stream, t.region, 1.0) for t in tracks.items)
+            ),
             tracks,
             Verdicts(verdicts),
             Alarms(tuple(Alarm(v.stream, v.track_id) for v in verdicts)),
         )
     return primed
-
-
-def _own(step: Step, stream: str) -> Step:
-    """One stream's step, with only that stream's share of the feedback."""
-    feedback = step.feedback
-    shares = {
-        name: replace(part, items=tuple(
-            i for i in part.items if i.stream == stream
-        ))
-        for name in ("candidates", "tracks", "verdicts", "alarms")
-        if (part := getattr(feedback, name)) is not None
-    }
-    return replace(step.only(stream), feedback=replace(feedback, **shares))
 
 
 def _call(instance: Instance, manifest: Manifest, step: Step) -> object:
@@ -228,9 +220,28 @@ class Rig:
         runs: Runs = {key: [] for key in instances}
         for step in steps:
             for key, instance in instances.items():
-                view = step if key is None else _own(step, key)
+                view = step if key is None else step.only(key)
+                if step.feedback != NO_FEEDBACK:
+                    fed = self._fed(step, key, runs[key])
+                    view = replace(view, feedback=fed)
                 runs[key].append(_call(instance, self.manifest, view))
         return runs
+
+    def _fed(self, step: Step, key: Key, outputs: list[object]) -> Output:
+        """What the chain would feed back: only the declared kinds, the
+        method's own from what it returned last, the rest from `step`."""
+        stages = self.manifest.stages
+        own = dict(zip(stages, _parts(self.manifest, outputs[-1]), strict=True))
+        parts = {}
+        for kind in self.manifest.feedback:
+            name = OUTPUT_FIELD[kind]
+            part = (
+                own[kind] or getattr(NO_FEEDBACK, name)
+                if kind in stages
+                else getattr(step.feedback, name)
+            )
+            parts[name] = part if key is None else split(part, [key])[key]
+        return replace(NO_FEEDBACK, **parts)
 
 
 def _parts(manifest: Manifest, output: object) -> Iterator[object]:
@@ -454,8 +465,10 @@ def unknown_cues_ignored(rig: Rig) -> list[str]:
     can reach a chain without touching its methods."""
     plain = rig.drive(rig.instances(), rig.steps())
     cued = [
-        replace(step, feedback=NO_FEEDBACK)
-        for step in _primed(rig.steps(), "never-heard-of")
+        replace(step, cues=tuple(
+            Cue("never-heard-of", s, r) for s, r in _regions(step)
+        ))
+        for step in rig.steps()
     ]
     return _differences("unknown cues", plain, rig.drive(rig.instances(), cued))
 

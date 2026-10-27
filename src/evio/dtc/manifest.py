@@ -83,7 +83,6 @@ class Manifest:
         if not set(self.feedback) <= set(Stage):
             msg = f"method {self.name!r} feedback must name stage kinds"
             raise ValueError(msg)
-        object.__setattr__(self, "feedback", tuple(map(Stage, self.feedback)))
 
 
 def uncovered_geometry(

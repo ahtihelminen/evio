@@ -277,6 +277,11 @@ TOYS: dict[str, tuple[type, tuple[Stage, ...], dict[str, Any]]] = {
         (Stage.TRACK,),
         {"scope": Scope.JOINT, "feedback": (Stage.CLASSIFY,)},
     ),
+    "toy-joint-track-feedback-tracker": (
+        Tracker,
+        (Stage.TRACK,),
+        {"scope": Scope.JOINT, "feedback": (Stage.TRACK,)},
+    ),
     "toy-feedback-classifier": (
         Classifier,
         (Stage.CLASSIFY,),

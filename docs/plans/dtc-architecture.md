@@ -163,8 +163,8 @@ costs a method author nothing.
 ### 2.10 Deliberately left out
 
 A general DAG of stages (the linear chain, a fused option, feedback across
-steps and cues cover what exists today), and async everywhere (async stays inside the shared classifier
-service).
+steps and cues cover what exists today), and async everywhere (async stays
+inside the shared classifier service).
 
 ## 3. How the current modules fit
 

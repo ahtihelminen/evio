@@ -24,7 +24,7 @@ from tests.support.dtc_chain import STEP_US, STREAMS, spec_of, step_at
 pytestmark = pytest.mark.t1
 
 RADAR = Cue("radar", "cam0", Region((10, 10, 20, 20)), source="radar0")
-SITE = Cue("trees", None, Region((0, 0, 50, 50)), source="site-map")
+SITE = Cue("wind", None, source="weather", features={"gust_m_s": 9.0})
 OTHER = Cue("hand-off", "cam1", Region(point=(5, 5)), track_id="cam9:3")
 
 
@@ -109,13 +109,13 @@ def test_a_mosaic_moves_tile_cues_into_its_own_space() -> None:
     b = window("b", events([5], [7], [9]), 0, STEP_US)
     step = replace(step_of(0, STEP_US, a, b), cues=(
         Cue("radar", "b", Region((10, 10, 20, 20))),
-        Cue("trees", None, Region((0, 0, 5, 5))),
+        Cue("wind", None),
         Cue("lost", "c", Region(point=(1, 1))),
     ))
 
     mosaic = stitch(step, [("a", 0, 0), ("b", 1280, 0)], "m")
 
     assert [(c.kind, c.stream) for c in mosaic.cues] == [
-        ("radar", "m"), ("trees", None),
+        ("radar", "m"), ("wind", None),
     ]
     assert mosaic.cues[0].region.box == (1290, 10, 1300, 20)

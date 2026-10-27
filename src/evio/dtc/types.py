@@ -186,10 +186,11 @@ NO_FEEDBACK = Output(Candidates(), Tracks(), Verdicts(), Alarms())
 @dataclass(frozen=True, slots=True)
 class Cue:
     """A prior from outside the chain: another camera's hand-off, a radar
-    cue, an operator-confirmed target, a site map's trees. `kind` says which
-    and a method ignores kinds it does not know; `source` says where it came
-    from. It names a region, a track id or both. A cue with `stream` None
-    reaches every stream."""
+    cue, an operator-confirmed target, the wind. `kind` says which and a
+    method ignores kinds it does not know; `source` says where it came from.
+    It names a region in `stream`'s window space, a track id, or neither and
+    carries its values in `features`. A cue with `stream` None reaches every
+    stream, so it carries no region."""
 
     kind: str
     stream: StreamKey | None = None

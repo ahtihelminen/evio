@@ -46,10 +46,12 @@ Every stage can be given priors through the `Step` it already receives; no
 stage signature carries them, so a method that ignores them is unchanged.
 
 - **Cues** (`Step.cues`, `Cue`) come from outside the chain: another
-  camera's hand-off, a radar cue, an operator-confirmed target, a site map.
+  camera's hand-off, a radar cue, an operator-confirmed target, the wind.
   The source sets them; `Step.only` hands a stream its own cues and the
   global ones (`stream` None), and a joint method sees all. A `Cue` names a
-  `kind` and its `source`, a region, a track id or both. A method ignores
+  `kind` and its `source`, and a region in its stream's window space, a
+  track id, or neither, with any values in `features`; a global cue carries
+  no region, since windows do not share a space. A method ignores
   kinds it does not know (the conformance kit checks this), so new kinds
   need no method changes. The chain publishes each step's cues on the
   `cues` tap and `runner.with_cues` puts recorded cues back for a replay.
@@ -139,5 +141,6 @@ mutate them.
   defaults to counter ids so replay is reproducible.
 - A tracker's predicted regions (`Tracks.priors`) and live ids carry no
   stream key; a joint tracker's reach every stream's detector, and its
-  `live_ids` and `priors` reach every stream in feedback too.
+  `live_ids` and `priors` reach every stream in feedback too (once each in a
+  merged view).
 - A classifier's cadence is fixed by its manifest at decoration time.
