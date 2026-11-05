@@ -46,6 +46,8 @@ it.
 [`time`](docs/modules/time.md), next to the existing ones.
 `docs/modules/labelled-recording.md` specifies the labelled recording file
 format.
+Every detection method, with where it lives, is listed in the
+[method index](docs/method-index.md).
 
 ## Setup
 
