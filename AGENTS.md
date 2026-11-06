@@ -5,7 +5,7 @@ it only through a deliberate edit, never in passing.
 
 - Promoting a detection method from evior: move the module into `src/evio/detection/`,
   register it as a DTC method (`@method` from `evio.dtc.registry`), delete it from evior,
-  tag a release, and bump the tag in ops.
+  propose a release in the merge request (a Maintainer tags it), and bump the tag in ops.
 
 ## Code
 
@@ -77,7 +77,9 @@ Merge requests and pushing:
 - Delete the local feature branch once the merge request has merged: `git branch -d <branch>`.
 
 Releasing (ops pins evio by tag):
-- Tag `vX.Y.Z` on a commit of `dev` once it is green, and push the tag.
+- Agents do not tag or push releases. Propose one in the merge request and name the version
+  number the README Releases rules give; a Maintainer tags `vX.Y.Z` on a commit of `dev` once
+  it is green and pushes the tag.
 - Never move or delete a pushed tag; a fix is the next patch version.
 
 ## Linear
