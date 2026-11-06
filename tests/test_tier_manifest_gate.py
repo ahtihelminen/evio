@@ -29,7 +29,10 @@ def test_a_tier_missing_from_the_manifest_is_a_readable_failure(
     (suite / "fixtures" / "tier_manifest.json").write_text(
         json.dumps({"t1": 0}),
     )
-    (suite / "test_one.py").write_text("def test_one():\n    pass\n")
+    (suite / "test_one.py").write_text(
+        "import pytest\n\npytestmark = pytest.mark.t2\n\n"
+        "def test_one():\n    pass\n"
+    )
     (tmp_path / "pytest.ini").write_text("[pytest]\n")
 
     run = subprocess.run(

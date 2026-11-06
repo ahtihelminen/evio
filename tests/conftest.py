@@ -63,6 +63,36 @@ def pytest_configure(config: pytest.Config) -> None:
     _COVERAGE.append(cov)
 
 
+_TIERS = frozenset({"t1", "t2", "hardware"})
+
+
+_UNTIERED: list[str] = []
+
+
+def pytest_itemcollected(item: pytest.Item) -> None:
+    """Note any test whose module, class and own marks add up to != 1 tier.
+
+    Runs per item as it is collected, before `-m` deselects anything, so a
+    hardware test is judged even on a run that excludes that tier.
+    """
+    tiers = sorted({m.name for m in item.iter_markers()} & _TIERS)
+    if len(tiers) != 1:
+        _UNTIERED.append(f"{item.nodeid} has tiers {tiers}")
+
+
+def pytest_collection_finish(session: pytest.Session) -> None:
+    """Every test belongs to exactly one tier (t1, t2, hardware)."""
+    if _UNTIERED:
+        found = list(_UNTIERED)
+        _UNTIERED.clear()
+        session.exitstatus = 1
+        message = (
+            "every test needs exactly one tier marker:\n  "
+            + "\n  ".join(found)
+        )
+        raise pytest.UsageError(message)
+
+
 @pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(
     session: pytest.Session, config: pytest.Config, items: list[pytest.Item],
