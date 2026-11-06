@@ -81,6 +81,19 @@ To run the hardware tests against attached cameras, see "Hardware tests" in
 The gate is `uv run --frozen --extra dev ruff check .` plus
 `uv run --frozen --extra dev pytest -q`, or `make check` for both.
 
+## Test tiers
+
+- `make fast` — ruff plus the `t1` unit tier only: no process, socket, sleep,
+  clock or browser. Run it on every edit.
+- `make check` — ruff, then the `t1` and `t2` tiers (everything not marked
+  `hardware`), then fails if the run left files in the tree. Run it before
+  merge.
+- `make test-hardware` — only the `hardware`-marked tests; without an attached
+  camera every one skips, naming the missing driver or device.
+
+`tests/test_readme_test_tiers.py` fails if this section and the Makefile
+disagree.
+
 ## No network in the laptop suite
 
 `make test` (and so `make check`) runs with sockets blocked: the autouse
