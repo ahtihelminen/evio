@@ -23,7 +23,7 @@ VENV      := $(EVIO_ROOT)/.venv
 SITE_PKGS := $(VENV)/lib/python$(PY)/site-packages
 
 .PHONY: install sync drivers link-locals build-externals build-imx636 \
-        build-u3v lint fast test test-hardware check clean-venv help
+        build-u3v lint fast test test-hardware clean-tree check clean-venv help
 
 help:
 	@echo "Targets:"
@@ -35,7 +35,8 @@ help:
 	@echo "  fast            lint + the t1 unit tier (the every-edit loop)"
 	@echo "  test            $(GATE) pytest -q -m \"not hardware\""
 	@echo "  test-hardware   $(GATE) pytest -q -m hardware (skips without a camera)"
-	@echo "  check           lint && test"
+	@echo "  clean-tree      test, then fail if git status --porcelain prints anything"
+	@echo "  check           lint && clean-tree"
 	@echo "  clean-venv      blow away .venv (next sync will rebuild)"
 	@echo ""
 	@echo "Env overrides:"
@@ -116,7 +117,17 @@ test:
 test-hardware:
 	$(GATE) pytest -q -m hardware --tier-manifest=hardware
 
-check: lint test
+# The laptop suite must leave the repository as it found it. Run it from a
+# committed tree: any uncommitted edit is reported as a leftover too.
+clean-tree: test
+	@leftovers="$$(git status --porcelain)"; \
+	if [ -n "$$leftovers" ]; then \
+		echo "working tree not clean after the laptop run:" >&2; \
+		echo "$$leftovers" >&2; \
+		exit 1; \
+	fi
+
+check: lint clean-tree
 
 clean-venv:
 	rm -rf "$(VENV)"

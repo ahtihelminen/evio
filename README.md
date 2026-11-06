@@ -46,7 +46,7 @@ specifies the labelled recording file format.
 
 ```bash
 make install     # uv sync (with the dev extra) + link any built drivers
-make check       # ruff + the t1/t2 test tiers
+make check       # ruff + the t1/t2 test tiers + clean tree (make clean-tree)
 ```
 
 That is enough for everything except live cameras. To open real cameras,
