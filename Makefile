@@ -22,10 +22,11 @@ SEED_A    ?= 1
 SEED_B    ?= 2
 IMX636_DIR ?= $(EVIO_ROOT)/../IMX636
 U3V_DIR   ?= $(EVIO_ROOT)/../U3V
-VENV      := $(EVIO_ROOT)/.venv
+DRIVERS   ?= imx636 u3v
+VENV     := $(EVIO_ROOT)/.venv
 SITE_PKGS := $(VENV)/lib/python$(PY)/site-packages
 
-.PHONY: install sync drivers link-locals build-externals build-imx636 \
+.PHONY: install sync drivers drivers-check link-locals build-externals build-imx636 \
         build-u3v lint fast test test-repeat test-random-order test-hardware clean-tree check clean-venv help
 
 help:
@@ -33,6 +34,7 @@ help:
 	@echo "  install         uv sync + link any already-built drivers"
 	@echo "  sync            uv sync + relink the .pth files (use after pulling)"
 	@echo "  drivers         build IMX636 and U3V if missing, then link them"
+	@echo "  drivers-check   import imx636 and u3v in the venv, name any that fail"
 	@echo "  link-locals     just (re)write the IMX636/U3V .pth files"
 	@echo "  lint            $(GATE) ruff check ."
 	@echo "  fast            lint + the t1 unit tier (the every-edit loop)"
@@ -102,6 +104,25 @@ link-locals:
 	else \
 		echo "skip u3v.pth (no $(U3V_DIR)/src/build)"; \
 	fi
+
+# Smoke check: imports each driver inside the project venv. No camera is
+# opened. Every failing driver is named on stderr, then the target fails.
+define DRIVERS_CHECK_PY
+import importlib, sys
+bad = []
+for name in sys.argv[1:]:
+    try:
+        importlib.import_module(name)
+    except Exception as exc:
+        bad.append(name)
+        print(f"driver {name} failed to import: {exc!r}", file=sys.stderr)
+sys.exit(1 if bad else 0)
+endef
+export DRIVERS_CHECK_PY
+
+drivers-check:
+	@$(GATE) python -c "$$DRIVERS_CHECK_PY" $(DRIVERS)
+	@echo "drivers import: $(DRIVERS)"
 
 # --frozen keeps uv.lock untouched and --extra dev is where ruff and pytest
 # actually live; tests/test_gate_spelling.py fails if any doc drifts from this
