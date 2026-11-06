@@ -40,6 +40,21 @@ def test_the_test_tiers_section_names_each_command() -> None:
     assert not missing, f"README 'Test tiers' does not mention: {missing}"
 
 
+_TIMING_RECORD = re.compile(
+    r"^quick tier wall-clock: (?P<seconds>\d+(?:\.\d+)?) s "
+    r"\((?P<date>\d{4}-\d{2}-\d{2}), (?P<host>[^)]+)\)$",
+    re.MULTILINE,
+)
+
+
+def test_the_test_tiers_section_records_the_quick_tier_wall_clock() -> None:
+    section = _tier_section()
+    assert _TIMING_RECORD.search(section), (
+        "timing record is missing from README 'Test tiers': expected a line "
+        "'quick tier wall-clock: <N> s (<YYYY-MM-DD>, <host>)'"
+    )
+
+
 def test_every_command_in_the_test_tiers_section_is_a_makefile_target() -> None:
     targets = _makefile_targets()
     missing = [

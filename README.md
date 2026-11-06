@@ -97,8 +97,10 @@ The gate is `uv run --frozen --extra dev ruff check .` plus
 - `make test-hardware` — only the `hardware`-marked tests; without an attached
   camera every one skips, naming the missing driver or device.
 
+quick tier wall-clock: 20.5 s (2026-11-06, slavemaster9000, 16-core x86_64 Linux 7.0)
+
 `tests/test_readme_test_tiers.py` fails if this section and the Makefile
-disagree.
+disagree, or if the wall-clock line above is missing.
 
 ## No network in the laptop suite
 
