@@ -39,8 +39,13 @@ it.
 - `focus/` — the event-based lens-focus metric.
 - `time/` — the time-source abstraction.
 
-`docs/modules/` has per-package notes; `docs/modules/labelled-recording.md`
-specifies the labelled recording file format.
+`docs/modules/` has per-package notes: [`focus`](docs/modules/focus.md),
+[`geometry`](docs/modules/geometry.md),
+[`recording`](docs/modules/recording.md),
+[`streaming`](docs/modules/streaming.md) and
+[`time`](docs/modules/time.md), next to the existing ones.
+`docs/modules/labelled-recording.md` specifies the labelled recording file
+format.
 
 ## Setup
 
