@@ -13,7 +13,9 @@ pytestmark = pytest.mark.t2
 _ROOT = Path(__file__).resolve().parents[1]
 
 
-def _drivers_check(drivers: str, stub_dir: Path) -> subprocess.CompletedProcess[str]:
+def _drivers_check(
+    drivers: str, stub_dir: Path
+) -> subprocess.CompletedProcess[str]:
     env = {**os.environ, "PYTHONPATH": str(stub_dir)}
     return subprocess.run(
         ["make", "drivers-check", f"DRIVERS={drivers}"],
@@ -24,15 +26,17 @@ def _drivers_check(drivers: str, stub_dir: Path) -> subprocess.CompletedProcess[
     )
 
 
-def test_a_missing_driver_fails_the_target_and_is_named_in_stderr(tmp_path: Path) -> None:
+def test_a_missing_driver_fails_and_is_named_in_stderr(tmp_path: Path) -> None:
     (tmp_path / "stub_present_driver.py").write_text("")
-    result = _drivers_check("stub_present_driver stub_missing_driver", tmp_path)
+    result = _drivers_check(
+        "stub_present_driver stub_missing_driver", tmp_path
+    )
     assert result.returncode != 0
     assert "stub_missing_driver" in result.stderr
     assert "stub_present_driver" not in result.stderr
 
 
-def test_the_target_exits_zero_when_every_driver_imports(tmp_path: Path) -> None:
+def test_the_target_exits_zero_when_all_drivers_import(tmp_path: Path) -> None:
     (tmp_path / "stub_driver_a.py").write_text("")
     (tmp_path / "stub_driver_b.py").write_text("")
     result = _drivers_check("stub_driver_a stub_driver_b", tmp_path)
