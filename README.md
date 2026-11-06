@@ -88,6 +88,12 @@ The gate is `uv run --frozen --extra dev ruff check .` plus
 - `make check` — ruff, then the `t1` and `t2` tiers (everything not marked
   `hardware`), then fails if the run left files in the tree. Run it before
   merge.
+- `make test-repeat` — runs the laptop suite 3 times (`REPEAT=3` in the
+  Makefile; override with `make test-repeat REPEAT=5`) and fails if any run's
+  pass/fail set differs from the first run's.
+- `make test-random-order` — runs the laptop suite twice in random order, with
+  the fixed seeds 1 and 2 (`SEED_A`, `SEED_B`), each printed in the output; a
+  failure reproduces with `pytest --random-order-seed=<seed>`.
 - `make test-hardware` — only the `hardware`-marked tests; without an attached
   camera every one skips, naming the missing driver or device.
 

@@ -17,13 +17,16 @@
 PY        ?= 3.12
 GATE      := uv run --frozen --extra dev
 EVIO_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+REPEAT    ?= 3
+SEED_A    ?= 1
+SEED_B    ?= 2
 IMX636_DIR ?= $(EVIO_ROOT)/../IMX636
 U3V_DIR   ?= $(EVIO_ROOT)/../U3V
 VENV      := $(EVIO_ROOT)/.venv
 SITE_PKGS := $(VENV)/lib/python$(PY)/site-packages
 
 .PHONY: install sync drivers link-locals build-externals build-imx636 \
-        build-u3v lint fast test test-hardware clean-tree check clean-venv help
+        build-u3v lint fast test test-repeat test-random-order test-hardware clean-tree check clean-venv help
 
 help:
 	@echo "Targets:"
@@ -34,6 +37,8 @@ help:
 	@echo "  lint            $(GATE) ruff check ."
 	@echo "  fast            lint + the t1 unit tier (the every-edit loop)"
 	@echo "  test            $(GATE) pytest -q -m \"not hardware\""
+	@echo "  test-repeat     run the laptop suite $(REPEAT) times, fail if outcomes differ"
+	@echo "  test-random-order  laptop suite in random order, seeds $(SEED_A) and $(SEED_B)"
 	@echo "  test-hardware   $(GATE) pytest -q -m hardware (skips without a camera)"
 	@echo "  clean-tree      test, then fail if git status --porcelain prints anything"
 	@echo "  check           lint && clean-tree"
@@ -111,6 +116,31 @@ fast: lint
 test:
 	$(GATE) pytest -q -m "not hardware" --tier-manifest=t1,t2 \
 		--coverage-manifest
+
+# Runs the laptop suite REPEAT times and fails if any run's outcome set (every
+# PASSED/FAILED/SKIPPED/... line with its test id) differs from the first run's.
+test-repeat:
+	@dir="$$(mktemp -d)"; trap 'rm -rf "$$dir"' EXIT; \
+	for i in $$(seq 1 $(REPEAT)); do \
+		echo ">>> run $$i of $(REPEAT)"; \
+		$(GATE) pytest -q -m "not hardware" -rA -p no:cacheprovider \
+			> "$$dir/out.$$i" || true; \
+		grep -E '^(PASSED|FAILED|ERROR|SKIPPED|XFAIL|XPASS) ' "$$dir/out.$$i" \
+			| sort > "$$dir/outcomes.$$i"; \
+		test -s "$$dir/outcomes.$$i" || { \
+			echo "run $$i produced no outcomes" >&2; tail -n 20 "$$dir/out.$$i" >&2; exit 1; }; \
+		diff -u "$$dir/outcomes.1" "$$dir/outcomes.$$i" || { \
+			echo "run $$i differs from run 1" >&2; exit 1; }; \
+	done; \
+	echo "$(REPEAT) runs, identical outcomes"
+
+# Runs the laptop suite in random order once per fixed seed, echoing the seed
+# before each run; a failure reproduces with `pytest --random-order-seed=<seed>`.
+test-random-order:
+	@echo ">>> random order, seed $(SEED_A)"
+	$(GATE) pytest -q -m "not hardware" --random-order-seed=$(SEED_A)
+	@echo ">>> random order, seed $(SEED_B)"
+	$(GATE) pytest -q -m "not hardware" --random-order-seed=$(SEED_B)
 
 # Runs only the hardware-marked subset. Without a camera every test skips,
 # naming the missing driver or device (tests/hardware/conftest.py).
