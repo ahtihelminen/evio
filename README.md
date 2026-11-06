@@ -129,3 +129,18 @@ ops installs evio from a git tag (`vX.Y.Z`), never from a branch. To ship a
 change to ops: merge it here, tag the merge commit, push the tag, then bump
 the tag in ops's `pyproject.toml` and `uv lock` there. A pushed tag is never
 moved; a fix gets the next patch version.
+
+Choosing the version number (`vMAJOR.MINOR.PATCH`), counted from the last tag:
+
+- **Major** — a change that breaks ops or evior: a removed or renamed public
+  name, a changed signature or behaviour, a changed `.dat` or codec format.
+- **Minor** — backward-compatible new capability: a new module, function,
+  detection method or option that existing callers can ignore.
+- **Patch** — a backward-compatible fix, or a change with no effect on callers
+  (docs, tests, internals).
+
+When a release holds changes of several kinds, the highest one decides, and
+the lower numbers reset to 0.
+
+Only a Maintainer may tag and push a release. Contributors and agents
+propose it in the merge request; they do not push `v*` tags.
