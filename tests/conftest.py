@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import socket
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -21,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from support.coverage_floor import shortfalls
 from support.hygiene import Snapshot, leaks
+from support.network_guard import refuse
 
 # `import openvino` starts Intel's GA4 telemetry, which sends from a worker
 # process: a network call, and a leak on a run shorter than the send. With
@@ -127,6 +129,15 @@ def _t1_stays_pure(
             raise AssertionError(message)
 
         monkeypatch.setattr(module, attribute, refuse)
+
+
+@pytest.fixture(autouse=True)
+def _no_sockets(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Refuse every socket a test opens, unless it is marked `sockets`."""
+    if "sockets" not in request.keywords:
+        monkeypatch.setattr(socket.socket, "__init__", refuse)
 
 
 @pytest.fixture(autouse=True)

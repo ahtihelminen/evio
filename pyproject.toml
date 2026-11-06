@@ -92,6 +92,7 @@ markers = [
     "hardware: requires a real event camera; excluded from the default run",
     "t1: unit tier -- no process, socket, sleep, clock, server or browser",
     "t2: component tier -- real processes, sockets and files",
+    "sockets: exempt from the no-socket guard; a t2 test that needs a local socket",
 ]
 
 [tool.ruff]

@@ -81,6 +81,14 @@ To run the hardware tests against attached cameras, see "Hardware tests" in
 The gate is `uv run --frozen --extra dev ruff check .` plus
 `uv run --frozen --extra dev pytest -q`, or `make check` for both.
 
+## No network in the laptop suite
+
+`make test` (and so `make check`) runs with sockets blocked: the autouse
+`_no_sockets` fixture in `tests/conftest.py` makes any test that opens a
+socket fail with `SocketBlocked`. `tests/test_socket_guard.py` proves it with
+a strict expected-failure test. A `t2` test that needs a local socket opts out
+with `pytest.mark.sockets`; nothing else may.
+
 ## History and coverage
 
 This repo's history was filtered out of ops (the former evioF) at the
