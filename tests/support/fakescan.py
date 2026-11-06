@@ -12,6 +12,9 @@ first, and neither obvious predicate finds them on its own:
 Neither alone would have caught `_FakeCam`, the SN-541 double, which
 reaches the code under test as a plain `self.cam = _FakeCam()`. So the
 predicate is the union of all three, including attribute assignment.
+
+Differences from the real device:
+- none known: it is not a stand-in for a device, it reads source files.
 """
 
 from __future__ import annotations

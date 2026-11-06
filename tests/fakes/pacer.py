@@ -7,7 +7,7 @@ Used by `tests/test_rendering_hud.py`, which renders the expected strings
 itself and compares pixels; `tests/test_fakes_fidelity_pacer.py` pins them
 to the real classes.
 
-Deliberate differences from the real classes:
+Differences from the real device:
 - every public property of the real class is a plain settable field here,
   not a read-only property computed from pacing state;
 - neither fake paces: no `pace` (nor `Pacer.reset_stats`);

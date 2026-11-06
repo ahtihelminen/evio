@@ -4,6 +4,12 @@
 `toy-count` provider) for the length of a `with` block, then removes them,
 so no other test sees them. What each toy does is logged in `LOG`, keyed by
 role, so a test can see which calls the chain made.
+
+Differences from the real device:
+- the detectors box the mean position of a window's events, not a real
+  detection, and the other toys answer with scripted results, so they show
+  how the chain calls a method, not what a method returns;
+- `LOG` is module state, shared by every toy and cleared by `registered()`.
 """
 
 from __future__ import annotations

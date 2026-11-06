@@ -1,4 +1,9 @@
-"""Spec and step builders for the chain tests. Sensor time only."""
+"""Spec and step builders for the chain tests. Sensor time only.
+
+Differences from the real device:
+- steps are synthetic and evenly spaced, `STEP_US` apart, where a real
+  stream has gaps and uneven windows.
+"""
 
 from __future__ import annotations
 

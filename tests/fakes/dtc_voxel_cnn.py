@@ -6,6 +6,11 @@ cells, so the manifest and dependency checks can be exercised without torch.
 
 A gate fixture for the neutrality gate, registered with the real
 @method decorator on import.
+
+Differences from the real device:
+- no network runs: candidates are the densest cells, not a learned output;
+- it needs no GPU and no torch, so it cannot show their availability,
+  memory or latency limits.
 """
 
 from __future__ import annotations

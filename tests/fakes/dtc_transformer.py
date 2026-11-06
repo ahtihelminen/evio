@@ -4,6 +4,12 @@
 `predict_drone_probs`, scoring each track by its mean patch brightness and
 recording the batches it was given. Both keep the real signatures' shapes:
 patches `(B, T, H, W, 3)` in, `(B,)` probabilities out, row order kept.
+
+Differences from the real device:
+- no model is loaded or run: the score is mean patch brightness, not a
+  learned probability, so only the shapes and row order are comparable;
+- the loader reads no checkpoint, so it cannot fail on a missing or
+  corrupt file.
 """
 
 from __future__ import annotations

@@ -1,6 +1,10 @@
 """Builders for DTC steps and windows in tests.
 
 Pure numpy; sensor time only, no clock.
+
+Differences from the real device:
+- events are synthetic and seeded: blobs on a quiet background, not the
+  noise, hot pixels or timing of a real recording.
 """
 
 from __future__ import annotations

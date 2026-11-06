@@ -5,6 +5,10 @@ optimised, kept verbatim in its math (float64 integral images, a full
 sliding-window max, a dense variance map) so the equivalence test can hold the
 fast detector to it. Do not optimise this file; it is the definition of the
 output.
+
+Differences from the real device:
+- none known: it is the definition of the output the optimised detector is
+  held to; it is slower and not registered as a method.
 """
 
 from __future__ import annotations

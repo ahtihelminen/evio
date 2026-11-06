@@ -2,6 +2,10 @@
 
 A gate fixture for the neutrality gate, registered with the real
 @method decorator on import.
+
+Differences from the real device:
+- it is a fixture, not a port of a production detector: its thresholds
+  are defaults, not tuned against recordings.
 """
 
 from __future__ import annotations

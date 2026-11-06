@@ -16,6 +16,12 @@ Behaviours assumed of the real driver, not proved here (that is SN-586):
 - `set_pixel_mask(slot, mask)` accepts slots `0..PIXEL_MASK_SLOTS-1` and
   raises `ValueError` past them;
 - `set_antiflicker(cfg)` raises `RuntimeError` to reject a config.
+
+Differences from the real device:
+- the scene is static and has no timestamps, where the sensor reports a
+  moving scene with a clock;
+- a poll costs exactly `poll_s` of fake time and never blocks or times out;
+- the assumed behaviours above are not checked against the driver.
 """
 
 from __future__ import annotations

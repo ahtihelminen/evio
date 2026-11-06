@@ -11,6 +11,13 @@ Behaviours assumed of the real driver, not proved here:
   when the camera no longer answers its control channel;
 - `close()` after a failed `stop()` releases the camera instead of failing
   the same way (U3V `fix/stop-survives-usb-failure`).
+
+Differences from the real device:
+- it records calls and grabs no frames: there is no stream, exposure or
+  gain, only `start`, `stop` and `close`;
+- `Camera.open` returns the one camera for any serial, where the driver
+  fails for a serial that is not attached;
+- the two assumed behaviours above are not checked against the driver.
 """
 
 from __future__ import annotations

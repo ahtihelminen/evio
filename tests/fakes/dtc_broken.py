@@ -3,6 +3,11 @@
 Each broken toy violates exactly one rule the kit checks. They are plain
 classes; the test registers them under unique names and removes them after.
 `TOYS` maps a name to (class, stages, manifest options).
+
+Differences from the real device:
+- no toy detects anything: each does the least that satisfies, or
+  deliberately breaks, one conformance rule, so none says how a real method
+  behaves outside that rule.
 """
 
 from __future__ import annotations

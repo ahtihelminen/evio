@@ -7,6 +7,11 @@ stream missing from the step simply cannot vote; the output is then degraded.
 
 A gate fixture for the neutrality gate, registered with the real
 @method decorator on import.
+
+Differences from the real device:
+- it is a fixture, not a port of a production detector: coincidence is a
+  plain count over a grid, with no calibration or epipolar geometry beyond
+  each stream's x offset.
 """
 
 from __future__ import annotations

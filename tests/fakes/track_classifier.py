@@ -7,10 +7,14 @@ track_classifier.py`) threads a per-track state vector through
 `tests/test_detection_track_classifier.py` to pin that threading without
 a compiled OpenVINO IR or a torch checkpoint.
 
-`tests/test_fakes_fidelity_pipeline.py` checks the shape contract the
+`tests/test_fakes_fidelity_detection.py` checks the shape contract the
 real bundles document (`evio/detection/openvino_transformer.py`,
 `evio/detection/temporal_transformer_v3.py`): `h_track` rides out at the
 same shape `h_in` rode in at, one row per input track.
+
+Differences from the real device:
+- only the shape contract is shared: the logits and the state it returns
+  are not a trained model's, so no score from it means anything.
 """
 
 from __future__ import annotations

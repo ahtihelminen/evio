@@ -14,6 +14,9 @@ green run ends with 39 more open descriptors than it started, and an lsof
 dump shows almost all of them are shared libraries the interpreter dlopened
 (torch's dylibs, libyaml, ICU data) plus /dev/null. Counting them would
 measure module loading and call it a leak.
+
+Differences from the real device:
+- none known: it is not a stand-in for a device, it reads the process table.
 """
 
 from __future__ import annotations

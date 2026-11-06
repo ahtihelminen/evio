@@ -6,6 +6,11 @@ also when the test body raised. Writing there needs permission, which a
 plain user lacks; `docs/hardware-tests.md` has the udev rule that grants it.
 Without it, or off Linux, the test skips saying so: nothing here asks a
 human to touch a cable.
+
+Differences from the real device:
+- an unauthorised device is unbound by the kernel as a pulled cable would
+  be, but the port stays powered and the hub sees no disconnect, so a
+  failure that depends on losing bus power is not reproduced.
 """
 
 from __future__ import annotations

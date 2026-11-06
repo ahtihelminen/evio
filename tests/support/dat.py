@@ -1,4 +1,9 @@
-"""Write synthetic DT8 `.dat` files: a `%` header, type/size bytes, events."""
+"""Write synthetic DT8 `.dat` files: a `%` header, type/size bytes, events.
+
+Differences from the real device:
+- the files come from this repo's own encoder, not a camera's recorder, so
+  a quirk of the real recorder's output is not reproduced.
+"""
 
 from __future__ import annotations
 

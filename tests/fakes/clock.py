@@ -7,6 +7,12 @@ stands still, so a sleep loop cannot stall on a remainder smaller than
 the float spacing at `now`.
 A test moves time between batches by assigning `now`. With `max_sleeps`
 set, a sleep past that many raises, so a loop that never ends fails fast.
+
+Differences from the real device:
+- it is not a device: it models only `perf_counter`, `monotonic` and
+  `sleep` of the `time` module, and nothing else `time` offers;
+- time never moves by itself, and no other thread or process sees it;
+- every `sleep` advances `now` exactly, where a real sleep overshoots.
 """
 
 from __future__ import annotations

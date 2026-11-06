@@ -5,6 +5,11 @@ path holding `idVendor`, `idProduct`, an optional `serial` and a writable
 `authorized`, beside interface directories (`1-2:1.0`) that carry none of
 those. Writing `authorized` only records the value, which is what a test of
 the unplug helper checks; the kernel's unbind is not modelled.
+
+Differences from the real device:
+- writing `authorized` changes a file and nothing else: no driver unbinds,
+  no device disappears and no permission is needed;
+- only the attributes listed above exist, not the rest of the kernel's.
 """
 
 from __future__ import annotations

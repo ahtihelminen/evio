@@ -9,6 +9,11 @@ returned directory is a recording the recorder never finalised.
 from that real camera instead, for `record_s` seconds before the kill. After
 every write the child appends `<count> <last timestamp>` to `PROGRESS`, so
 `written(root)` tells what the recorder had been handed when it died.
+
+Differences from the real device:
+- the default child feeds synthetic events, not a camera;
+- SIGKILL of a process group is a crash of the recorder, not a power loss:
+  the kernel still flushes what the child had written to the page cache.
 """
 
 from __future__ import annotations

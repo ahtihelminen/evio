@@ -5,6 +5,10 @@ and `<root> u3v <serial>` record from that real camera. Prints `recording`
 once its first batch has landed, then never stops. After every write it
 appends the running event or frame count and the last timestamp to
 `<root>/progress.txt`.
+
+Differences from the real device:
+- without a camera argument its events are synthetic, at a fixed rate,
+  where a camera's rate follows the scene.
 """
 
 from __future__ import annotations

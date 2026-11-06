@@ -11,6 +11,13 @@ the driver:
 Behaviours assumed of the real driver, not proved here: that its buffers
 hold events in stream order across a clock restart, and that `CD_DTYPE`
 matches `imx636.CD_DTYPE` (the hardware tier compares the two).
+
+Differences from the real device:
+- buffers are scripted, so their size, rate and arrival time are the
+  script's, not the sensor's;
+- `poll()` never reports a USB error;
+- the clock restart is whatever the script writes, not measured from a
+  real reset.
 """
 
 from __future__ import annotations

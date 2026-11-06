@@ -1,4 +1,8 @@
-"""Per-package line coverage held to the floors in `coverage_manifest.json`."""
+"""Per-package line coverage held to the floors in `coverage_manifest.json`.
+
+Differences from the real device:
+- none known: it is not a stand-in for a device, it reads coverage data.
+"""
 
 from __future__ import annotations
 

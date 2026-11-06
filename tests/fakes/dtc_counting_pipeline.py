@@ -4,6 +4,11 @@ The result's `provenance` holds the running step count and its `tracks` are
 empty, so a driver that reorders, skips or repeats steps shows up in the
 results. It keeps the real pipeline's property that stepping is stateful and
 order-dependent; `reset` returns it to the start.
+
+Differences from the real device:
+- it never detects: `tracks` is always empty and `provenance` is a count,
+  not the methods and parameters a real pipeline reports;
+- it reads no events, so it cannot fail or degrade on their content.
 """
 
 from __future__ import annotations
