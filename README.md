@@ -63,6 +63,9 @@ git clone git@git.sensofusion.com:ops/u3v.git ../U3V
 make drivers     # cmake-build both if missing, link them into .venv
 ```
 
+The full steps, prerequisites and versions are in
+[`docs/driver-setup.md`](docs/driver-setup.md).
+
 The drivers are libusb-based C++ extensions, not PyPI packages; `make
 drivers` writes `.pth` files into the venv so `import imx636` and `import
 u3v` survive `uv sync`. The mono camera's backend is picked by
