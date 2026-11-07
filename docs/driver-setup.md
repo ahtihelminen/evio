@@ -36,14 +36,22 @@ Run these from the root of the evio checkout.
    make install
    ```
 
-2. Clone each driver as a sibling of evio, as described in the two sections
+2. Check the prerequisites. This tests only that git, uv, make, a C++
+   compiler and cmake are on `PATH` (not their versions, nor libusb or the
+   Python headers), names every one that is missing and exits non-zero:
+
+   ```bash
+   make drivers-prereqs
+   ```
+
+3. Clone each driver as a sibling of evio, as described in the two sections
    below. To use other locations, override `IMX636_DIR` and `U3V_DIR`:
 
    ```bash
    make drivers IMX636_DIR=/abs/IMX636 U3V_DIR=/abs/U3V
    ```
 
-3. Build and link both drivers:
+4. Build and link both drivers:
 
    ```bash
    make drivers
@@ -53,7 +61,7 @@ Run these from the root of the evio checkout.
    when its `.so` is missing, so it is safe to re-run) and then links them
    into the venv.
 
-4. Check that both import in the project venv. No camera is opened:
+5. Check that both import in the project venv. No camera is opened:
 
    ```bash
    make drivers-check
