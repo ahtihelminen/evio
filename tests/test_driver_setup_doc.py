@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.t2
+
 _ROOT = Path(__file__).resolve().parents[1]
 _DOC = _ROOT / "docs" / "driver-setup.md"
 _TARGETS = ("drivers", "build-externals", "drivers-check", "drivers-prereqs")
@@ -66,7 +68,6 @@ def _clone_url(module: str) -> str:
     return match.group("url")
 
 
-@pytest.mark.t1
 def test_every_make_target_the_document_names_exists() -> None:
     doc = _doc()
     targets = _makefile_targets()
@@ -80,7 +81,6 @@ def test_every_make_target_the_document_names_exists() -> None:
         )
 
 
-@pytest.mark.t1
 @pytest.mark.parametrize("name", list(_DRIVERS))
 def test_the_driver_section_names_its_makefile_facts(name: str) -> None:
     variable, build_target, module = _DRIVERS[name]
@@ -101,7 +101,6 @@ def test_the_driver_section_names_its_makefile_facts(name: str) -> None:
     )
 
 
-@pytest.mark.t1
 def test_unknown_prerequisite_versions_are_marked_for_walkthrough() -> None:
     doc = _doc()
     assert "to be confirmed at the walkthrough" in doc, (
@@ -128,7 +127,6 @@ def _steps() -> str:
     return _section("Steps")
 
 
-@pytest.mark.t1
 def test_prerequisites_check_is_a_step_before_make_drivers() -> None:
     steps = _steps()
     check = steps.find("make drivers-prereqs")
@@ -151,7 +149,6 @@ def _make_help() -> str:
     return result.stdout
 
 
-@pytest.mark.t2
 def test_make_help_lists_drivers_prereqs() -> None:
     lines = [ln.strip() for ln in _make_help().splitlines()]
     assert any(ln.startswith("drivers-prereqs ") for ln in lines), (
@@ -205,7 +202,6 @@ def _prereqs(path_tools: list[str], tmp_path: Path) -> tuple[int, str]:
 _ALL_TOOLS = [t for names in _CLI_ROWS.values() for t in names]
 
 
-@pytest.mark.t1
 def test_every_prerequisite_row_is_classified() -> None:
     rows = _prerequisite_rows()
     unknown = [r for r in rows if r not in _CLI_ROWS and r not in _NON_CLI_ROWS]
@@ -214,13 +210,11 @@ def test_every_prerequisite_row_is_classified() -> None:
     )
 
 
-@pytest.mark.t2
 def test_drivers_prereqs_passes_with_every_tool_present(tmp_path: Path) -> None:
     code, stderr = _prereqs(_ALL_TOOLS, tmp_path)
     assert code == 0, stderr
 
 
-@pytest.mark.t2
 @pytest.mark.parametrize("row", list(_CLI_ROWS))
 def test_drivers_prereqs_names_the_missing_tool_and_only_it(
     row: str, tmp_path: Path
@@ -237,7 +231,6 @@ def test_drivers_prereqs_names_the_missing_tool_and_only_it(
         assert not named, f"stderr names present tool {tool}: {stderr!r}"
 
 
-@pytest.mark.t2
 def test_drivers_prereqs_names_every_missing_tool(tmp_path: Path) -> None:
     code, stderr = _prereqs([], tmp_path)
     assert code != 0
@@ -245,14 +238,12 @@ def test_drivers_prereqs_names_every_missing_tool(tmp_path: Path) -> None:
         assert names[0] in stderr, f"{row} not named: {stderr!r}"
 
 
-@pytest.mark.t2
 def test_one_c_plus_plus_compiler_is_enough(tmp_path: Path) -> None:
     others = [t for t in _ALL_TOOLS if t not in ("c++", "clang++")]
     code, stderr = _prereqs(others, tmp_path)
     assert code == 0, stderr
 
 
-@pytest.mark.t1
 def test_the_readme_links_to_the_driver_setup_guide() -> None:
     readme = (_ROOT / "README.md").read_text()
     assert "](docs/driver-setup.md)" in readme, (
