@@ -135,7 +135,9 @@ def test_prerequisites_check_is_a_step_before_make_drivers() -> None:
     build = steps.find("make drivers\n")
     assert check != -1, "Steps does not list `make drivers-prereqs`"
     assert build != -1, "Steps does not list `make drivers`"
-    assert check < build, "`make drivers-prereqs` must come before `make drivers`"
+    assert check < build, (
+        "`make drivers-prereqs` must come before `make drivers`"
+    )
     assert "drivers-prereqs" in _makefile_targets()
 
 
@@ -165,7 +167,7 @@ _CLI_ROWS = {
     "C++ compiler": ("c++", "g++", "clang++"),
     "cmake": ("cmake",),
 }
-# Rows that name no command-line tool: presence is not checkable by `command -v`.
+# Rows that name no command-line tool, so `command -v` cannot check them.
 _NON_CLI_ROWS = {"Python", "libusb (with headers)"}
 
 
@@ -179,7 +181,7 @@ def _prerequisite_rows() -> list[str]:
     return [r for r in rows if r != "Prerequisite" and not set(r) <= {"-", " "}]
 
 
-def _prereqs(path_tools: list[str], tmp_path: Path):
+def _prereqs(path_tools: list[str], tmp_path: Path) -> tuple[int, str]:
     for name in path_tools:
         stub = tmp_path / name
         stub.write_text("#!/bin/sh\nexit 0\n")
@@ -227,11 +229,12 @@ def test_drivers_prereqs_names_the_missing_tool_and_only_it(
     present = [t for t in _ALL_TOOLS if t not in missing]
     code, stderr = _prereqs(present, tmp_path)
     assert code != 0, f"passed with {row} missing"
-    assert missing[0] in stderr, f"stderr does not name {missing[0]}: {stderr!r}"
+    assert missing[0] in stderr, (
+        f"stderr does not name {missing[0]}: {stderr!r}"
+    )
     for tool in present:
-        assert not re.search(rf"(?<![\w+-]){re.escape(tool)}(?![\w+-])", stderr), (
-            f"stderr names present tool {tool}: {stderr!r}"
-        )
+        named = re.search(rf"(?<![\w+-]){re.escape(tool)}(?![\w+-])", stderr)
+        assert not named, f"stderr names present tool {tool}: {stderr!r}"
 
 
 @pytest.mark.t2
