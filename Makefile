@@ -26,7 +26,7 @@ DRIVERS   ?= imx636 u3v
 VENV     := $(EVIO_ROOT)/.venv
 SITE_PKGS := $(VENV)/lib/python$(PY)/site-packages
 
-.PHONY: install sync drivers drivers-prereqs drivers-checklink-locals build-externals build-imx636 \
+.PHONY: install sync drivers drivers-prereqs drivers-check link-locals build-externals build-imx636 \
         build-u3v lint fast test test-repeat test-random-order test-hardware clean-tree check clean-venv help
 
 help:
@@ -34,7 +34,7 @@ help:
 	@echo "  install         uv sync + link any already-built drivers"
 	@echo "  sync            uv sync + relink the .pth files (use after pulling)"
 	@echo "  drivers         build IMX636 and U3V if missing, then link them"
-	@echo "  drivers-prereqs name any missing build tool (git, uv, make, C++ compiler, cmake)"
+	@echo "  drivers-prereqs name any missing build tool (git, python3, uv, make, C++ compiler, cmake)"
 	@echo "  drivers-check   import imx636 and u3v in the venv, name any that fail"
 	@echo "  link-locals     just (re)write the IMX636/U3V .pth files"
 	@echo "  lint            $(GATE) ruff check ."
@@ -111,7 +111,7 @@ link-locals:
 # tool on stderr, then fails. Any one C++ compiler driver satisfies that row.
 drivers-prereqs:
 	@missing=""; \
-	for tool in git uv make cmake; do \
+	for tool in git python3 uv make cmake; do \
 		command -v "$$tool" >/dev/null 2>&1 || missing="$$missing $$tool"; \
 	done; \
 	command -v c++ >/dev/null 2>&1 || command -v g++ >/dev/null 2>&1 \

@@ -36,8 +36,8 @@ Run these from the root of the evio checkout.
    make install
    ```
 
-2. Check the prerequisites. This tests only that git, uv, make, a C++
-   compiler and cmake are on `PATH` (not their versions, nor libusb or the
+2. Check the prerequisites. This tests only that git, python3, uv, make, a
+   C++ compiler and cmake are on `PATH` (not their versions, nor libusb or the
    Python headers), names every one that is missing and exits non-zero:
 
    ```bash

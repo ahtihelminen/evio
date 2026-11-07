@@ -159,13 +159,14 @@ def test_make_help_lists_drivers_prereqs() -> None:
 # Prerequisite table row -> the command names, any one of which satisfies it.
 _CLI_ROWS = {
     "git": ("git",),
+    "Python": ("python3",),
     "uv": ("uv",),
     "make": ("make",),
     "C++ compiler": ("c++", "g++", "clang++"),
     "cmake": ("cmake",),
 }
 # Rows that name no command-line tool, so `command -v` cannot check them.
-_NON_CLI_ROWS = {"Python", "libusb (with headers)"}
+_NON_CLI_ROWS = {"libusb (with headers)"}
 
 
 def _prerequisite_rows() -> list[str]:
@@ -242,6 +243,17 @@ def test_one_c_plus_plus_compiler_is_enough(tmp_path: Path) -> None:
     others = [t for t in _ALL_TOOLS if t not in ("c++", "clang++")]
     code, stderr = _prereqs(others, tmp_path)
     assert code == 0, stderr
+
+
+def test_the_phony_list_keeps_each_target_separate() -> None:
+    text = _makefile().replace("\\\n", " ")
+    phony = next(
+        ln.split(":", 1)[1].split()
+        for ln in text.splitlines()
+        if ln.startswith(".PHONY:")
+    )
+    for target in ("drivers-check", "link-locals", "drivers-prereqs"):
+        assert target in phony, f".PHONY does not list {target}: {phony}"
 
 
 def test_the_readme_links_to_the_driver_setup_guide() -> None:
