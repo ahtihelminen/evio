@@ -18,7 +18,7 @@ from evio.dtc.registry import METHODS
 
 pytestmark = pytest.mark.t1
 
-ROOT =Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent
 INDEX = ROOT / "docs" / "method-index.md"
 DETECTION_DIR = ROOT / "src" / "evio" / "detection"
 
@@ -30,6 +30,7 @@ NOT_METHODS = {
     "grid.py",
     "types.py",
 }
+
 
 def shipped_methods() -> dict[str, type]:
     """Registered methods defined under src/evio/dtc/methods.
