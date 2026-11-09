@@ -17,17 +17,17 @@ Writing those tests is tracked apart from this list.
 
 | Module | Conformance test |
 | --- | --- |
-| `tests/fakes/clock.py` | GAP: no test compares it with `time` |
+| `tests/fakes/clock.py` | `tests/test_fakes_fidelity_clock.py` |
 | `tests/fakes/dtc_broken.py` | `tests/test_dtc_conformance.py` |
-| `tests/fakes/dtc_counting_pipeline.py` | GAP: no test compares it with the real pipeline |
-| `tests/fakes/dtc_frame.py` | GAP: only its own method tests use it |
-| `tests/fakes/dtc_joint.py` | GAP: only its own method tests use it |
-| `tests/fakes/dtc_point.py` | GAP: only its own method tests use it |
+| `tests/fakes/dtc_counting_pipeline.py` | `tests/test_fakes_fidelity_dtc_chain.py` |
+| `tests/fakes/dtc_frame.py` | `tests/test_fakes_fidelity_dtc_detectors.py` |
+| `tests/fakes/dtc_joint.py` | `tests/test_fakes_fidelity_dtc_detectors.py` |
+| `tests/fakes/dtc_point.py` | `tests/test_fakes_fidelity_dtc_detectors.py` |
 | `tests/fakes/dtc_rate_excess_reference.py` | `tests/test_dtc_method_rate_excess.py` |
-| `tests/fakes/dtc_timer.py` | GAP: no test compares it with the real `Timer` |
-| `tests/fakes/dtc_toys.py` | GAP: no test compares the toys with real methods |
-| `tests/fakes/dtc_transformer.py` | GAP: no test compares it with the real loader and predictor |
-| `tests/fakes/dtc_voxel_cnn.py` | GAP: no test compares it with the real CNN method |
+| `tests/fakes/dtc_timer.py` | `tests/test_fakes_fidelity_dtc_chain.py` |
+| `tests/fakes/dtc_toys.py` | `tests/test_fakes_fidelity_dtc_chain.py` |
+| `tests/fakes/dtc_transformer.py` | `tests/test_fakes_fidelity_dtc_transformer.py` |
+| `tests/fakes/dtc_voxel_cnn.py` | `tests/test_fakes_fidelity_dtc_detectors.py` |
 | `tests/fakes/imx636_camera.py` | GAP: no test compares it with the `imx636` driver |
 | `tests/fakes/imx636_stream.py` | `tests/test_fakes_fidelity_imx636_stream.py` |
 | `tests/fakes/kinematic_llr.py` | `tests/test_fakes_fidelity_detection.py` |
