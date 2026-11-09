@@ -8,7 +8,8 @@ accepted anti-flicker config in `antiflicker`. `fake_imx636_module()` is the
 driver module (`PixelMask`, `AntiFlickerConfig`, `PIXEL_MASK_SLOTS`) to put
 in `sys.modules["imx636"]`.
 
-Behaviours assumed of the real driver, not proved here (that is SN-586):
+Behaviours assumed of the real driver, pinned against its callers in
+`tests/test_fakes_fidelity_imx636_camera.py`:
 - `poll_events(timeout_ms)` returns `(status, cds, _)`, `status < 0` on a
   USB error, `cds` a structured array with `x`, `y`, `p` (`p > 0` is ON);
 - the scene is static: every poll carries the same counts, events in a
@@ -21,7 +22,8 @@ Differences from the real device:
 - the scene is static and has no timestamps, where the sensor reports a
   moving scene with a clock;
 - a poll costs exactly `poll_s` of fake time and never blocks or times out;
-- the assumed behaviours above are not checked against the driver.
+- the assumed behaviours above are checked against the calls its callers
+  make, not against the native driver, which is absent off the rigs.
 """
 
 from __future__ import annotations

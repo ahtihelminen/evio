@@ -28,11 +28,11 @@ Writing those tests is tracked apart from this list.
 | `tests/fakes/dtc_toys.py` | `tests/test_fakes_fidelity_dtc_chain.py` |
 | `tests/fakes/dtc_transformer.py` | `tests/test_fakes_fidelity_dtc_transformer.py` |
 | `tests/fakes/dtc_voxel_cnn.py` | `tests/test_fakes_fidelity_dtc_detectors.py` |
-| `tests/fakes/imx636_camera.py` | GAP: no test compares it with the `imx636` driver |
+| `tests/fakes/imx636_camera.py` | `tests/test_fakes_fidelity_imx636_camera.py` |
 | `tests/fakes/imx636_stream.py` | `tests/test_fakes_fidelity_imx636_stream.py` |
 | `tests/fakes/kinematic_llr.py` | `tests/test_fakes_fidelity_detection.py` |
 | `tests/fakes/pacer.py` | `tests/test_fakes_fidelity_pacer.py` |
-| `tests/fakes/sysfs_usb.py` | GAP: no test compares it with a real sysfs tree |
+| `tests/fakes/sysfs_usb.py` | `tests/test_fakes_fidelity_sysfs_usb.py` |
 | `tests/fakes/track_classifier.py` | `tests/test_fakes_fidelity_detection.py` |
 | `tests/fakes/u3v_camera.py` | `tests/test_fakes_fidelity_u3v_camera.py` |
 
