@@ -46,10 +46,10 @@ complete, and the same rule applies to them.
 | `tests/support/coverage_floor.py` | `tests/test_coverage_manifest.py` |
 | `tests/support/crash.py` | `tests/test_crash_recorder.py` |
 | `tests/support/dat.py` | `tests/test_dt8_codec_roundtrip.py` |
-| `tests/support/dtc.py` | GAP: builders, checked only through the tests that use them |
-| `tests/support/dtc_chain.py` | GAP: builders, checked only through the tests that use them |
+| `tests/support/dtc.py` | `tests/test_support_dtc_builders.py` |
+| `tests/support/dtc_chain.py` | `tests/test_support_dtc_builders.py` |
 | `tests/support/fakescan.py` | `tests/test_no_adhoc_fakes.py` |
-| `tests/support/hygiene.py` | GAP: no test of the leak report itself |
+| `tests/support/hygiene.py` | `tests/test_support_hygiene.py` |
 | `tests/support/network_guard.py` | `tests/test_socket_guard.py` |
 | `tests/support/recorder_child.py` | `tests/test_crash_recorder.py` |
 | `tests/support/usb_unplug.py` | `tests/test_usb_unplug.py` |
