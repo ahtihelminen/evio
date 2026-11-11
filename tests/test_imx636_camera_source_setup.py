@@ -162,13 +162,18 @@ def test_v1_manifest_without_slots_uses_the_list_index(
 
 
 def test_only_the_first_64_masks_are_programmed(
-    camera: SetupCamera, tmp_path: Path,
+    camera: SetupCamera, tmp_path: Path, capsys: pytest.CaptureFixture[str],
 ) -> None:
-    _manifest(tmp_path, {"masks": [{"x": i, "y": 0} for i in range(70)]})
+    # Slots stay in range, so without the cap masks 64..69 would overwrite
+    # slots 0..5 with different coordinates.
+    _manifest(tmp_path, {"masks": [
+        {"slot": i % 64, "x": i, "y": 0} for i in range(70)
+    ]})
 
     _open(camera, tmp_path)
 
     assert _slots(camera) == {i: (i, 0) for i in range(64)}
+    assert "reloaded 64 DEM mask(s)" in capsys.readouterr().out
 
 
 def test_rejected_masks_are_skipped_and_not_counted(
